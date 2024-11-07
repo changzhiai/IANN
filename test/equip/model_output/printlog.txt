@@ -1,0 +1,3 @@
+2024-11-07 10:52:49,559 [INFO ]  loading data Pt_ads.traj
+2024-11-07 10:52:49,560 [INFO ]  Dataset size: 278, training set size: 250, validation set size: 28
+2024-11-07 10:53:01,692 [INFO ]  step=0, energy_mae=169.805, energy_rmse=170.037, forces_l2_mae=0.000, forces_l2_rmse=0.000, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=0.000, sqrt(train_loss)=164.736, sqrt(smooth_loss)=0.000, patience=  0, training time=0.078 min, eval time=0.084 min
