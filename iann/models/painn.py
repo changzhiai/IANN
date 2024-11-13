@@ -178,7 +178,7 @@ class PainnModel(nn.Module):
         #     dim=0
         # )
         # edge_offset = torch.repeat_interleave(edge_offset, num_pairs)
-        # edge = edge + edge_offset.unsqueeze(-1)        
+        # edge = edge + edge_offset.unsqueeze(-1) 
         edge_diff = input_dict['n_diff']
         if compute_forces:
             edge_diff.requires_grad_()

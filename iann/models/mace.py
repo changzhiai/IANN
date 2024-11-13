@@ -13,8 +13,6 @@ from e3nn.nn import FullyConnectedNet
 from e3nn.util.codegen import CodeGenMixin
 import opt_einsum_fx, collections
 
-from curator.data import properties
-
 
 activation_fn = {
     "silu": torch.nn.SiLU(),
@@ -125,24 +123,24 @@ class OneHotAtomEncoding(torch.nn.Module):
             self.type_mapper = None
         # output node feature irreps
         self.irreps_out = {
-            properties.node_attr: o3.Irreps([(self.num_elements, (0, 1))])
+            'node_attr': o3.Irreps([(self.num_elements, (0, 1))])
         }
         if self.set_features:
-            self.irreps_out[properties.node_feat] = self.irreps_out[properties.node_attr]
+            self.irreps_out['node_feat'] = self.irreps_out['node_attr']
             
-    def forward(self, data: properties.Type) -> properties.Type:
-        if properties.atomic_types not in data:
+    def forward(self, data):
+        if 'atomic_types' not in data:
             if self.type_mapper is not None:
                 data = self.type_mapper(data)
             else:
-                data[properties.atomic_types] = data[properties.Z] - 1
+                data['atomic_types'] = data['elems'] - 1
         onehot = torch.nn.functional.one_hot(
-            data[properties.atomic_types], num_classes=self.num_elements
-        ).to(device=data[properties.positions].device, dtype=data[properties.positions].dtype)
+            data['atomic_types'], num_classes=self.num_elements
+        ).to(device=data['coords'].device, dtype=data['coords'].dtype)
         
-        data[properties.node_attr] = onehot
+        data['node_attr'] = onehot
         if self.set_features:
-            data[properties.node_feat] = onehot
+            data['node_feat'] = onehot
         return data
     
 class AtomwiseLinear(torch.nn.Module):
@@ -150,7 +148,7 @@ class AtomwiseLinear(torch.nn.Module):
         self,
         irreps_in: Optional[o3.Irreps]=None,
         irreps_out: Optional[o3.Irreps]=None,
-        field: str=properties.node_feat,
+        field: str='node_feat',
         out_field: Optional[str]=None,
     ):
         super().__init__()
@@ -165,7 +163,7 @@ class AtomwiseLinear(torch.nn.Module):
         self.field = field
         self.out_field = out_field if out_field is not None else self.field
 
-    def forward(self, data: properties.Type) -> properties.Type:
+    def forward(self, data):
         data[self.out_field] = self.linear(data[self.field])
         return data
 
@@ -306,10 +304,10 @@ class RadialBasisEdgeEncoding(torch.nn.Module):
         # output edge dist irreps
         self.irreps_out = self.basis.irreps_out
 
-    def forward(self, data: properties.Type) -> properties.Type:
-        edge_diff = data[properties.edge_diff]
+    def forward(self, data):
+        edge_diff = data['n_diff']
         edge_dist = torch.linalg.norm(edge_diff, dim=1)
-        data[properties.edge_dist_embedding] = (
+        data['edge_dist_embedding'] = (
             self.basis(edge_dist) * self.cutoff_fn(edge_dist)[:, None]
         )
         
@@ -331,9 +329,9 @@ class SphericalHarmonicEdgeAttrs(torch.nn.Module):
         # output edge diff irreps
         self.irreps_out = edge_sh_irreps
 
-    def forward(self, data: properties.Type) -> properties.Type:
-        data[properties.edge_diff_embedding] = self.sh(
-            data[properties.edge_diff]
+    def forward(self, data):
+        data['edge_diff_embedding'] = self.sh(
+            data['n_diff']
         )
         return data
 
@@ -421,21 +419,21 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
 
         # First linear
         self.linear_1 = o3.Linear(
-            self.irreps_in[properties.node_feat],
-            self.irreps_in[properties.node_feat],
+            self.irreps_in['node_feat'],
+            self.irreps_in['node_feat'],
             internal_weights=True,
             shared_weights=True,
         )
         
         irreps_mid, instructions = tp_out_irreps_with_instructions(
-            self.irreps_in[properties.node_feat],
-            self.irreps_in[properties.edge_diff_embedding],
+            self.irreps_in['node_feat'],
+            self.irreps_in['edge_diff_embedding'],
             self.target_irreps,
         )
         
         self.conv_tp = o3.TensorProduct(
-            self.irreps_in[properties.node_feat],
-            self.irreps_in[properties.edge_diff_embedding],
+            self.irreps_in['node_feat'],
+            self.irreps_in['edge_diff_embedding'],
             irreps_mid,
             instructions=instructions,
             shared_weights=False,
@@ -443,7 +441,7 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
         )
 
         # Convolution weights
-        input_dim = self.irreps_in[properties.edge_dist_embedding].num_irreps
+        input_dim = self.irreps_in['edge_dist_embedding'].num_irreps
         self.conv_tp_weights = FullyConnectedNet(
             [input_dim] + 3 * [64] + [self.conv_tp.weight_numel],
             torch.nn.functional.silu,
@@ -458,8 +456,8 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
 
         # Selector TensorProduct
         self.skip_tp = o3.FullyConnectedTensorProduct(
-            self.irreps_in[properties.node_feat], 
-            self.irreps_in[properties.node_attr],
+            self.irreps_in['node_feat'], 
+            self.irreps_in['node_attr'],
             self.hidden_irreps,
         )
         self.reshape = reshape_irreps(self.irreps_out)
@@ -969,16 +967,16 @@ class MACE(nn.Module):
         self.embeddings['sphere_harmonics'] = SphericalHarmonicEdgeAttrs(edge_sh_irreps=self.edge_sh_irreps)
         
         self.irreps_in = {
-            properties.edge_diff_embedding: self.embeddings.sphere_harmonics.irreps_out,
-            properties.edge_dist_embedding: self.embeddings.radial_basis.irreps_out,
+            'edge_diff_embedding': self.embeddings.sphere_harmonics.irreps_out,
+            'edge_dist_embedding': self.embeddings.radial_basis.irreps_out,
         }
         self.irreps_in.update(self.embeddings.onehot_embedding.irreps_out)
 
         self.embeddings['chemical_embedding'] = AtomwiseLinear(
-            irreps_in=self.irreps_in[properties.node_attr],
+            irreps_in=self.irreps_in['node_attr'],
             irreps_out=self.node_irreps,
         )
-        self.irreps_in[properties.node_feat] = self.embeddings.chemical_embedding.irreps_out
+        self.irreps_in['node_feat'] = self.embeddings.chemical_embedding.irreps_out
         
         interaction_irreps = (self.edge_sh_irreps * self.num_features).sort()[0].simplify()
         
@@ -990,7 +988,7 @@ class MACE(nn.Module):
         for i in range(num_interactions):
             hidden_irreps_out = str(self.hidden_irreps[0]) if i == num_interactions - 1 else self.hidden_irreps
             if i > 0:
-                self.irreps_in[properties.node_feat] = self.hidden_irreps
+                self.irreps_in['node_feat'] = self.hidden_irreps
             inter = RealAgnosticResidualInteractionBlock(
                 irreps_in=self.irreps_in,
                 target_irreps=interaction_irreps,
@@ -1018,34 +1016,34 @@ class MACE(nn.Module):
                 readout = o3.Linear(irreps_in=hidden_irreps_out, irreps_out=o3.Irreps('1x0e'))
             self.readouts.append(readout)
             
-    def forward(self, data: properties.Type) -> properties.Type:
-        # node_e0 = self.reference_energies[data[properties.Z]]
-        # e0 = scatter_add(node_e0, data[properties.image_idx], dim_size=data[properties.n_atoms].shape[0])
+    def forward(self, data):
+        # node_e0 = self.reference_energies[data['elems']]
+        # e0 = scatter_add(node_e0, data['image_idx'], dim_size=data['n_atoms'].shape[0])
         for m in self.embeddings.values():
             data = m(data)
         
         node_es_list = []
-        node_feat = data[properties.node_feat]
+        node_feat = data['node_feat']
         
         for interaction, product, readout in zip(
             self.interactions, self.products, self.readouts
         ):
             node_feat, sc = interaction(
                 node_feat, 
-                data[properties.node_attr],
-                data[properties.edge_idx], 
-                data[properties.edge_dist_embedding],
-                data[properties.edge_diff_embedding],
+                data['node_attr'],
+                data['pairs'], 
+                data['edge_dist_embedding'],
+                data['edge_diff_embedding'],
             )
             node_feat = product(
                 node_feats=node_feat,
                 sc=sc,
-                node_attrs=data[properties.node_attr],
+                node_attrs=data['node_attr'],
             )
             node_es_list.append(readout(node_feat).squeeze())
         
         node_es = torch.sum(torch.stack(node_es_list, dim=0), dim=0)
-        data[properties.atomic_energy] = node_es
+        data['atomic_energy'] = node_es
         
         return data
     
