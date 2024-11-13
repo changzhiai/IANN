@@ -1,0 +1,8 @@
+test/mace/model_output/best_model.pth
+test/mace/model_output2/best_model.pth
+test/mace/Pt_ads.traj
+test/equip/model_output/best_model.pth
+test/equip/model_output2/best_model.pth
+test/equip/Pt_ads.traj
+test/painn/model_output/best_model.pth
+test/painn/model_output2/best_model.pth
