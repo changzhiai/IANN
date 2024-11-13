@@ -8,15 +8,12 @@ import itertools
 import torch
 import time
 import warnings
+from iann.data.data import AseDataset,collate_atomsdata
+from iann.models.painn import PainnModel
+
 # warnings.simplefilter("ignore", UserWarning)
 warnings.filterwarnings("ignore", 
     message="The TorchScript type system doesn't support instance-level annotations")
-import iann
-from iann.data.data import AseDataset,collate_atomsdata
-from iann.models.painn import PainnModel
-# from curator.data.dataset import AseDataset,collate_atomsdata
-# from curator.model.nequip import NequipModel
-
 path = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 
 def setup_seed(seed):

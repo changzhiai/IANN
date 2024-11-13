@@ -13,7 +13,6 @@ from e3nn.nn import FullyConnectedNet
 from e3nn.util.codegen import CodeGenMixin
 import opt_einsum_fx, collections
 
-
 activation_fn = {
     "silu": torch.nn.SiLU(),
     "tanh": torch.tanh,

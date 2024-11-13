@@ -8,12 +8,12 @@ import itertools
 import torch
 import time
 import warnings
-# warnings.simplefilter("ignore", UserWarning)
-warnings.filterwarnings("ignore", message="The TorchScript type system doesn't support instance-level annotations")
-
 # from iann.data.data.dataset import AseDataset,collate_atomsdata
 from iann.data.data import AseDataset,collate_atomsdata
 from iann.models.nequip import NequipModel,AtomwiseReduce
+
+warnings.filterwarnings("ignore", 
+    message="The TorchScript type system doesn't support instance-level annotations")
 
 path = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 
@@ -239,12 +239,7 @@ def main():
 
     # Setup dataset and loader
     logging.info("loading data %s", args.dataset)
-    # dataset = AseDataset(
-    #     ase_db = f'{path}/{args.dataset}',
-    #     cutoff = args.cutoff,
-    #     compute_neighbor_list = True,
-    #     transforms=[],
-    # )
+
     dataset = AseDataset(
         ase_db = f'{path}/{args.dataset}',
         cutoff = args.cutoff,
