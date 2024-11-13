@@ -5,27 +5,6 @@ import asap3
 import numpy as np
 from scipy.spatial import distance_matrix
 
-# def ase_properties(atoms):
-#     """Guess dataset format from an ASE atoms"""
-#     atoms_prop = []
-# 
-#     if atoms.pbc.any():
-#         atoms_prop.append('cell')
-# 
-#     try:
-#         atoms.get_potential_energy()
-#         atoms_prop.append('energy')
-#     except:
-#         pass
-# 
-#     try:
-#         atoms.get_forces()
-#         atoms_prop.append('forces')
-#     except:
-#         pass
-# 
-#     return atoms_prop
-
 class AseDataReader:
     def __init__(self, cutoff=5.0):            
         self.cutoff = cutoff
