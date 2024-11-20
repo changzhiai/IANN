@@ -774,6 +774,7 @@ class NequipModel(torch.nn.Module):
                 irreps_out=o3.Irreps('1x0e'),
             ),
         )
+        self.atomwise_reduce = AtomwiseReduce(output_key='energy')
         
     def forward(self, data):        
         for m in self.embeddings.values():
@@ -783,6 +784,8 @@ class NequipModel(torch.nn.Module):
             data = m(data)
         
         data['atomic_energy'] = self.readout_mlp(data['node_feat']).squeeze()
+        data = self.atomwise_reduce(data)
+
         return data
     
 class AtomwiseReduce(nn.Module):

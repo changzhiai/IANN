@@ -1014,6 +1014,8 @@ class MACE(nn.Module):
             else:
                 readout = o3.Linear(irreps_in=hidden_irreps_out, irreps_out=o3.Irreps('1x0e'))
             self.readouts.append(readout)
+
+            self.atomwise_reduce = AtomwiseReduce(output_key='energy')
             
     def forward(self, data):
         # node_e0 = self.reference_energies[data['elems']]
@@ -1043,6 +1045,8 @@ class MACE(nn.Module):
         
         node_es = torch.sum(torch.stack(node_es_list, dim=0), dim=0)
         data['atomic_energy'] = node_es
+
+        data = self.atomwise_reduce(data)
         
         return data
     
