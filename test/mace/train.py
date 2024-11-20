@@ -9,7 +9,7 @@ import torch
 import time
 import warnings
 from iann.data.data import AseDataset,collate_atomsdata
-from iann.models.mace import MACE,AtomwiseReduce
+from iann.models.mace import MACE
 
 warnings.filterwarnings("ignore", 
     message="The TorchScript type system doesn't support instance-level annotations")
@@ -122,10 +122,7 @@ def eval_model(model, dataloader, device, forces_weight):
             k: v.to(device=device, non_blocking=True) for k, v in batch.items()
         }
         out = model(device_batch)
-        # from curator.layer._atomwise_reduce import AtomwiseReduce
-        m = AtomwiseReduce(output_key='energy')
-        out = m(out)
-
+        
         # counts
         count += batch["energy"].shape[0]
         forces_count += batch['forces'].shape[0]
@@ -341,10 +338,6 @@ def main():
             outputs = net(
                 batch.copy()
             )
-
-            # from curator.layer._atomwise_reduce import AtomwiseReduce
-            m = AtomwiseReduce(output_key='energy')
-            outputs = m(outputs)
 
             energy_loss = criterion(outputs["energy"], batch["energy"])
             if args.forces_weight:
