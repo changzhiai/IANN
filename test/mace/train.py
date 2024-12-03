@@ -238,6 +238,7 @@ def main():
     dataset = AseDataset(
         ase_db = f'{path}/{args.dataset}',
         cutoff = args.cutoff,
+        compute_forces = bool(args.forces_weight),
     )
 
 
@@ -275,10 +276,11 @@ def main():
 
     net = MACE(
         cutoff = args.cutoff,
-        num_interactions = 4,
-        num_features = 64,
+        num_interactions = args.num_interactions,
+        num_features = args.node_size,
         correlation = 3,
-        species = None, 
+        species = None,
+        compute_forces = bool(args.forces_weight),
     )
     net.to(device)
 

@@ -239,8 +239,8 @@ def main():
     dataset = AseDataset(
         ase_db = f'{path}/{args.dataset}',
         cutoff = args.cutoff,
+        compute_forces = bool(args.forces_weight),
     )
-
 
     datasplits = split_data(dataset, args)
 
@@ -288,9 +288,9 @@ def main():
 
     net = NequipModel(
         cutoff = args.cutoff,
-        num_interactions = 4,
-        num_features = 64,
-        # num_elements = torch.tensor(1).item(),
+        num_interactions = args.num_interactions,
+        num_features = args.node_size,
+        compute_forces = bool(args.forces_weight),
     )
     net.to(device)
 
