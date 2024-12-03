@@ -6,8 +6,9 @@ import numpy as np
 from scipy.spatial import distance_matrix
 
 class AseDataReader:
-    def __init__(self, cutoff=5.0):            
+    def __init__(self, cutoff=5.0, compute_forces=False):            
         self.cutoff = cutoff
+        self.compute_forces = compute_forces
         
     def __call__(self, atoms):
         atoms_data = {
@@ -24,6 +25,8 @@ class AseDataReader:
             
         atoms_data['pairs'] = torch.from_numpy(pairs)
         atoms_data['n_diff'] = torch.from_numpy(n_diff).float()
+        if self.compute_forces:
+            atoms_data['n_diff'].requires_grad_()
         atoms_data['num_pairs'] = torch.tensor([pairs.shape[0]])
         
         try:
@@ -69,7 +72,7 @@ class AseDataReader:
         return pairs, n_diff
 
 class AseDataset(torch.utils.data.Dataset):
-    def __init__(self, ase_db, cutoff=5.0, **kwargs):
+    def __init__(self, ase_db, cutoff=5.0, compute_forces=False, **kwargs):
         super().__init__(**kwargs)
         
         if isinstance(ase_db, str):
@@ -78,7 +81,7 @@ class AseDataset(torch.utils.data.Dataset):
             self.db = ase_db
         
         self.cutoff = cutoff
-        self.atoms_reader = AseDataReader(cutoff)
+        self.atoms_reader = AseDataReader(cutoff, compute_forces)
         
     def __len__(self):
         return len(self.db)
