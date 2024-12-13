@@ -739,8 +739,8 @@ class Contraction(torch.nn.Module):
             self.weights_max = weights[-1]
 
     def forward(self, x: torch.Tensor, y: torch.Tensor):
-        out = self.graph_opt_main(
-            self.U_tensors(self.correlation),
+        out = self.graph_opt_main( # the first layer for A features
+            self.U_tensors(self.correlation), 
             self.weights_max,
             x,
             y,
@@ -748,13 +748,13 @@ class Contraction(torch.nn.Module):
         for i, (weight, contract_weights, contract_features) in enumerate(
             zip(self.weights, self.contractions_weighting, self.contractions_features)
         ):
-            c_tensor = contract_weights(
-                self.U_tensors(self.correlation - i - 1),
+            c_tensor = contract_weights(  # other layers for A features
+                self.U_tensors(self.correlation - i - 1), 
                 weight,
                 y,
             )
-            c_tensor = c_tensor + out
-            out = contract_features(c_tensor, x)
+            c_tensor = c_tensor + out 
+            out = contract_features(c_tensor, x) # B features
         resize_shape = torch.prod(torch.tensor(out.shape[1:]))
         return out.view(out.shape[0], resize_shape)
 
@@ -858,7 +858,7 @@ class EquivariantProductBasisBlock(torch.nn.Module):
         node_attrs: torch.Tensor,
     ) -> torch.Tensor:
         node_feats = self.symmetric_contractions(node_feats, node_attrs)
-        if self.use_sc and sc is not None:
+        if self.use_sc and sc is not None:  # Update layer
             return self.linear(node_feats) + sc
 
         return self.linear(node_feats)
@@ -1056,7 +1056,7 @@ class MACE(nn.Module):
         
         if self.compute_forces:
             data = self.gradient_output(data)
-            
+
         return data
     
 class AtomwiseReduce(nn.Module):
@@ -1078,7 +1078,9 @@ class AtomwiseReduce(nn.Module):
         y = torch.zeros_like(
             data['num_atoms'], 
             dtype=data['n_diff'].dtype
-        )  
+        )
+        if 'image_idx' not in data.keys():
+            data['image_idx'] = torch.zeros(data['num_atoms'], dtype=torch.int)
         y.index_add_(0, data['image_idx'], data['atomic_energy'])
         
         if self.aggregation_mode == "mean":

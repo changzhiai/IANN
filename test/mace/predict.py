@@ -5,7 +5,7 @@ import toml
 import argparse
 from pathlib import Path
 import logging
-from iann.data.data import AseDataset,collate_atomsdata
+from iann.models.calculators import MLCalculator
 from iann.models.mace import MACE
 from ase.constraints import FixAtoms
 from ase.optimize import BFGS
@@ -153,7 +153,7 @@ def main(read_csv=False):
     logger.info = CallsCounter(logger.info)
     # load model
     state_dict = torch.load(f'{path}/{args.load_model}', map_location=torch.device(args.device)) 
-    net = MACE(
+    model = MACE(
         cutoff = args.cutoff,
         num_interactions = args.num_interactions,
         num_features = args.node_size,
@@ -163,7 +163,7 @@ def main(read_csv=False):
     )
     model.to(args.device)
     model.load_state_dict(state_dict["model"])
-    calc = MLCalculator(model, compute_forces=bool(args.forces_weight))
+    calc = MLCalculator(model)
 
     images = read(f'{path}/{args.dataset}', ':')
     count = 0
