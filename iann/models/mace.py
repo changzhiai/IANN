@@ -1080,7 +1080,7 @@ class AtomwiseReduce(nn.Module):
             dtype=data['n_diff'].dtype
         )
         if 'image_idx' not in data.keys():
-            data['image_idx'] = torch.zeros(data['num_atoms'], dtype=torch.int)
+            data['image_idx'] = torch.zeros(data['num_atoms'], device=y.device, dtype=torch.int)
         y.index_add_(0, data['image_idx'], data['atomic_energy'])
         
         if self.aggregation_mode == "mean":
