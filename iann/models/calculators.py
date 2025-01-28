@@ -19,7 +19,7 @@ class MLCalculator(Calculator):
         self.model_device = next(model.parameters()).device
         self.cutoff = model.cutoff
         self.compute_forces = model.compute_forces
-        self.ase_data_reader = AseDataReader(self.cutoff,  self.compute_forces)
+        self.ase_data_reader = AseDataReader(self.cutoff, self.compute_forces)
         self.energy_scale = energy_scale
         self.forces_scale = forces_scale
 #        self.stress_scale = stress_scale
@@ -82,7 +82,8 @@ class EnsembleCalculator(Calculator):
         self.models = models
         self.model_device = next(models[0].parameters()).device
         self.cutoff = models[0].cutoff
-        self.ase_data_reader = AseDataReader(self.cutoff)
+        self.compute_forces = models[0].compute_forces
+        self.ase_data_reader = AseDataReader(self.cutoff, self.compute_forces)
         self.energy_scale = energy_scale
         self.forces_scale = forces_scale
 #        self.stress_scale = stress_scale
