@@ -163,8 +163,13 @@ class PainnModel(nn.Module):
         self.normalize_mean = torch.nn.Parameter(
             torch.tensor(target_mean[0]), requires_grad=False
         )
+
+        self.compute_forces = False
+        if 'compute_forces' in kwargs.keys():
+            if kwargs['compute_forces']:
+                self.compute_forces = True
         
-    def forward(self, input_dict, compute_forces=True):
+    def forward(self, input_dict):
         num_atoms = input_dict['num_atoms']
         num_pairs = input_dict['num_pairs']
 
@@ -180,7 +185,7 @@ class PainnModel(nn.Module):
         # edge_offset = torch.repeat_interleave(edge_offset, num_pairs)
         # edge = edge + edge_offset.unsqueeze(-1) 
         edge_diff = input_dict['n_diff']
-        if compute_forces:
+        if self.compute_forces:
             edge_diff.requires_grad_()
         edge_dist = torch.linalg.norm(edge_diff, dim=1)
         
@@ -216,7 +221,7 @@ class PainnModel(nn.Module):
 
         result_dict = {'energy': energy}
         
-        if compute_forces:
+        if self.compute_forces:
             dE_ddiff = torch.autograd.grad(
                 energy,
                 edge_diff,
