@@ -121,7 +121,7 @@ def eval_model(model, dataloader, device, forces_weight):
         device_batch = {
             k: v.to(device=device, non_blocking=True) for k, v in batch.items()
         }
-        out = model(device_batch)
+        out = model(device_batch.copy())
         
         # counts
         count += batch["energy"].shape[0]
@@ -264,7 +264,7 @@ def main():
         len(dataset),
         len(datasplits["train"]),
         len(datasplits["validation"]),
-    ))
+    ))  
 
     if args.normalization:
         logging.info("Computing mean and variance")
