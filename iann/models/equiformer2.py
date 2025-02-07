@@ -2,6 +2,8 @@ import torch
 from torch import nn
 import copy, os
 from e3nn import o3
+import math
+import torch_geometric
 
 class SO3_Embedding():
     """
@@ -869,17 +871,1549 @@ class CoefficientMappingModule(torch.nn.Module):
     def __repr__(self):
         return f"{self.__class__.__name__}(lmax_list={self.lmax_list}, mmax_list={self.mmax_list})"
 
+def get_normalization_layer(norm_type, lmax, num_channels, eps=1e-5, affine=True, normalization='component'):
+    assert norm_type in ['layer_norm', 'layer_norm_sh', 'rms_norm_sh']
+    if norm_type == 'layer_norm':
+        norm_class = EquivariantLayerNormArray
+    elif norm_type == 'layer_norm_sh':
+        norm_class = EquivariantLayerNormArraySphericalHarmonics
+    elif norm_type == 'rms_norm_sh':
+        norm_class = EquivariantRMSNormArraySphericalHarmonicsV2
+    else:
+        raise ValueError
+    return norm_class(lmax, num_channels, eps, affine, normalization)
+
+def get_l_to_all_m_expand_index(lmax):
+    expand_index = torch.zeros([(lmax + 1) ** 2]).long()
+    for l in range(lmax + 1):
+        start_idx = l ** 2
+        length = 2 * l + 1
+        expand_index[start_idx : (start_idx + length)] = l
+    return expand_index
+
+
+class EquivariantLayerNormArray(nn.Module):
+    
+    def __init__(self, lmax, num_channels, eps=1e-5, affine=True, normalization='component'):
+        super().__init__()
+
+        self.lmax = lmax
+        self.num_channels = num_channels
+        self.eps = eps
+        self.affine = affine
+        
+        if affine:
+            self.affine_weight = nn.Parameter(torch.ones(lmax + 1, num_channels))
+            self.affine_bias   = nn.Parameter(torch.zeros(num_channels))
+        else:
+            self.register_parameter('affine_weight', None)
+            self.register_parameter('affine_bias', None)
+
+        assert normalization in ['norm', 'component']
+        self.normalization = normalization
+
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
+
+
+    @torch.cuda.amp.autocast(enabled=False)
+    def forward(self, node_input):
+        '''
+            Assume input is of shape [N, sphere_basis, C]
+        '''
+        
+        out = []
+        
+        for l in range(self.lmax + 1):
+            start_idx = l ** 2
+            length = 2 * l + 1
+            
+            feature = node_input.narrow(1, start_idx, length)
+            
+            # For scalars, first compute and subtract the mean
+            if l == 0:
+                feature_mean = torch.mean(feature, dim=2, keepdim=True)
+                feature = feature - feature_mean
+                
+            # Then compute the rescaling factor (norm of each feature vector)
+            # Rescaling of the norms themselves based on the option "normalization"
+            if self.normalization == 'norm':
+                feature_norm = feature.pow(2).sum(dim=1, keepdim=True)      # [N, 1, C]
+            elif self.normalization == 'component':
+                feature_norm = feature.pow(2).mean(dim=1, keepdim=True)     # [N, 1, C]
+            
+            feature_norm = torch.mean(feature_norm, dim=2, keepdim=True)    # [N, 1, 1]
+            feature_norm = (feature_norm + self.eps).pow(-0.5)
+            
+            if self.affine:
+                weight = self.affine_weight.narrow(0, l, 1)     # [1, C]
+                weight = weight.view(1, 1, -1)                  # [1, 1, C]
+                feature_norm = feature_norm * weight            # [N, 1, C]
+            
+            feature = feature * feature_norm
+            
+            if self.affine and l == 0: 
+                bias = self.affine_bias
+                bias = bias.view(1, 1, -1)
+                feature = feature + bias
+            
+            out.append(feature)
+        
+        out = torch.cat(out, dim=1)
+        
+        return out 
+
+
+
+class EquivariantLayerNormArraySphericalHarmonics(nn.Module):
+    '''
+        1. Normalize over L = 0.
+        2. Normalize across all m components from degrees L > 0.
+        3. Do not normalize separately for different L (L > 0).
+    '''
+    def __init__(self, lmax, num_channels, eps=1e-5, affine=True, normalization='component', std_balance_degrees=True):
+        super().__init__()
+
+        self.lmax = lmax
+        self.num_channels = num_channels
+        self.eps = eps
+        self.affine = affine
+        self.std_balance_degrees = std_balance_degrees
+        
+        # for L = 0
+        self.norm_l0 = torch.nn.LayerNorm(self.num_channels, eps=self.eps, elementwise_affine=self.affine)
+
+        # for L > 0
+        if self.affine:
+            self.affine_weight = nn.Parameter(torch.ones(self.lmax, self.num_channels))
+        else:
+            self.register_parameter('affine_weight', None)
+
+        assert normalization in ['norm', 'component']
+        self.normalization = normalization
+
+        if self.std_balance_degrees:
+            balance_degree_weight = torch.zeros((self.lmax + 1) ** 2 - 1, 1)
+            for l in range(1, self.lmax + 1):
+                start_idx = l ** 2 - 1
+                length = 2 * l + 1
+                balance_degree_weight[start_idx : (start_idx + length), :] = (1.0 / length)
+            balance_degree_weight = balance_degree_weight / self.lmax
+            self.register_buffer('balance_degree_weight', balance_degree_weight)
+        else:
+            self.balance_degree_weight = None
+
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, std_balance_degrees={self.std_balance_degrees})"
+
+
+    @torch.cuda.amp.autocast(enabled=False)
+    def forward(self, node_input):
+        '''
+            Assume input is of shape [N, sphere_basis, C]
+        '''
+        
+        out = []
+
+        # for L = 0
+        feature = node_input.narrow(1, 0, 1)
+        feature = self.norm_l0(feature)
+        out.append(feature)
+
+        # for L > 0
+        if self.lmax > 0:
+            num_m_components = (self.lmax + 1) ** 2
+            feature = node_input.narrow(1, 1, num_m_components - 1)
+
+            # Then compute the rescaling factor (norm of each feature vector)
+            # Rescaling of the norms themselves based on the option "normalization"
+            if self.normalization == 'norm':
+                feature_norm = feature.pow(2).sum(dim=1, keepdim=True)      # [N, 1, C]
+            elif self.normalization == 'component':
+                if self.std_balance_degrees:
+                    feature_norm = feature.pow(2)                               # [N, (L_max + 1)**2 - 1, C], without L = 0
+                    feature_norm = torch.einsum('nic, ia -> nac', feature_norm, self.balance_degree_weight) # [N, 1, C]
+                else:
+                    feature_norm = feature.pow(2).mean(dim=1, keepdim=True)     # [N, 1, C]
+            
+            feature_norm = torch.mean(feature_norm, dim=2, keepdim=True)    # [N, 1, 1]
+            feature_norm = (feature_norm + self.eps).pow(-0.5)
+
+            for l in range(1, self.lmax + 1):
+                start_idx = l ** 2
+                length = 2 * l + 1
+                feature = node_input.narrow(1, start_idx, length)       # [N, (2L + 1), C]
+                if self.affine:
+                    weight = self.affine_weight.narrow(0, (l - 1), 1)       # [1, C]
+                    weight = weight.view(1, 1, -1)                          # [1, 1, C]
+                    feature_scale = feature_norm * weight                   # [N, 1, C]
+                else:
+                    feature_scale = feature_norm
+                feature = feature * feature_scale
+                out.append(feature)
+            
+        out = torch.cat(out, dim=1)
+        return out
+
+    
+class EquivariantRMSNormArraySphericalHarmonics(nn.Module):
+    '''
+        1. Normalize across all m components from degrees L >= 0.
+    '''
+    def __init__(self, lmax, num_channels, eps=1e-5, affine=True, normalization='component'):
+        super().__init__()
+
+        self.lmax = lmax
+        self.num_channels = num_channels
+        self.eps = eps
+        self.affine = affine
+        
+        # for L >= 0
+        if self.affine:
+            self.affine_weight = nn.Parameter(torch.ones((self.lmax + 1), self.num_channels))
+        else:
+            self.register_parameter('affine_weight', None)
+
+        assert normalization in ['norm', 'component']
+        self.normalization = normalization
+
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
+
+
+    @torch.cuda.amp.autocast(enabled=False)
+    def forward(self, node_input):
+        '''
+            Assume input is of shape [N, sphere_basis, C]
+        '''
+        
+        out = []
+
+        # for L >= 0
+        feature = node_input    
+        if self.normalization == 'norm':
+            feature_norm = feature.pow(2).sum(dim=1, keepdim=True)      # [N, 1, C]
+        elif self.normalization == 'component':
+            feature_norm = feature.pow(2).mean(dim=1, keepdim=True)     # [N, 1, C]
+            
+        feature_norm = torch.mean(feature_norm, dim=2, keepdim=True)    # [N, 1, 1]
+        feature_norm = (feature_norm + self.eps).pow(-0.5)
+
+        for l in range(0, self.lmax + 1):
+            start_idx = l ** 2
+            length = 2 * l + 1
+            feature = node_input.narrow(1, start_idx, length)       # [N, (2L + 1), C]
+            if self.affine:
+                weight = self.affine_weight.narrow(0, l, 1)         # [1, C]
+                weight = weight.view(1, 1, -1)                      # [1, 1, C]
+                feature_scale = feature_norm * weight               # [N, 1, C]
+            else:
+                feature_scale = feature_norm
+            feature = feature * feature_scale
+            out.append(feature)
+            
+        out = torch.cat(out, dim=1)
+        return out
+
+class SO2_m_Convolution(torch.nn.Module):
+    """
+    SO(2) Conv: Perform an SO(2) convolution on features corresponding to +- m
+
+    Args:
+        m (int):                    Order of the spherical harmonic coefficients
+        sphere_channels (int):      Number of spherical channels
+        m_output_channels (int):    Number of output channels used during the SO(2) conv
+        lmax_list (list:int):       List of degrees (l) for each resolution
+        mmax_list (list:int):       List of orders (m) for each resolution
+    """
+    def __init__(
+        self,
+        m, 
+        sphere_channels,
+        m_output_channels,
+        lmax_list, 
+        mmax_list
+    ):
+        super(SO2_m_Convolution, self).__init__()
+        
+        self.m = m
+        self.sphere_channels = sphere_channels
+        self.m_output_channels = m_output_channels
+        self.lmax_list = lmax_list
+        self.mmax_list = mmax_list
+        self.num_resolutions = len(self.lmax_list)
+
+        num_channels = 0
+        for i in range(self.num_resolutions):
+            num_coefficents = 0
+            if self.mmax_list[i] >= self.m:
+                num_coefficents = self.lmax_list[i] - self.m + 1
+            num_channels = num_channels + num_coefficents * self.sphere_channels
+        assert num_channels > 0
+
+        self.fc = torch.nn.Linear(num_channels, 
+            2 * self.m_output_channels * (num_channels // self.sphere_channels), 
+            bias=False)
+        self.fc.weight.data.mul_(1 / math.sqrt(2))
+
+
+    def forward(self, x_m):
+        x_m = self.fc(x_m)
+        x_r = x_m.narrow(2, 0, self.fc.out_features // 2)
+        x_i = x_m.narrow(2, self.fc.out_features // 2, self.fc.out_features // 2)
+        x_m_r = x_r.narrow(1, 0, 1) - x_i.narrow(1, 1, 1) #x_r[:, 0] - x_i[:, 1]
+        x_m_i = x_r.narrow(1, 1, 1) + x_i.narrow(1, 0, 1) #x_r[:, 1] + x_i[:, 0]
+        x_out = torch.cat((x_m_r, x_m_i), dim=1)
+        
+        return x_out
+        
+class EquivariantRMSNormArraySphericalHarmonicsV2(nn.Module):
+    '''
+        1. Normalize across all m components from degrees L >= 0.
+        2. Expand weights and multiply with normalized feature to prevent slicing and concatenation.
+    '''
+    def __init__(self, lmax, num_channels, eps=1e-5, affine=True, normalization='component', centering=True, std_balance_degrees=True):
+        super().__init__()
+
+        self.lmax = lmax
+        self.num_channels = num_channels
+        self.eps = eps
+        self.affine = affine
+        self.centering = centering
+        self.std_balance_degrees = std_balance_degrees
+        
+        # for L >= 0
+        if self.affine:
+            self.affine_weight = nn.Parameter(torch.ones((self.lmax + 1), self.num_channels))
+            if self.centering:
+                self.affine_bias = nn.Parameter(torch.zeros(self.num_channels))
+            else:
+                self.register_parameter('affine_bias', None)
+        else:
+            self.register_parameter('affine_weight', None)
+            self.register_parameter('affine_bias', None)
+
+        assert normalization in ['norm', 'component']
+        self.normalization = normalization
+
+        expand_index = get_l_to_all_m_expand_index(self.lmax)
+        self.register_buffer('expand_index', expand_index)
+
+        if self.std_balance_degrees:
+            balance_degree_weight = torch.zeros((self.lmax + 1) ** 2, 1)
+            for l in range(self.lmax + 1):
+                start_idx = l ** 2
+                length = 2 * l + 1
+                balance_degree_weight[start_idx : (start_idx + length), :] = (1.0 / length)
+            balance_degree_weight = balance_degree_weight / (self.lmax + 1)
+            self.register_buffer('balance_degree_weight', balance_degree_weight)
+        else:
+            self.balance_degree_weight = None
+
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, centering={self.centering}, std_balance_degrees={self.std_balance_degrees})"
+
+
+    @torch.cuda.amp.autocast(enabled=False)
+    def forward(self, node_input):
+        '''
+            Assume input is of shape [N, sphere_basis, C]
+        '''
+        
+        feature = node_input    
+        
+        if self.centering:
+            feature_l0 = feature.narrow(1, 0, 1)
+            feature_l0_mean = feature_l0.mean(dim=2, keepdim=True) # [N, 1, 1]
+            feature_l0 = feature_l0 - feature_l0_mean
+            feature = torch.cat((feature_l0, feature.narrow(1, 1, feature.shape[1] - 1)), dim=1)
+            
+        # for L >= 0
+        if self.normalization == 'norm':
+            assert not self.std_balance_degrees
+            feature_norm = feature.pow(2).sum(dim=1, keepdim=True)      # [N, 1, C]
+        elif self.normalization == 'component':
+            if self.std_balance_degrees:
+                feature_norm = feature.pow(2)                               # [N, (L_max + 1)**2, C]
+                feature_norm = torch.einsum('nic, ia -> nac', feature_norm, self.balance_degree_weight) # [N, 1, C]
+            else:
+                feature_norm = feature.pow(2).mean(dim=1, keepdim=True)     # [N, 1, C]
+            
+        feature_norm = torch.mean(feature_norm, dim=2, keepdim=True)    # [N, 1, 1]
+        feature_norm = (feature_norm + self.eps).pow(-0.5)
+
+        if self.affine:
+            weight = self.affine_weight.view(1, (self.lmax + 1), self.num_channels)     # [1, L_max + 1, C]
+            weight = torch.index_select(weight, dim=1, index=self.expand_index)         # [1, (L_max + 1)**2, C]
+            feature_norm = feature_norm * weight                                        # [N, (L_max + 1)**2, C]
+        
+        out = feature * feature_norm
+
+        if self.affine and self.centering:
+            out[:, 0:1, :] = out.narrow(1, 0, 1) + self.affine_bias.view(1, 1, self.num_channels)
+
+        return out
+
+
+class EquivariantDegreeLayerScale(nn.Module):
+    '''
+        1. Similar to Layer Scale used in CaiT (Going Deeper With Image Transformers (ICCV'21)), we scale the output of both attention and FFN. 
+        2. For degree L > 0, we scale down the square root of 2 * L, which is to emulate halving the number of channels when using higher L. 
+    '''
+    def __init__(self, lmax, num_channels, scale_factor=2.0):
+        super().__init__()
+        
+        self.lmax = lmax
+        self.num_channels = num_channels
+        self.scale_factor = scale_factor
+
+        self.affine_weight = nn.Parameter(torch.ones(1, (self.lmax + 1), self.num_channels))
+        for l in range(1, self.lmax + 1):
+            self.affine_weight.data[0, l, :].mul_(1.0 / math.sqrt(self.scale_factor * l))        
+        expand_index = get_l_to_all_m_expand_index(self.lmax)
+        self.register_buffer('expand_index', expand_index)
+
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, scale_factor={self.scale_factor})"
+
+    
+    def forward(self, node_input):
+        weight = torch.index_select(self.affine_weight, dim=1, index=self.expand_index)     # [1, (L_max + 1)**2, C]
+        node_input = node_input * weight                                                    # [N, (L_max + 1)**2, C]
+        return node_input
+
+class SO2_m_Convolution(torch.nn.Module):
+    """
+    SO(2) Conv: Perform an SO(2) convolution on features corresponding to +- m
+
+    Args:
+        m (int):                    Order of the spherical harmonic coefficients
+        sphere_channels (int):      Number of spherical channels
+        m_output_channels (int):    Number of output channels used during the SO(2) conv
+        lmax_list (list:int):       List of degrees (l) for each resolution
+        mmax_list (list:int):       List of orders (m) for each resolution
+    """
+    def __init__(
+        self,
+        m, 
+        sphere_channels,
+        m_output_channels,
+        lmax_list, 
+        mmax_list
+    ):
+        super(SO2_m_Convolution, self).__init__()
+        
+        self.m = m
+        self.sphere_channels = sphere_channels
+        self.m_output_channels = m_output_channels
+        self.lmax_list = lmax_list
+        self.mmax_list = mmax_list
+        self.num_resolutions = len(self.lmax_list)
+
+        num_channels = 0
+        for i in range(self.num_resolutions):
+            num_coefficents = 0
+            if self.mmax_list[i] >= self.m:
+                num_coefficents = self.lmax_list[i] - self.m + 1
+            num_channels = num_channels + num_coefficents * self.sphere_channels
+        assert num_channels > 0
+
+        self.fc = torch.nn.Linear(num_channels, 
+            2 * self.m_output_channels * (num_channels // self.sphere_channels), 
+            bias=False)
+        self.fc.weight.data.mul_(1 / math.sqrt(2))
+
+
+    def forward(self, x_m):
+        x_m = self.fc(x_m)
+        x_r = x_m.narrow(2, 0, self.fc.out_features // 2)
+        x_i = x_m.narrow(2, self.fc.out_features // 2, self.fc.out_features // 2)
+        x_m_r = x_r.narrow(1, 0, 1) - x_i.narrow(1, 1, 1) #x_r[:, 0] - x_i[:, 1]
+        x_m_i = x_r.narrow(1, 1, 1) + x_i.narrow(1, 0, 1) #x_r[:, 1] + x_i[:, 0]
+        x_out = torch.cat((x_m_r, x_m_i), dim=1)
+        
+        return x_out
+
+
+class SO2_Convolution(torch.nn.Module):
+    """
+    SO(2) Block: Perform SO(2) convolutions for all m (orders)
+
+    Args:
+        sphere_channels (int):      Number of spherical channels
+        m_output_channels (int):    Number of output channels used during the SO(2) conv
+        lmax_list (list:int):       List of degrees (l) for each resolution
+        mmax_list (list:int):       List of orders (m) for each resolution
+        mappingReduced (CoefficientMappingModule): Used to extract a subset of m components
+        internal_weights (bool):    If True, not using radial function to multiply inputs features
+        edge_channels_list (list:int):  List of sizes of invariant edge embedding. For example, [input_channels, hidden_channels, hidden_channels].
+        extra_m0_output_channels (int): If not None, return `out_embedding` (SO3_Embedding) and `extra_m0_features` (Tensor).
+    """
+    def __init__(
+        self,
+        sphere_channels,
+        m_output_channels,
+        lmax_list,
+        mmax_list,
+        mappingReduced,
+        internal_weights=True,
+        edge_channels_list=None,
+        extra_m0_output_channels=None
+    ):
+        super(SO2_Convolution, self).__init__()
+        self.sphere_channels = sphere_channels
+        self.m_output_channels = m_output_channels
+        self.lmax_list = lmax_list
+        self.mmax_list = mmax_list
+        self.mappingReduced = mappingReduced
+        self.num_resolutions = len(lmax_list)
+        self.internal_weights = internal_weights
+        self.edge_channels_list = copy.deepcopy(edge_channels_list)
+        self.extra_m0_output_channels = extra_m0_output_channels
+
+        num_channels_rad = 0    # for radial function
+
+        num_channels_m0 = 0
+        for i in range(self.num_resolutions):
+            num_coefficients = self.lmax_list[i] + 1
+            num_channels_m0 = num_channels_m0 + num_coefficients * self.sphere_channels
+
+        # SO(2) convolution for m = 0
+        m0_output_channels = self.m_output_channels * (num_channels_m0 // self.sphere_channels)
+        if self.extra_m0_output_channels is not None:
+            m0_output_channels = m0_output_channels + self.extra_m0_output_channels
+        self.fc_m0 = torch.nn.Linear(num_channels_m0, m0_output_channels)
+        num_channels_rad = num_channels_rad + self.fc_m0.in_features
+        
+        # SO(2) convolution for non-zero m
+        self.so2_m_conv = nn.ModuleList()
+        for m in range(1, max(self.mmax_list) + 1):
+            self.so2_m_conv.append(
+                SO2_m_Convolution(
+                    m, 
+                    self.sphere_channels,
+                    self.m_output_channels,
+                    self.lmax_list, 
+                    self.mmax_list,
+                )
+            )
+            num_channels_rad = num_channels_rad + self.so2_m_conv[-1].fc.in_features
+
+        # Embedding function of distance
+        self.rad_func = None
+        if not self.internal_weights:
+            assert self.edge_channels_list is not None
+            self.edge_channels_list.append(int(num_channels_rad))
+            self.rad_func = RadialFunction(self.edge_channels_list)
+
+
+    def forward(self, x, x_edge):
+
+        num_edges = len(x_edge)
+        out = []
+
+        # Reshape the spherical harmonics based on m (order)
+        x._m_primary(self.mappingReduced)
+
+        # radial function
+        if self.rad_func is not None:
+            x_edge = self.rad_func(x_edge)
+        offset_rad = 0
+
+        # Compute m=0 coefficients separately since they only have real values (no imaginary)
+        x_0 = x.embedding.narrow(1, 0, self.mappingReduced.m_size[0])
+        x_0 = x_0.reshape(num_edges, -1)
+        if self.rad_func is not None:
+            x_edge_0 = x_edge.narrow(1, 0, self.fc_m0.in_features)
+            x_0 = x_0 * x_edge_0
+        x_0 = self.fc_m0(x_0)
+
+        x_0_extra = None
+        # extract extra m0 features 
+        if self.extra_m0_output_channels is not None:
+            x_0_extra = x_0.narrow(-1, 0, self.extra_m0_output_channels)
+            x_0 = x_0.narrow(-1, self.extra_m0_output_channels, (self.fc_m0.out_features - self.extra_m0_output_channels))
+        
+        x_0 = x_0.view(num_edges, -1, self.m_output_channels)
+        #x.embedding[:, 0 : self.mappingReduced.m_size[0]] = x_0
+        out.append(x_0)
+        offset_rad = offset_rad + self.fc_m0.in_features
+
+        # Compute the values for the m > 0 coefficients
+        offset = self.mappingReduced.m_size[0]
+        for m in range(1, max(self.mmax_list) + 1):
+            # Get the m order coefficients
+            x_m = x.embedding.narrow(1, offset, 2 * self.mappingReduced.m_size[m])
+            x_m = x_m.reshape(num_edges, 2, -1)
+
+            # Perform SO(2) convolution
+            if self.rad_func is not None:
+                x_edge_m = x_edge.narrow(1, offset_rad, self.so2_m_conv[m - 1].fc.in_features)
+                x_edge_m = x_edge_m.reshape(num_edges, 1, self.so2_m_conv[m - 1].fc.in_features)
+                x_m = x_m * x_edge_m
+            x_m = self.so2_m_conv[m - 1](x_m)
+            x_m = x_m.view(num_edges, -1, self.m_output_channels)
+            #x.embedding[:, offset : offset + 2 * self.mappingReduced.m_size[m]] = x_m
+            out.append(x_m)
+            offset = offset + 2 * self.mappingReduced.m_size[m]
+            offset_rad = offset_rad + self.so2_m_conv[m - 1].fc.in_features
+
+        out = torch.cat(out, dim=1)
+        out_embedding = SO3_Embedding(
+            0, 
+            x.lmax_list.copy(), 
+            self.m_output_channels, 
+            device=x.device, 
+            dtype=x.dtype
+        )
+        out_embedding.set_embedding(out)
+        out_embedding.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
+
+        # Reshape the spherical harmonics based on l (degree)
+        out_embedding._l_primary(self.mappingReduced)
+
+        if self.extra_m0_output_channels is not None:
+            return out_embedding, x_0_extra
+        else:
+            return out_embedding
+
+class GateActivation(torch.nn.Module):
+    def __init__(self, lmax, mmax, num_channels):
+        super().__init__()
+
+        self.lmax = lmax
+        self.mmax = mmax
+        self.num_channels = num_channels
+
+        # compute `expand_index` based on `lmax` and `mmax`
+        num_components = 0
+        for l in range(1, self.lmax + 1):
+            num_m_components = min((2 * l + 1), (2 * self.mmax + 1))
+            num_components = num_components + num_m_components
+        expand_index = torch.zeros([num_components]).long()
+        start_idx = 0
+        for l in range(1, self.lmax + 1):
+            length = min((2 * l + 1), (2 * self.mmax + 1))
+            expand_index[start_idx : (start_idx + length)] = (l - 1)
+            start_idx = start_idx + length            
+        self.register_buffer('expand_index', expand_index)
+
+        self.scalar_act = torch.nn.SiLU() #SwiGLU(self.num_channels, self.num_channels)  # #
+        self.gate_act   = torch.nn.Sigmoid() #torch.nn.SiLU() # #
+
+    
+    def forward(self, gating_scalars, input_tensors):
+        '''
+            `gating_scalars`: shape [N, lmax * num_channels]
+            `input_tensors`: shape  [N, (lmax + 1) ** 2, num_channels]
+        '''
+
+        gating_scalars = self.gate_act(gating_scalars)
+        gating_scalars = gating_scalars.reshape(gating_scalars.shape[0], self.lmax, self.num_channels)
+        gating_scalars = torch.index_select(gating_scalars, dim=1, index=self.expand_index)
+
+        input_tensors_scalars = input_tensors.narrow(1, 0, 1)
+        input_tensors_scalars = self.scalar_act(input_tensors_scalars)
+
+        input_tensors_vectors = input_tensors.narrow(1, 1, input_tensors.shape[1] - 1)
+        input_tensors_vectors = input_tensors_vectors * gating_scalars
+
+        output_tensors = torch.cat((input_tensors_scalars, input_tensors_vectors), dim=1)
+        
+        return output_tensors
+
+
+class S2Activation(torch.nn.Module):
+    '''
+        Assume we only have one resolution
+    '''
+    def __init__(self, lmax, mmax):
+        super().__init__()
+        self.lmax = lmax
+        self.mmax = mmax
+        self.act = torch.nn.SiLU()
+
+    
+    def forward(self, inputs, SO3_grid):
+        to_grid_mat   = SO3_grid[self.lmax][self.mmax].get_to_grid_mat(device=None)     # `device` is not used
+        from_grid_mat = SO3_grid[self.lmax][self.mmax].get_from_grid_mat(device=None)
+        x_grid = torch.einsum("bai, zic -> zbac", to_grid_mat, inputs)
+        x_grid = self.act(x_grid)
+        outputs = torch.einsum("bai, zbac -> zic", from_grid_mat, x_grid)
+        return outputs
+
+    
+class SeparableS2Activation(torch.nn.Module):
+    def __init__(self, lmax, mmax):
+        super().__init__()
+        
+        self.lmax = lmax
+        self.mmax = mmax
+        
+        self.scalar_act = torch.nn.SiLU() 
+        self.s2_act     = S2Activation(self.lmax, self.mmax)
+        
+
+    def forward(self, input_scalars, input_tensors, SO3_grid):
+        output_scalars = self.scalar_act(input_scalars)
+        output_scalars = output_scalars.reshape(output_scalars.shape[0], 1, output_scalars.shape[-1])
+        output_tensors = self.s2_act(input_tensors, SO3_grid)
+        outputs = torch.cat(
+            (output_scalars, output_tensors.narrow(1, 1, output_tensors.shape[1] - 1)), 
+            dim=1
+        )
+        return outputs
+
+class SO3_LinearV2(torch.nn.Module):
+    def __init__(self, in_features, out_features, lmax, bias=True):
+        '''
+            1. Use `torch.einsum` to prevent slicing and concatenation
+            2. Need to specify some behaviors in `no_weight_decay` and weight initialization.
+        '''
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.lmax = lmax
+
+        self.weight = torch.nn.Parameter(torch.randn((self.lmax + 1), out_features, in_features))
+        bound = 1 / math.sqrt(self.in_features)
+        torch.nn.init.uniform_(self.weight, -bound, bound)
+        self.bias = torch.nn.Parameter(torch.zeros(out_features))
+
+        expand_index = torch.zeros([(lmax + 1) ** 2]).long()
+        for l in range(lmax + 1):
+            start_idx = l ** 2
+            length = 2 * l + 1
+            expand_index[start_idx : (start_idx + length)] = l
+        self.register_buffer('expand_index', expand_index)
+        
+
+    def forward(self, input_embedding):
+
+        weight = torch.index_select(self.weight, dim=0, index=self.expand_index) # [(L_max + 1) ** 2, C_out, C_in]
+        out = torch.einsum('bmi, moi -> bmo', input_embedding.embedding, weight) # [N, (L_max + 1) ** 2, C_out]
+        bias = self.bias.view(1, 1, self.out_features)
+        out[:, 0:1, :] = out.narrow(1, 0, 1) + bias
+
+        out_embedding = SO3_Embedding(
+            0, 
+            input_embedding.lmax_list.copy(), 
+            self.out_features, 
+            device=input_embedding.device, 
+            dtype=input_embedding.dtype
+        )
+        out_embedding.set_embedding(out)
+        out_embedding.set_lmax_mmax(input_embedding.lmax_list.copy(), input_embedding.lmax_list.copy())
+
+        return out_embedding
+        
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(in_features={self.in_features}, out_features={self.out_features}, lmax={self.lmax})"
+
+
+class SmoothLeakyReLU(torch.nn.Module):
+    def __init__(self, negative_slope=0.2):
+        super().__init__()
+        self.alpha = negative_slope
+        
+    
+    def forward(self, x):
+        x1 = ((1 + self.alpha) / 2) * x
+        x2 = ((1 - self.alpha) / 2) * x * (2 * torch.sigmoid(x) - 1)
+        return x1 + x2
+    
+    
+    def extra_repr(self):
+        return 'negative_slope={}'.format(self.alpha)
+
+class SO2EquivariantGraphAttention(torch.nn.Module):
+    """
+    SO2EquivariantGraphAttention: Perform MLP attention + non-linear message passing
+        SO(2) Convolution with radial function -> S2 Activation -> SO(2) Convolution -> attention weights and non-linear messages
+        attention weights * non-linear messages -> Linear
+
+    Args:
+        sphere_channels (int):      Number of spherical channels
+        hidden_channels (int):      Number of hidden channels used during the SO(2) conv
+        num_heads (int):            Number of attention heads
+        attn_alpha_head (int):      Number of channels for alpha vector in each attention head
+        attn_value_head (int):      Number of channels for value vector in each attention head
+        output_channels (int):      Number of output channels
+        lmax_list (list:int):       List of degrees (l) for each resolution
+        mmax_list (list:int):       List of orders (m) for each resolution
+        
+        SO3_rotation (list:SO3_Rotation): Class to calculate Wigner-D matrices and rotate embeddings
+        mappingReduced (CoefficientMappingModule): Class to convert l and m indices once node embedding is rotated
+        SO3_grid (SO3_grid):        Class used to convert from grid the spherical harmonic representations
+
+        max_num_elements (int):     Maximum number of atomic numbers
+        edge_channels_list (list:int):  List of sizes of invariant edge embedding. For example, [input_channels, hidden_channels, hidden_channels].
+                                        The last one will be used as hidden size when `use_atom_edge_embedding` is `True`.
+        use_atom_edge_embedding (bool): Whether to use atomic embedding along with relative distance for edge scalar features
+        use_m_share_rad (bool):     Whether all m components within a type-L vector of one channel share radial function weights
+
+        activation (str):           Type of activation function
+        use_s2_act_attn (bool):     Whether to use attention after S2 activation. Otherwise, use the same attention as Equiformer
+        use_attn_renorm (bool):     Whether to re-normalize attention weights
+        use_gate_act (bool):        If `True`, use gate activation. Otherwise, use S2 activation.
+        use_sep_s2_act (bool):      If `True`, use separable S2 activation when `use_gate_act` is False.
+
+        alpha_drop (float):         Dropout rate for attention weights
+    """
+
+    def __init__(
+        self,
+        sphere_channels,
+        hidden_channels,
+        num_heads, 
+        attn_alpha_channels,
+        attn_value_channels, 
+        output_channels,
+        lmax_list,
+        mmax_list,
+        SO3_rotation, 
+        mappingReduced, 
+        SO3_grid, 
+        max_num_elements,
+        edge_channels_list,
+        use_atom_edge_embedding=True, 
+        use_m_share_rad=False,
+        activation='scaled_silu', 
+        use_s2_act_attn=False, 
+        use_attn_renorm=True,
+        use_gate_act=False, 
+        use_sep_s2_act=True,
+        alpha_drop=0.0,
+    ):
+        super(SO2EquivariantGraphAttention, self).__init__()
+        
+        self.sphere_channels = sphere_channels
+        self.hidden_channels = hidden_channels
+        self.num_heads = num_heads
+        self.attn_alpha_channels = attn_alpha_channels
+        self.attn_value_channels = attn_value_channels
+        self.output_channels = output_channels
+        self.lmax_list = lmax_list
+        self.mmax_list = mmax_list
+        self.num_resolutions = len(self.lmax_list)
+        
+        self.SO3_rotation = SO3_rotation
+        self.mappingReduced = mappingReduced
+        self.SO3_grid = SO3_grid
+        
+        # Create edge scalar (invariant to rotations) features
+        # Embedding function of the atomic numbers
+        self.max_num_elements = max_num_elements
+        self.edge_channels_list = copy.deepcopy(edge_channels_list)
+        self.use_atom_edge_embedding = use_atom_edge_embedding
+        self.use_m_share_rad = use_m_share_rad
+
+        if self.use_atom_edge_embedding:
+            self.source_embedding = nn.Embedding(self.max_num_elements, self.edge_channels_list[-1])
+            self.target_embedding = nn.Embedding(self.max_num_elements, self.edge_channels_list[-1])
+            nn.init.uniform_(self.source_embedding.weight.data, -0.001, 0.001)
+            nn.init.uniform_(self.target_embedding.weight.data, -0.001, 0.001)
+            self.edge_channels_list[0] = self.edge_channels_list[0] + 2 * self.edge_channels_list[-1]
+        else:
+            self.source_embedding, self.target_embedding = None, None
+        
+        self.use_s2_act_attn    = use_s2_act_attn
+        self.use_attn_renorm    = use_attn_renorm
+        self.use_gate_act       = use_gate_act
+        self.use_sep_s2_act     = use_sep_s2_act
+        
+        assert not self.use_s2_act_attn     # since this is not used
+        
+        # Create SO(2) convolution blocks
+        extra_m0_output_channels = None
+        if not self.use_s2_act_attn:
+            extra_m0_output_channels = self.num_heads * self.attn_alpha_channels
+            if self.use_gate_act:
+                extra_m0_output_channels = extra_m0_output_channels + max(self.lmax_list) * self.hidden_channels
+            else:
+                if self.use_sep_s2_act:
+                    extra_m0_output_channels = extra_m0_output_channels + self.hidden_channels
+        
+        if self.use_m_share_rad:
+            self.edge_channels_list = self.edge_channels_list + [2 * self.sphere_channels * (max(self.lmax_list) + 1)]
+            self.rad_func = RadialFunction(self.edge_channels_list)
+            expand_index = torch.zeros([(max(self.lmax_list) + 1) ** 2]).long()
+            for l in range(max(self.lmax_list) + 1):
+                start_idx = l ** 2
+                length = 2 * l + 1
+                expand_index[start_idx : (start_idx + length)] = l
+            self.register_buffer('expand_index', expand_index)
+
+        self.so2_conv_1 = SO2_Convolution(
+            2 * self.sphere_channels,
+            self.hidden_channels,
+            self.lmax_list,
+            self.mmax_list,
+            self.mappingReduced,
+            internal_weights=(
+                False if not self.use_m_share_rad 
+                else True
+            ),
+            edge_channels_list=(
+                self.edge_channels_list if not self.use_m_share_rad 
+                else None
+            ), 
+            extra_m0_output_channels=extra_m0_output_channels # for attention weights and/or gate activation
+        )
+
+        if self.use_s2_act_attn:
+            self.alpha_norm = None
+            self.alpha_act = None
+            self.alpha_dot = None
+        else:
+            if self.use_attn_renorm:
+                self.alpha_norm = torch.nn.LayerNorm(self.attn_alpha_channels)
+            else:
+                self.alpha_norm = torch.nn.Identity()
+            self.alpha_act = SmoothLeakyReLU()
+            self.alpha_dot = torch.nn.Parameter(torch.randn(self.num_heads, self.attn_alpha_channels))
+            #torch_geometric.nn.inits.glorot(self.alpha_dot) # Following GATv2
+            std = 1.0 / math.sqrt(self.attn_alpha_channels)
+            torch.nn.init.uniform_(self.alpha_dot, -std, std)
+        
+        self.alpha_dropout = None
+        if alpha_drop != 0.0:
+            self.alpha_dropout = torch.nn.Dropout(alpha_drop)
+
+        if self.use_gate_act:
+            self.gate_act = GateActivation(
+                lmax=max(self.lmax_list), 
+                mmax=max(self.mmax_list), 
+                num_channels=self.hidden_channels
+            )
+        else:   
+            if self.use_sep_s2_act:     
+                # separable S2 activation
+                self.s2_act = SeparableS2Activation(
+                    lmax=max(self.lmax_list), 
+                    mmax=max(self.mmax_list)
+                )
+            else:                       
+                # S2 activation
+                self.s2_act = S2Activation(
+                    lmax=max(self.lmax_list), 
+                    mmax=max(self.mmax_list)
+                )
+        
+        self.so2_conv_2 = SO2_Convolution(
+            self.hidden_channels,
+            self.num_heads * self.attn_value_channels,
+            self.lmax_list,
+            self.mmax_list,
+            self.mappingReduced,
+            internal_weights=True,
+            edge_channels_list=None, 
+            extra_m0_output_channels=(
+                self.num_heads if self.use_s2_act_attn 
+                else None
+            ) # for attention weights
+        )
+
+        self.proj = SO3_LinearV2(self.num_heads * self.attn_value_channels, self.output_channels, lmax=self.lmax_list[0])
+        
+        
+    def forward(
+        self,
+        x,
+        atomic_numbers,
+        edge_distance,
+        edge_index
+    ):
+        
+        # Compute edge scalar features (invariant to rotations)
+        # Uses atomic numbers and edge distance as inputs
+        if self.use_atom_edge_embedding:
+            source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
+            target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
+            source_embedding = self.source_embedding(source_element)
+            target_embedding = self.target_embedding(target_element)
+            x_edge = torch.cat((edge_distance, source_embedding, target_embedding), dim=1)
+        else:
+            x_edge = edge_distance  
+
+        x_source = x.clone()
+        x_target = x.clone()
+        x_source._expand_edge(edge_index[0])
+        x_target._expand_edge(edge_index[1])
+        
+        x_message_data = torch.cat((x_source.embedding, x_target.embedding), dim=2)
+        x_message = SO3_Embedding(
+            0,
+            x_target.lmax_list.copy(), 
+            x_target.num_channels * 2, 
+            device=x_target.device, 
+            dtype=x_target.dtype
+        )
+        x_message.set_embedding(x_message_data)
+        x_message.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
+
+        # radial function (scale all m components within a type-L vector of one channel with the same weight)
+        if self.use_m_share_rad:
+            x_edge_weight = self.rad_func(x_edge)
+            x_edge_weight = x_edge_weight.reshape(-1, (max(self.lmax_list) + 1), 2 * self.sphere_channels)
+            x_edge_weight = torch.index_select(x_edge_weight, dim=1, index=self.expand_index) # [E, (L_max + 1) ** 2, C]
+            x_message.embedding = x_message.embedding * x_edge_weight
+
+        # Rotate the irreps to align with the edge
+        x_message._rotate(self.SO3_rotation, self.lmax_list, self.mmax_list)
+
+        # First SO(2)-convolution
+        if self.use_s2_act_attn:
+            x_message = self.so2_conv_1(x_message, x_edge)
+        else:
+            x_message, x_0_extra = self.so2_conv_1(x_message, x_edge)
+        
+        # Activation
+        x_alpha_num_channels = self.num_heads * self.attn_alpha_channels
+        if self.use_gate_act:   
+            # Gate activation
+            x_0_gating = x_0_extra.narrow(1, x_alpha_num_channels, x_0_extra.shape[1] - x_alpha_num_channels) # for activation
+            x_0_alpha  = x_0_extra.narrow(1, 0, x_alpha_num_channels) # for attention weights
+            x_message.embedding = self.gate_act(x_0_gating, x_message.embedding)
+        else:
+            if self.use_sep_s2_act:
+                x_0_gating = x_0_extra.narrow(1, x_alpha_num_channels, x_0_extra.shape[1] - x_alpha_num_channels) # for activation
+                x_0_alpha  = x_0_extra.narrow(1, 0, x_alpha_num_channels) # for attention weights
+                x_message.embedding = self.s2_act(x_0_gating, x_message.embedding, self.SO3_grid)
+            else:
+                x_0_alpha = x_0_extra
+                x_message.embedding = self.s2_act(x_message.embedding, self.SO3_grid)
+            ##x_message._grid_act(self.SO3_grid, self.value_act, self.mappingReduced)
+
+        # Second SO(2)-convolution
+        if self.use_s2_act_attn:
+            x_message, x_0_extra = self.so2_conv_2(x_message, x_edge)
+        else:
+            x_message = self.so2_conv_2(x_message, x_edge)
+        
+        # Attention weights
+        if self.use_s2_act_attn:
+            alpha = x_0_extra
+        else:
+            x_0_alpha = x_0_alpha.reshape(-1, self.num_heads, self.attn_alpha_channels)
+            x_0_alpha = self.alpha_norm(x_0_alpha)
+            x_0_alpha = self.alpha_act(x_0_alpha)
+            alpha = torch.einsum('bik, ik -> bi', x_0_alpha, self.alpha_dot)
+        alpha = torch_geometric.utils.softmax(alpha, edge_index[1]) 
+        alpha = alpha.reshape(alpha.shape[0], 1, self.num_heads, 1)
+        if self.alpha_dropout is not None:
+            alpha = self.alpha_dropout(alpha)
+        
+        # Attention weights * non-linear messages
+        attn = x_message.embedding
+        attn = attn.reshape(attn.shape[0], attn.shape[1], self.num_heads, self.attn_value_channels)
+        attn = attn * alpha
+        attn = attn.reshape(attn.shape[0], attn.shape[1], self.num_heads * self.attn_value_channels)
+        x_message.embedding = attn
+
+        # Rotate back the irreps
+        x_message._rotate_inv(self.SO3_rotation, self.mappingReduced)
+
+        # Compute the sum of the incoming neighboring messages for each target node
+        x_message._reduce_edge(edge_index[1], len(x.embedding))
+
+        # Project
+        out_embedding = self.proj(x_message)
+
+        return out_embedding
+
+
+class FeedForwardNetwork(torch.nn.Module):
+    """
+    FeedForwardNetwork: Perform feedforward network with S2 activation or gate activation
+
+    Args:
+        sphere_channels (int):      Number of spherical channels
+        hidden_channels (int):      Number of hidden channels used during feedforward network
+        output_channels (int):      Number of output channels
+
+        lmax_list (list:int):       List of degrees (l) for each resolution
+        mmax_list (list:int):       List of orders (m) for each resolution
+
+        SO3_grid (SO3_grid):        Class used to convert from grid the spherical harmonic representations
+
+        activation (str):           Type of activation function
+        use_gate_act (bool):        If `True`, use gate activation. Otherwise, use S2 activation
+        use_grid_mlp (bool):        If `True`, use projecting to grids and performing MLPs. 
+        use_sep_s2_act (bool):      If `True`, use separable grid MLP when `use_grid_mlp` is True.
+    """
+
+    def __init__(
+        self,
+        sphere_channels,
+        hidden_channels, 
+        output_channels,
+        lmax_list,
+        mmax_list,
+        SO3_grid,  
+        activation='scaled_silu', 
+        use_gate_act=False, 
+        use_grid_mlp=False, 
+        use_sep_s2_act=True
+    ):
+        super(FeedForwardNetwork, self).__init__()
+        self.sphere_channels = sphere_channels
+        self.hidden_channels = hidden_channels
+        self.output_channels = output_channels
+        self.lmax_list = lmax_list
+        self.mmax_list = mmax_list
+        self.num_resolutions = len(lmax_list)
+        self.sphere_channels_all = self.num_resolutions * self.sphere_channels
+        self.SO3_grid = SO3_grid
+        self.use_gate_act = use_gate_act
+        self.use_grid_mlp = use_grid_mlp
+        self.use_sep_s2_act = use_sep_s2_act
+
+        self.max_lmax = max(self.lmax_list)
+        
+        self.so3_linear_1 = SO3_LinearV2(self.sphere_channels_all, self.hidden_channels, lmax=self.max_lmax)
+        if self.use_grid_mlp:
+            if self.use_sep_s2_act:
+                self.scalar_mlp = nn.Sequential(
+                    nn.Linear(self.sphere_channels_all, self.hidden_channels, bias=True), 
+                    nn.SiLU(), 
+                )
+            else:
+                self.scalar_mlp = None
+            self.grid_mlp = nn.Sequential(
+                nn.Linear(self.hidden_channels, self.hidden_channels, bias=False), 
+                nn.SiLU(), 
+                nn.Linear(self.hidden_channels, self.hidden_channels, bias=False),
+                nn.SiLU(), 
+                nn.Linear(self.hidden_channels, self.hidden_channels, bias=False)
+            )
+        else:
+            if self.use_gate_act:
+                self.gating_linear = torch.nn.Linear(self.sphere_channels_all, self.max_lmax * self.hidden_channels)
+                self.gate_act = GateActivation(self.max_lmax, self.max_lmax, self.hidden_channels)
+            else:
+                if self.use_sep_s2_act:
+                    self.gating_linear = torch.nn.Linear(self.sphere_channels_all, self.hidden_channels)
+                    self.s2_act = SeparableS2Activation(self.max_lmax, self.max_lmax)
+                else:
+                    self.gating_linear = None
+                    self.s2_act = S2Activation(self.max_lmax, self.max_lmax)
+        self.so3_linear_2 = SO3_LinearV2(self.hidden_channels, self.output_channels, lmax=self.max_lmax)
+        
+    
+    def forward(self, input_embedding):
+
+        gating_scalars = None
+        if self.use_grid_mlp:
+            if self.use_sep_s2_act:
+                gating_scalars = self.scalar_mlp(input_embedding.embedding.narrow(1, 0, 1))    
+        else:
+            if self.gating_linear is not None:
+                gating_scalars = self.gating_linear(input_embedding.embedding.narrow(1, 0, 1))
+
+        input_embedding = self.so3_linear_1(input_embedding)
+        
+        if self.use_grid_mlp:
+            # Project to grid
+            input_embedding_grid = input_embedding.to_grid(self.SO3_grid, lmax=self.max_lmax)
+            # Perform point-wise operations
+            input_embedding_grid = self.grid_mlp(input_embedding_grid)
+            # Project back to spherical harmonic coefficients
+            input_embedding._from_grid(input_embedding_grid, self.SO3_grid, lmax=self.max_lmax)
+
+            if self.use_sep_s2_act:
+                input_embedding.embedding = torch.cat(
+                    (gating_scalars, input_embedding.embedding.narrow(1, 1, input_embedding.embedding.shape[1] - 1)), 
+                    dim=1
+                )
+        else:
+            if self.use_gate_act:
+                input_embedding.embedding = self.gate_act(gating_scalars, input_embedding.embedding)
+            else:
+                if self.use_sep_s2_act:
+                    input_embedding.embedding = self.s2_act(gating_scalars, input_embedding.embedding, self.SO3_grid)
+                else:
+                    input_embedding.embedding = self.s2_act(input_embedding.embedding, self.SO3_grid)
+
+        input_embedding = self.so3_linear_2(input_embedding)
+
+        return input_embedding
+
+def drop_path(x, drop_prob: float = 0., training: bool = False):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
+    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
+    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
+    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
+    'survival rate' as the argument.
+    """
+    if drop_prob == 0. or not training:
+        return x
+    keep_prob = 1 - drop_prob
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor.floor_()  # binarize
+    output = x.div(keep_prob) * random_tensor
+    return output
+
+class GraphDropPath(nn.Module):
+    '''
+        Consider batch for graph data when dropping paths.
+    '''
+    def __init__(self, drop_prob=None):
+        super(GraphDropPath, self).__init__()
+        self.drop_prob = drop_prob
+        
+
+    def forward(self, x, batch):
+        # batch_size = 12
+        batch_size = batch.max() + 1
+        shape = (batch_size,) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+        ones = torch.ones(shape, dtype=x.dtype, device=x.device)
+        drop = drop_path(ones, self.drop_prob, self.training)
+        out = x * drop[batch]
+        return out
+    
+    
+    def extra_repr(self):
+        return 'drop_prob={}'.format(self.drop_prob)
+
+class EquivariantDropoutArraySphericalHarmonics(nn.Module):
+    def __init__(self, drop_prob, drop_graph=False):
+        super(EquivariantDropoutArraySphericalHarmonics, self).__init__()
+        self.drop_prob = drop_prob
+        self.drop = torch.nn.Dropout(drop_prob, True)
+        self.drop_graph = drop_graph
+        
+        
+    def forward(self, x, batch=None):
+        if not self.training or self.drop_prob == 0.0:
+            return x
+        assert len(x.shape) == 3
+
+        if self.drop_graph:
+            assert batch is not None
+            # batch_size = batch
+            batch_size = batch.max() + 1
+            shape = (batch_size, 1, x.shape[2])
+            mask = torch.ones(shape, dtype=x.dtype, device=x.device)
+            mask = self.drop(mask)
+            out = x * mask[batch]
+        else:
+            shape = (x.shape[0], 1, x.shape[2])
+            mask = torch.ones(shape, dtype=x.dtype, device=x.device)
+            mask = self.drop(mask)
+            out = x * mask
+
+        return out
+    
+    
+    def extra_repr(self):
+        return 'drop_prob={}, drop_graph={}'.format(self.drop_prob, self.drop_graph)
+
+class TransBlockV2(torch.nn.Module):
+    """
+
+    Args:
+        sphere_channels (int):      Number of spherical channels
+        attn_hidden_channels (int): Number of hidden channels used during SO(2) graph attention
+        num_heads (int):            Number of attention heads
+        attn_alpha_head (int):      Number of channels for alpha vector in each attention head
+        attn_value_head (int):      Number of channels for value vector in each attention head
+        ffn_hidden_channels (int):  Number of hidden channels used during feedforward network
+        output_channels (int):      Number of output channels
+
+        lmax_list (list:int):       List of degrees (l) for each resolution
+        mmax_list (list:int):       List of orders (m) for each resolution
+        
+        SO3_rotation (list:SO3_Rotation): Class to calculate Wigner-D matrices and rotate embeddings
+        mappingReduced (CoefficientMappingModule): Class to convert l and m indices once node embedding is rotated
+        SO3_grid (SO3_grid):        Class used to convert from grid the spherical harmonic representations
+
+        max_num_elements (int):     Maximum number of atomic numbers
+        edge_channels_list (list:int):  List of sizes of invariant edge embedding. For example, [input_channels, hidden_channels, hidden_channels].
+                                        The last one will be used as hidden size when `use_atom_edge_embedding` is `True`.
+        use_atom_edge_embedding (bool): Whether to use atomic embedding along with relative distance for edge scalar features
+        use_m_share_rad (bool):     Whether all m components within a type-L vector of one channel share radial function weights
+
+        attn_activation (str):      Type of activation function for SO(2) graph attention
+        use_s2_act_attn (bool):     Whether to use attention after S2 activation. Otherwise, use the same attention as Equiformer
+        use_attn_renorm (bool):     Whether to re-normalize attention weights
+        ffn_activation (str):       Type of activation function for feedforward network
+        use_gate_act (bool):        If `True`, use gate activation. Otherwise, use S2 activation
+        use_grid_mlp (bool):        If `True`, use projecting to grids and performing MLPs for FFN.
+        use_sep_s2_act (bool):      If `True`, use separable S2 activation when `use_gate_act` is False.
+
+        norm_type (str):            Type of normalization layer (['layer_norm', 'layer_norm_sh'])
+
+        alpha_drop (float):         Dropout rate for attention weights
+        drop_path_rate (float):     Drop path rate
+        proj_drop (float):          Dropout rate for outputs of attention and FFN
+    """
+
+    def __init__(
+        self,
+        sphere_channels,
+        attn_hidden_channels,
+        num_heads,
+        attn_alpha_channels, 
+        attn_value_channels,
+        ffn_hidden_channels,
+        output_channels, 
+
+        lmax_list,
+        mmax_list,
+        
+        SO3_rotation,
+        mappingReduced,
+        SO3_grid,
+
+        max_num_elements,
+        edge_channels_list,
+        use_atom_edge_embedding=True,
+        use_m_share_rad=False,
+
+        attn_activation='silu',
+        use_s2_act_attn=False, 
+        use_attn_renorm=True,
+        ffn_activation='silu',
+        use_gate_act=False, 
+        use_grid_mlp=False,
+        use_sep_s2_act=True,
+
+        norm_type='rms_norm_sh',
+
+        alpha_drop=0.0, 
+        drop_path_rate=0.0, 
+        proj_drop=0.0
+    ):
+        super(TransBlockV2, self).__init__()
+
+        max_lmax = max(lmax_list)
+        self.norm_1 = get_normalization_layer(norm_type, lmax=max_lmax, num_channels=sphere_channels)
+
+        self.ga = SO2EquivariantGraphAttention(
+            sphere_channels=sphere_channels,
+            hidden_channels=attn_hidden_channels,
+            num_heads=num_heads, 
+            attn_alpha_channels=attn_alpha_channels,
+            attn_value_channels=attn_value_channels, 
+            output_channels=sphere_channels,
+            lmax_list=lmax_list,
+            mmax_list=mmax_list,
+            SO3_rotation=SO3_rotation, 
+            mappingReduced=mappingReduced, 
+            SO3_grid=SO3_grid, 
+            max_num_elements=max_num_elements,
+            edge_channels_list=edge_channels_list,
+            use_atom_edge_embedding=use_atom_edge_embedding, 
+            use_m_share_rad=use_m_share_rad,
+            activation=attn_activation, 
+            use_s2_act_attn=use_s2_act_attn,
+            use_attn_renorm=use_attn_renorm,
+            use_gate_act=use_gate_act,
+            use_sep_s2_act=use_sep_s2_act,
+            alpha_drop=alpha_drop,
+        )
+
+        self.drop_path = GraphDropPath(drop_path_rate) if drop_path_rate > 0. else None
+        self.proj_drop = EquivariantDropoutArraySphericalHarmonics(proj_drop, drop_graph=False) if proj_drop > 0.0 else None
+
+        self.norm_2 = get_normalization_layer(norm_type, lmax=max_lmax, num_channels=sphere_channels)
+        
+        self.ffn = FeedForwardNetwork(
+            sphere_channels=sphere_channels,
+            hidden_channels=ffn_hidden_channels, 
+            output_channels=output_channels,
+            lmax_list=lmax_list,
+            mmax_list=mmax_list,
+            SO3_grid=SO3_grid,  
+            activation=ffn_activation,
+            use_gate_act=use_gate_act,
+            use_grid_mlp=use_grid_mlp,
+            use_sep_s2_act=use_sep_s2_act
+        )
+
+        if sphere_channels != output_channels:
+            self.ffn_shortcut = SO3_LinearV2(sphere_channels, output_channels, lmax=max_lmax)
+        else:
+            self.ffn_shortcut = None
+
+    
+    def forward(
+        self,
+        x,              # SO3_Embedding
+        atomic_numbers,
+        edge_distance,
+        edge_index,
+        batch           # for GraphDropPath
+    ):
+
+        output_embedding = x
+        
+        x_res = output_embedding.embedding
+        output_embedding.embedding = self.norm_1(output_embedding.embedding)
+        output_embedding = self.ga(output_embedding, 
+            atomic_numbers,
+            edge_distance,
+            edge_index)
+        
+        if self.drop_path is not None:
+            output_embedding.embedding = self.drop_path(output_embedding.embedding, batch)
+        if self.proj_drop is not None:
+            output_embedding.embedding = self.proj_drop(output_embedding.embedding, batch)
+
+        output_embedding.embedding = output_embedding.embedding + x_res
+
+        x_res = output_embedding.embedding
+        output_embedding.embedding = self.norm_2(output_embedding.embedding)
+        output_embedding = self.ffn(output_embedding)
+
+        if self.drop_path is not None:
+            output_embedding.embedding = self.drop_path(output_embedding.embedding, batch)
+        if self.proj_drop is not None:
+            output_embedding.embedding = self.proj_drop(output_embedding.embedding, batch)
+
+        if self.ffn_shortcut is not None:
+            shortcut_embedding = SO3_Embedding(
+                0, 
+                output_embedding.lmax_list.copy(), 
+                self.ffn_shortcut.in_features, 
+                device=output_embedding.device, 
+                dtype=output_embedding.dtype
+            )
+            shortcut_embedding.set_embedding(x_res)
+            shortcut_embedding.set_lmax_mmax(output_embedding.lmax_list.copy(), output_embedding.lmax_list.copy())
+            shortcut_embedding = self.ffn_shortcut(shortcut_embedding)
+            x_res = shortcut_embedding.embedding
+
+        output_embedding.embedding = output_embedding.embedding + x_res
+
+        return output_embedding
+
+
+class ModuleListInfo(torch.nn.ModuleList):
+    def __init__(self, info_str, modules=None):
+        super().__init__(modules)
+        self.info_str = str(info_str)
+
+    def __repr__(self): 
+        return self.info_str 
+
+class SO3_Grid(torch.nn.Module):
+    """
+    Helper functions for grid representation of the irreps
+
+    Args:
+        lmax (int):   Maximum degree of the spherical harmonics
+        mmax (int):   Maximum order of the spherical harmonics
+    """
+
+    def __init__(
+        self,
+        lmax,
+        mmax,
+        normalization='integral', 
+        resolution=None,
+    ):
+        super().__init__()
+        self.lmax = lmax
+        self.mmax = mmax
+        self.lat_resolution = 2 * (self.lmax + 1)
+        if lmax == mmax:
+            self.long_resolution = 2 * (self.mmax + 1) + 1
+        else:
+            self.long_resolution = 2 * (self.mmax) + 1
+        if resolution is not None:
+            self.lat_resolution = resolution
+            self.long_resolution = resolution
+
+        self.mapping = CoefficientMappingModule([self.lmax], [self.lmax])
+
+        device = 'cpu'
+
+        to_grid = o3.ToS2Grid(
+            self.lmax,
+            (self.lat_resolution, self.long_resolution),
+            normalization=normalization, #normalization="integral",
+            device=device,
+        )
+        to_grid_mat = torch.einsum("mbi, am -> bai", to_grid.shb, to_grid.sha).detach()
+        # rescale based on mmax
+        if lmax != mmax:
+            for l in range(lmax + 1):
+                if l <= mmax:
+                    continue
+                start_idx = l ** 2
+                length = 2 * l + 1
+                rescale_factor = math.sqrt(length / (2 * mmax + 1))
+                to_grid_mat[:, :, start_idx : (start_idx + length)] = to_grid_mat[:, :, start_idx : (start_idx + length)] * rescale_factor
+        to_grid_mat = to_grid_mat[:, :, self.mapping.coefficient_idx(self.lmax, self.mmax)]
+
+        from_grid = o3.FromS2Grid(
+            (self.lat_resolution, self.long_resolution),
+            self.lmax,
+            normalization=normalization, #normalization="integral",
+            device=device,
+        )
+        from_grid_mat = torch.einsum("am, mbi -> bai", from_grid.sha, from_grid.shb).detach()
+        # rescale based on mmax
+        if lmax != mmax:
+            for l in range(lmax + 1):
+                if l <= mmax:
+                    continue
+                start_idx = l ** 2
+                length = 2 * l + 1
+                rescale_factor = math.sqrt(length / (2 * mmax + 1))
+                from_grid_mat[:, :, start_idx : (start_idx + length)] = from_grid_mat[:, :, start_idx : (start_idx + length)] * rescale_factor
+        from_grid_mat = from_grid_mat[:, :, self.mapping.coefficient_idx(self.lmax, self.mmax)]
+
+        # save tensors and they will be moved to GPU
+        self.register_buffer('to_grid_mat',   to_grid_mat)
+        self.register_buffer('from_grid_mat', from_grid_mat)
+
+
+    # Compute matrices to transform irreps to grid
+    def get_to_grid_mat(self, device):
+        return self.to_grid_mat
+
+
+    # Compute matrices to transform grid to irreps
+    def get_from_grid_mat(self, device):
+        return self.from_grid_mat
+
+
+    # Compute grid from irreps representation
+    def to_grid(self, embedding, lmax, mmax):
+        to_grid_mat = self.to_grid_mat[:, :, self.mapping.coefficient_idx(lmax, mmax)]
+        grid = torch.einsum("bai, zic -> zbac", to_grid_mat, embedding)
+        return grid
+
+
+    # Compute irreps from grid representation
+    def from_grid(self, grid, lmax, mmax):
+        from_grid_mat = self.from_grid_mat[:, :, self.mapping.coefficient_idx(lmax, mmax)]
+        embedding = torch.einsum("bai, zbac -> zic", from_grid_mat, grid)
+        return embedding
 
 class EquiformerV2(nn.Module):
     # def __init__(self, node_size: int, edge_size: int, cutoff: float):
     def __init__(self, cutoff: float):
         super().__init__()
         
+        self.regress_forces = False
+        self.batch_size = 12
         # self.edge_size = edge_size
         # self.node_size = node_size
         self.cutoff = cutoff
 
-        lmax_list=[6]
+        lmax_list = [6]
         self.num_resolutions = len(lmax_list)
         self.lmax_list = lmax_list
         mmax_list=[2]
@@ -889,6 +2423,9 @@ class EquiformerV2(nn.Module):
         self.max_num_elements = 119
         self.sphere_channels_all = self.num_resolutions * self.sphere_channels
         self.sphere_embedding = nn.Embedding(self.max_num_elements, self.sphere_channels_all)
+
+        self.weight_init = 'normal'
+        assert self.weight_init in ['normal', 'uniform']
 
         self.distance_function = 'gaussian'
         assert self.distance_function in [
@@ -916,6 +2453,7 @@ class EquiformerV2(nn.Module):
         self.edge_channels = 128
         # Initialize the sizes of radial functions (input channels and 2 hidden channels)
         self.edge_channels_list = [int(self.distance_expansion.num_output)] + [self.edge_channels] * 2
+
         # Initialize atom edge embedding
         if self.share_atom_edge_embedding and self.use_atom_edge_embedding:
             self.source_embedding = nn.Embedding(self.max_num_elements, self.edge_channels_list[-1])
@@ -928,12 +2466,29 @@ class EquiformerV2(nn.Module):
         _AVG_NUM_NODES  = 77.81317
         _AVG_DEGREE     = 23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
 
+        # Initialize the module that compute WignerD matrices and other values for spherical harmonic calculations
         self.SO3_rotation = nn.ModuleList()
         for i in range(self.num_resolutions):
             self.SO3_rotation.append(SO3_Rotation(self.lmax_list[i]))
 
         # Initialize conversion between degree l and order m layouts
         self.mappingReduced = CoefficientMappingModule(self.lmax_list, self.mmax_list)
+
+        # Initialize the transformations between spherical and grid representations
+        self.grid_resolution = None
+        self.SO3_grid = ModuleListInfo('({}, {})'.format(max(self.lmax_list), max(self.lmax_list)))
+        for l in range(max(self.lmax_list) + 1):
+            SO3_m_grid = nn.ModuleList()
+            for m in range(max(self.lmax_list) + 1):
+                SO3_m_grid.append(
+                    SO3_Grid(
+                        l, 
+                        m, 
+                        resolution=self.grid_resolution, 
+                        normalization='component'
+                    )
+                )
+            self.SO3_grid.append(SO3_m_grid)
 
         # Edge-degree embedding
         self.edge_degree_embedding = EdgeDegreeEmbedding(
@@ -948,11 +2503,117 @@ class EquiformerV2(nn.Module):
             rescale_factor=_AVG_DEGREE
         )
 
+        # Initialize the blocks for each layer of EquiformerV2
+        self.num_layers = 12
+        self.attn_hidden_channels = 128
+        self.num_heads = 8
+        self.attn_alpha_channels = 128
+        self.attn_value_channels = 16
+        self.ffn_hidden_channels = 512
+        self.use_m_share_rad = False
+        self.distance_function = 'gaussian'
+        self.num_distance_basis = 512
+
+        self.attn_activation = 'scaled_silu'
+        self.use_s2_act_attn = False
+        self.use_attn_renorm = True
+        self.ffn_activation = 'scaled_silu'
+        self.use_gate_act = False
+        self.use_grid_mlp = False
+        self.use_sep_s2_act = True
+        
+        self.alpha_drop = 0.1
+        self.drop_path_rate = 0.05
+        self.proj_drop = 0.0
+        self.norm_type = 'rms_norm_sh'
+        
+        self.blocks = nn.ModuleList()
+        for i in range(self.num_layers):
+            block = TransBlockV2(
+                self.sphere_channels,
+                self.attn_hidden_channels,
+                self.num_heads,
+                self.attn_alpha_channels,
+                self.attn_value_channels,
+                self.ffn_hidden_channels,
+                self.sphere_channels, 
+                self.lmax_list,
+                self.mmax_list,
+                self.SO3_rotation,
+                self.mappingReduced,
+                self.SO3_grid,
+                self.max_num_elements,
+                self.edge_channels_list,
+                self.block_use_atom_edge_embedding,
+                self.use_m_share_rad,
+                self.attn_activation,
+                self.use_s2_act_attn,
+                self.use_attn_renorm,
+                self.ffn_activation,
+                self.use_gate_act,
+                self.use_grid_mlp,
+                self.use_sep_s2_act,
+                self.norm_type,
+                self.alpha_drop, 
+                self.drop_path_rate,
+                self.proj_drop
+            )
+            self.blocks.append(block)
+
+        # Output blocks for energy and forces
+        self.norm = get_normalization_layer(self.norm_type, lmax=max(self.lmax_list), num_channels=self.sphere_channels)
+        self.energy_block = FeedForwardNetwork(
+            self.sphere_channels,
+            self.ffn_hidden_channels, 
+            1,
+            self.lmax_list,
+            self.mmax_list,
+            self.SO3_grid,  
+            self.ffn_activation,
+            self.use_gate_act,
+            self.use_grid_mlp,
+            self.use_sep_s2_act
+        )
+        if self.regress_forces:
+            self.force_block = SO2EquivariantGraphAttention(
+                self.sphere_channels,
+                self.attn_hidden_channels,
+                self.num_heads, 
+                self.attn_alpha_channels,
+                self.attn_value_channels, 
+                1,
+                self.lmax_list,
+                self.mmax_list,
+                self.SO3_rotation, 
+                self.mappingReduced, 
+                self.SO3_grid, 
+                self.max_num_elements,
+                self.edge_channels_list,
+                self.block_use_atom_edge_embedding, 
+                self.use_m_share_rad,
+                self.attn_activation, 
+                self.use_s2_act_attn, 
+                self.use_attn_renorm,
+                self.use_gate_act,
+                self.use_sep_s2_act,
+                alpha_drop=0.0
+            )
+            
+        self.apply(self._init_weights)
+        self.apply(self._uniform_init_rad_func_linear_weights)
+
+
     def forward(self, data):
         atomic_numbers = data['elems']
         edge_diff = data['n_diff']
+        batch = data['image_idx']
+        natoms = data['num_atoms']
+
         edge_dist = torch.linalg.norm(edge_diff, dim=1)
         edge_idx = data["pairs"]
+        edge_idx = edge_idx.T
+        i, j = edge_idx
+        edge_idx = j, i
 
         # self.batch_size = len(data.natoms)
         self.dtype = data['coords'].dtype
@@ -1034,19 +2695,25 @@ class EquiformerV2(nn.Module):
                 atomic_numbers,
                 edge_dist,
                 edge_idx,
-                batch=data.batch    # for GraphDropPath
+                batch=batch # data.batch    # for GraphDropPath
             )
 
         # Final layer norm
         x.embedding = self.norm(x.embedding)
+
+        # Statistics of IS2RE 100K 
+        _AVG_NUM_NODES  = 77.81317
+        _AVG_DEGREE     = 23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
 
         ###############################################################
         # Energy estimation
         ###############################################################
         node_energy = self.energy_block(x) 
         node_energy = node_energy.embedding.narrow(1, 0, 1)
-        energy = torch.zeros(len(data.natoms), device=node_energy.device, dtype=node_energy.dtype)
-        energy.index_add_(0, data.batch, node_energy.view(-1))
+        energy = torch.zeros(len(natoms), device=node_energy.device, dtype=node_energy.dtype)
+        # energy = torch.zeros(len(data.natoms), device=node_energy.device, dtype=node_energy.dtype)
+        energy.index_add_(0, batch, node_energy.view(-1))
+        # energy.index_add_(0, data.batch, node_energy.view(-1))
         energy = energy / _AVG_NUM_NODES
 
         ###############################################################
@@ -1059,8 +2726,45 @@ class EquiformerV2(nn.Module):
                 edge_idx)
             forces = forces.embedding.narrow(1, 1, 3)
             forces = forces.view(-1, 3)            
-            
-        if not self.regress_forces:
-            return energy
-        else:
-            return energy, forces
+        
+        result_dict = {'energy': energy}
+
+        if self.regress_forces:
+            result_dict['forces'] = forces
+
+        # if not self.regress_forces:
+        #     return energy
+        # else:
+        #     return energy, forces
+        return result_dict
+        
+    
+    @property
+    def num_params(self):
+        return sum(p.numel() for p in self.parameters())
+    
+    def _init_weights(self, m):
+        if (isinstance(m, torch.nn.Linear)
+            or isinstance(m, SO3_LinearV2)
+        ):
+            if m.bias is not None:
+                torch.nn.init.constant_(m.bias, 0)
+            if self.weight_init == 'normal':
+                std = 1 / math.sqrt(m.in_features)
+                torch.nn.init.normal_(m.weight, 0, std)
+
+        elif isinstance(m, torch.nn.LayerNorm):
+            torch.nn.init.constant_(m.bias, 0)
+            torch.nn.init.constant_(m.weight, 1.0)
+
+    
+    def _uniform_init_rad_func_linear_weights(self, m):
+        if (isinstance(m, RadialFunction)):
+            m.apply(self._uniform_init_linear_weights)
+
+    def _uniform_init_linear_weights(self, m):
+        if isinstance(m, torch.nn.Linear):
+            if m.bias is not None:
+                torch.nn.init.constant_(m.bias, 0)
+            std = 1 / math.sqrt(m.in_features)
+            torch.nn.init.uniform_(m.weight, -std, std)
