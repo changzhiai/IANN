@@ -1,4 +1,4 @@
-node_size = 64
+node_size = 32
 num_interactions = 2
 cutoff = 4.0
 val_ratio = 0.1

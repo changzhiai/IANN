@@ -19,6 +19,7 @@ start_iteration = 0
 split_file = false
 stop_patience = 200
 load_model = "model_output/best_model.pth"
+load_models = ["/Users/changzhi/Library/CloudStorage/OneDrive-SLACNationalAcceleratorLaboratory/SLAC/IANN/test/mace/model_output_60/best_model.pth", "/Users/changzhi/Library/CloudStorage/OneDrive-SLACNationalAcceleratorLaboratory/SLAC/IANN/test/mace/model_output_64/best_model.pth"]
 E_per_atoms = false
 save_csv = "fitting.csv"
 fig_name = "fitting.png"
