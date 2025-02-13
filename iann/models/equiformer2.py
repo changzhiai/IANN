@@ -2409,7 +2409,7 @@ class SO3_Grid(torch.nn.Module):
 
 class EquiformerV2(nn.Module):
     # def __init__(self, node_size: int, edge_size: int, cutoff: float):
-    def __init__(self, cutoff: float, device='cpu'):
+    def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3):
         super().__init__()
         
         self.device = device
@@ -2456,7 +2456,7 @@ class EquiformerV2(nn.Module):
         else:
             self.block_use_atom_edge_embedding = self.use_atom_edge_embedding
 
-        self.edge_channels = 128
+        self.edge_channels = num_features
         # Initialize the sizes of radial functions (input channels and 2 hidden channels)
         self.edge_channels_list = [int(self.distance_expansion.num_output)] + [self.edge_channels] * 2
 
@@ -2511,7 +2511,7 @@ class EquiformerV2(nn.Module):
         )
 
         # Initialize the blocks for each layer of EquiformerV2
-        self.num_layers = 12
+        self.num_layers = num_interactions # 12
         self.attn_hidden_channels = 128
         self.num_heads = 8
         self.attn_alpha_channels = 128
