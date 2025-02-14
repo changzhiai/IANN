@@ -295,6 +295,10 @@ def main():
         compute_forces = bool(args.forces_weight),
     )
     net.to(device)
+    total_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    logging.info(f"Total trainable parameters: {total_params}")
+    total_memory = sum(p.element_size() * p.numel() for p in net.parameters() if p.requires_grad)
+    logging.info(f"Model size in memory: {total_memory / 1024**2:.2f} MB")
 
     optimizer = torch.optim.Adam(net.parameters(), lr=args.initial_lr)
     criterion = torch.nn.MSELoss()

@@ -2414,7 +2414,7 @@ class EquiformerV2(nn.Module):
         
         self.device = device
         self.regress_forces = False
-        self.batch_size = 12
+        # self.batch_size = 12
         # self.edge_size = edge_size
         # self.node_size = node_size
         self.cutoff = cutoff
@@ -2423,7 +2423,7 @@ class EquiformerV2(nn.Module):
         self.num_resolutions = len(lmax_list)
         self.lmax_list = lmax_list
         mmax_list=[2]
-        self.sphere_channels=128
+        self.sphere_channels=num_features
         self.mmax_list = mmax_list
 
         self.max_num_elements = 119
