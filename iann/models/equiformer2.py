@@ -356,7 +356,7 @@ class EdgeDegreeEmbedding(torch.nn.Module):
     """
 
     Args:
-        sphere_channels (int):      Number of spherical channels
+        atom_channels (int):      Number of spherical channels
         
         lmax_list (list:int):       List of degrees (l) for each resolution
         mmax_list (list:int):       List of orders (m) for each resolution
@@ -374,7 +374,7 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 
     def __init__(
         self,
-        sphere_channels,
+        atom_channels,
         
         lmax_list,
         mmax_list,
@@ -389,7 +389,7 @@ class EdgeDegreeEmbedding(torch.nn.Module):
         rescale_factor
     ):
         super(EdgeDegreeEmbedding, self).__init__()
-        self.sphere_channels = sphere_channels
+        self.atom_channels = atom_channels
         self.lmax_list = lmax_list
         self.mmax_list = mmax_list
         self.num_resolutions = len(self.lmax_list)
@@ -415,7 +415,7 @@ class EdgeDegreeEmbedding(torch.nn.Module):
             self.source_embedding, self.target_embedding = None, None
 
         # Embedding function of distance
-        self.edge_channels_list.append(self.m_0_num_coefficients * self.sphere_channels)
+        self.edge_channels_list.append(self.m_0_num_coefficients * self.atom_channels)
         self.rad_func = RadialFunction(self.edge_channels_list)
 
         self.rescale_factor = rescale_factor
@@ -438,18 +438,18 @@ class EdgeDegreeEmbedding(torch.nn.Module):
             x_edge = edge_dist
 
         x_edge_m_0 = self.rad_func(x_edge)
-        x_edge_m_0 = x_edge_m_0.reshape(-1, self.m_0_num_coefficients, self.sphere_channels)
+        x_edge_m_0 = x_edge_m_0.reshape(-1, self.m_0_num_coefficients, self.atom_channels)
         x_edge_m_pad = torch.zeros((
             x_edge_m_0.shape[0], 
             (self.m_all_num_coefficents - self.m_0_num_coefficients), 
-            self.sphere_channels), 
+            self.atom_channels), 
             device=x_edge_m_0.device)
         x_edge_m_all = torch.cat((x_edge_m_0, x_edge_m_pad), dim=1)
 
         x_edge_embedding = SO3_Embedding(
             0, 
             self.lmax_list.copy(), 
-            self.sphere_channels, 
+            self.atom_channels, 
             device=x_edge_m_all.device, 
             dtype=x_edge_m_all.dtype
         )
@@ -468,162 +468,11 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 
         return x_edge_embedding
 
-# class CoefficientMappingModule(torch.nn.Module):
-#     """
-#     Helper module for coefficients used to reshape l <--> m and to get coefficients of specific degree or order
-
-#     Args:
-#         lmax_list (list:int):   List of maximum degree of the spherical harmonics
-#         mmax_list (list:int):   List of maximum order of the spherical harmonics
-#     """
-
-#     def __init__(
-#         self,
-#         lmax_list,
-#         mmax_list,
-#     ):
-#         super().__init__()
-
-#         self.lmax_list = lmax_list
-#         self.mmax_list = mmax_list
-#         self.num_resolutions = len(lmax_list)
-
-#         # Temporarily use `cpu` as device and this will be overwritten.
-#         self.device = 'cpu'
-        
-#         # Compute the degree (l) and order (m) for each entry of the embedding
-#         l_harmonic = torch.tensor([], device=self.device).long()
-#         m_harmonic = torch.tensor([], device=self.device).long()
-#         m_complex  = torch.tensor([], device=self.device).long()
-
-#         res_size = torch.zeros([self.num_resolutions], device=self.device).long()
-
-#         offset = 0
-#         for i in range(self.num_resolutions):
-#             for l in range(0, self.lmax_list[i] + 1):
-#                 mmax = min(self.mmax_list[i], l)
-#                 m = torch.arange(-mmax, mmax + 1, device=self.device).long()
-#                 m_complex = torch.cat([m_complex, m], dim=0)
-#                 m_harmonic = torch.cat(
-#                     [m_harmonic, torch.abs(m).long()], dim=0
-#                 )
-#                 l_harmonic = torch.cat(
-#                     [l_harmonic, m.fill_(l).long()], dim=0
-#                 )
-#             res_size[i] = len(l_harmonic) - offset
-#             offset = len(l_harmonic)
-
-#         num_coefficients = len(l_harmonic)
-#         # `self.to_m` moves m components from different L to contiguous index
-#         to_m = torch.zeros([num_coefficients, num_coefficients], device=self.device)
-#         m_size = torch.zeros([max(self.mmax_list) + 1], device=self.device).long()
-
-#         # The following is implemented poorly - very slow. It only gets called
-#         # a few times so haven't optimized.
-#         offset = 0
-#         for m in range(max(self.mmax_list) + 1):
-#             idx_r, idx_i = self.complex_idx(m, -1, m_complex, l_harmonic)
-
-#             for idx_out, idx_in in enumerate(idx_r):
-#                 to_m[idx_out + offset, idx_in] = 1.0
-#             offset = offset + len(idx_r)
-
-#             m_size[m] = int(len(idx_r))
-
-#             for idx_out, idx_in in enumerate(idx_i):
-#                 to_m[idx_out + offset, idx_in] = 1.0
-#             offset = offset + len(idx_i)
-
-#         to_m = to_m.detach()
-
-#         # save tensors and they will be moved to GPU
-#         self.register_buffer('l_harmonic', l_harmonic)
-#         self.register_buffer('m_harmonic', m_harmonic)
-#         self.register_buffer('m_complex',  m_complex)
-#         self.register_buffer('res_size',   res_size)
-#         self.register_buffer('to_m',       to_m)
-#         self.register_buffer('m_size',     m_size)
-
-#         # for caching the output of `coefficient_idx`
-#         self.lmax_cache, self.mmax_cache = None, None
-#         self.mask_indices_cache = None
-#         self.rotate_inv_rescale_cache = None
-
-#     # Return mask containing coefficients of order m (real and imaginary parts)
-#     def complex_idx(self, m, lmax, m_complex, l_harmonic):
-#         '''
-#             Add `m_complex` and `l_harmonic` to the input arguments 
-#             since we cannot use `self.m_complex`. 
-#         '''
-#         if lmax == -1:
-#             lmax = max(self.lmax_list)
-
-#         indices = torch.arange(len(l_harmonic), device=self.device)
-#         # Real part
-#         mask_r = torch.bitwise_and(
-#             l_harmonic.le(lmax), m_complex.eq(m)
-#         )
-#         mask_idx_r = torch.masked_select(indices, mask_r)
-
-#         mask_idx_i = torch.tensor([], device=self.device).long()
-#         # Imaginary part
-#         if m != 0:
-#             mask_i = torch.bitwise_and(
-#                 l_harmonic.le(lmax), m_complex.eq(-m)
-#             )
-#             mask_idx_i = torch.masked_select(indices, mask_i)
-
-#         return mask_idx_r, mask_idx_i
-
-#     # Return mask containing coefficients less than or equal to degree (l) and order (m)
-#     def coefficient_idx(self, lmax, mmax):
-
-#         if (self.lmax_cache is not None) and (self.mmax_cache is not None):
-#             if (self.lmax_cache == lmax) and (self.mmax_cache == mmax):
-#                 if self.mask_indices_cache is not None:
-#                     return self.mask_indices_cache
-
-#         mask = torch.bitwise_and(
-#             self.l_harmonic.le(lmax), self.m_harmonic.le(mmax)
-#         )
-#         self.device = mask.device
-#         indices = torch.arange(len(mask), device=self.device)
-#         mask_indices = torch.masked_select(indices, mask)
-#         self.lmax_cache, self.mmax_cache = lmax, mmax
-#         self.mask_indices_cache = mask_indices
-#         return self.mask_indices_cache
-    
-#     # Return the re-scaling for rotating back to original frame
-#     # this is required since we only use a subset of m components for SO(2) convolution
-#     def get_rotate_inv_rescale(self, lmax, mmax):
-
-#         if (self.lmax_cache is not None) and (self.mmax_cache is not None):
-#             if (self.lmax_cache == lmax) and (self.mmax_cache == mmax):
-#                 if self.rotate_inv_rescale_cache is not None:
-#                     return self.rotate_inv_rescale_cache
-        
-#         if self.mask_indices_cache is None:
-#             self.coefficient_idx(lmax, mmax)
-        
-#         rotate_inv_rescale = torch.ones((1, (lmax + 1)**2, (lmax + 1)**2), device=self.device)
-#         for l in range(lmax + 1):
-#             if l <= mmax:
-#                 continue
-#             start_idx = l ** 2
-#             length = 2 * l + 1
-#             rescale_factor = math.sqrt(length / (2 * mmax + 1))
-#             rotate_inv_rescale[:, start_idx : (start_idx + length), start_idx : (start_idx + length)] = rescale_factor
-#         rotate_inv_rescale = rotate_inv_rescale[:, :, self.mask_indices_cache]        
-#         self.rotate_inv_rescale_cache = rotate_inv_rescale
-#         return self.rotate_inv_rescale_cache
-    
-#     def __repr__(self):
-#         return f"{self.__class__.__name__}(lmax_list={self.lmax_list}, mmax_list={self.mmax_list})"
 
 # Borrowed from e3nn @ 0.4.0:
 # https://github.com/e3nn/e3nn/blob/0.4.0/e3nn/o3/_wigner.py#L10
 # _Jd is a list of tensors of shape (2l+1, 2l+1)
-_Jd = torch.load(os.path.join(os.path.dirname(__file__), "Jd.pt"))
+_Jd = torch.load(os.path.join(os.path.dirname(__file__), "../data/Jd.pt"))
 
 # Borrowed from e3nn @ 0.4.0:
 # https://github.com/e3nn/e3nn/blob/0.4.0/e3nn/o3/_wigner.py#L37
@@ -922,7 +771,7 @@ class EquivariantLayerNormArray(nn.Module):
     @torch.cuda.amp.autocast(enabled=False)
     def forward(self, node_input):
         '''
-            Assume input is of shape [N, sphere_basis, C]
+            Assume input is of shape [N, atom_basis, C]
         '''
         
         out = []
@@ -965,7 +814,6 @@ class EquivariantLayerNormArray(nn.Module):
         out = torch.cat(out, dim=1)
         
         return out 
-
 
 
 class EquivariantLayerNormArraySphericalHarmonics(nn.Module):
@@ -1014,7 +862,7 @@ class EquivariantLayerNormArraySphericalHarmonics(nn.Module):
     @torch.cuda.amp.autocast(enabled=False)
     def forward(self, node_input):
         '''
-            Assume input is of shape [N, sphere_basis, C]
+            Assume input is of shape [N, atom_basis, C]
         '''
         
         out = []
@@ -1089,7 +937,7 @@ class EquivariantRMSNormArraySphericalHarmonics(nn.Module):
     @torch.cuda.amp.autocast(enabled=False)
     def forward(self, node_input):
         '''
-            Assume input is of shape [N, sphere_basis, C]
+            Assume input is of shape [N, atom_basis, C]
         '''
         
         out = []
@@ -1126,7 +974,7 @@ class SO2_m_Convolution(torch.nn.Module):
 
     Args:
         m (int):                    Order of the spherical harmonic coefficients
-        sphere_channels (int):      Number of spherical channels
+        atom_channels (int):      Number of spherical channels
         m_output_channels (int):    Number of output channels used during the SO(2) conv
         lmax_list (list:int):       List of degrees (l) for each resolution
         mmax_list (list:int):       List of orders (m) for each resolution
@@ -1134,7 +982,7 @@ class SO2_m_Convolution(torch.nn.Module):
     def __init__(
         self,
         m, 
-        sphere_channels,
+        atom_channels,
         m_output_channels,
         lmax_list, 
         mmax_list
@@ -1142,7 +990,7 @@ class SO2_m_Convolution(torch.nn.Module):
         super(SO2_m_Convolution, self).__init__()
         
         self.m = m
-        self.sphere_channels = sphere_channels
+        self.atom_channels = atom_channels
         self.m_output_channels = m_output_channels
         self.lmax_list = lmax_list
         self.mmax_list = mmax_list
@@ -1153,11 +1001,11 @@ class SO2_m_Convolution(torch.nn.Module):
             num_coefficents = 0
             if self.mmax_list[i] >= self.m:
                 num_coefficents = self.lmax_list[i] - self.m + 1
-            num_channels = num_channels + num_coefficents * self.sphere_channels
+            num_channels = num_channels + num_coefficents * self.atom_channels
         assert num_channels > 0
 
         self.fc = torch.nn.Linear(num_channels, 
-            2 * self.m_output_channels * (num_channels // self.sphere_channels), 
+            2 * self.m_output_channels * (num_channels // self.atom_channels), 
             bias=False)
         self.fc.weight.data.mul_(1 / math.sqrt(2))
 
@@ -1223,7 +1071,7 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nn.Module):
     @torch.cuda.amp.autocast(enabled=False)
     def forward(self, node_input):
         '''
-            Assume input is of shape [N, sphere_basis, C]
+            Assume input is of shape [N, atom_basis, C]
         '''
         
         feature = node_input    
@@ -1295,7 +1143,7 @@ class SO2_m_Convolution(torch.nn.Module):
 
     Args:
         m (int):                    Order of the spherical harmonic coefficients
-        sphere_channels (int):      Number of spherical channels
+        atom_channels (int):      Number of spherical channels
         m_output_channels (int):    Number of output channels used during the SO(2) conv
         lmax_list (list:int):       List of degrees (l) for each resolution
         mmax_list (list:int):       List of orders (m) for each resolution
@@ -1303,7 +1151,7 @@ class SO2_m_Convolution(torch.nn.Module):
     def __init__(
         self,
         m, 
-        sphere_channels,
+        atom_channels,
         m_output_channels,
         lmax_list, 
         mmax_list
@@ -1311,7 +1159,7 @@ class SO2_m_Convolution(torch.nn.Module):
         super(SO2_m_Convolution, self).__init__()
         
         self.m = m
-        self.sphere_channels = sphere_channels
+        self.atom_channels = atom_channels
         self.m_output_channels = m_output_channels
         self.lmax_list = lmax_list
         self.mmax_list = mmax_list
@@ -1322,11 +1170,11 @@ class SO2_m_Convolution(torch.nn.Module):
             num_coefficents = 0
             if self.mmax_list[i] >= self.m:
                 num_coefficents = self.lmax_list[i] - self.m + 1
-            num_channels = num_channels + num_coefficents * self.sphere_channels
+            num_channels = num_channels + num_coefficents * self.atom_channels
         assert num_channels > 0
 
         self.fc = torch.nn.Linear(num_channels, 
-            2 * self.m_output_channels * (num_channels // self.sphere_channels), 
+            2 * self.m_output_channels * (num_channels // self.atom_channels), 
             bias=False)
         self.fc.weight.data.mul_(1 / math.sqrt(2))
 
@@ -1347,7 +1195,7 @@ class SO2_Convolution(torch.nn.Module):
     SO(2) Block: Perform SO(2) convolutions for all m (orders)
 
     Args:
-        sphere_channels (int):      Number of spherical channels
+        atom_channels (int):      Number of spherical channels
         m_output_channels (int):    Number of output channels used during the SO(2) conv
         lmax_list (list:int):       List of degrees (l) for each resolution
         mmax_list (list:int):       List of orders (m) for each resolution
@@ -1358,7 +1206,7 @@ class SO2_Convolution(torch.nn.Module):
     """
     def __init__(
         self,
-        sphere_channels,
+        atom_channels,
         m_output_channels,
         lmax_list,
         mmax_list,
@@ -1368,7 +1216,7 @@ class SO2_Convolution(torch.nn.Module):
         extra_m0_output_channels=None
     ):
         super(SO2_Convolution, self).__init__()
-        self.sphere_channels = sphere_channels
+        self.atom_channels = atom_channels
         self.m_output_channels = m_output_channels
         self.lmax_list = lmax_list
         self.mmax_list = mmax_list
@@ -1383,10 +1231,10 @@ class SO2_Convolution(torch.nn.Module):
         num_channels_m0 = 0
         for i in range(self.num_resolutions):
             num_coefficients = self.lmax_list[i] + 1
-            num_channels_m0 = num_channels_m0 + num_coefficients * self.sphere_channels
+            num_channels_m0 = num_channels_m0 + num_coefficients * self.atom_channels
 
         # SO(2) convolution for m = 0
-        m0_output_channels = self.m_output_channels * (num_channels_m0 // self.sphere_channels)
+        m0_output_channels = self.m_output_channels * (num_channels_m0 // self.atom_channels)
         if self.extra_m0_output_channels is not None:
             m0_output_channels = m0_output_channels + self.extra_m0_output_channels
         self.fc_m0 = torch.nn.Linear(num_channels_m0, m0_output_channels)
@@ -1398,7 +1246,7 @@ class SO2_Convolution(torch.nn.Module):
             self.so2_m_conv.append(
                 SO2_m_Convolution(
                     m, 
-                    self.sphere_channels,
+                    self.atom_channels,
                     self.m_output_channels,
                     self.lmax_list, 
                     self.mmax_list,
@@ -1641,7 +1489,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
         attention weights * non-linear messages -> Linear
 
     Args:
-        sphere_channels (int):      Number of spherical channels
+        atom_channels (int):      Number of spherical channels
         hidden_channels (int):      Number of hidden channels used during the SO(2) conv
         num_heads (int):            Number of attention heads
         attn_alpha_head (int):      Number of channels for alpha vector in each attention head
@@ -1671,7 +1519,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
 
     def __init__(
         self,
-        sphere_channels,
+        atom_channels,
         hidden_channels,
         num_heads, 
         attn_alpha_channels,
@@ -1695,7 +1543,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
     ):
         super(SO2EquivariantGraphAttention, self).__init__()
         
-        self.sphere_channels = sphere_channels
+        self.atom_channels = atom_channels
         self.hidden_channels = hidden_channels
         self.num_heads = num_heads
         self.attn_alpha_channels = attn_alpha_channels
@@ -1743,7 +1591,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
                     extra_m0_output_channels = extra_m0_output_channels + self.hidden_channels
         
         if self.use_m_share_rad:
-            self.edge_channels_list = self.edge_channels_list + [2 * self.sphere_channels * (max(self.lmax_list) + 1)]
+            self.edge_channels_list = self.edge_channels_list + [2 * self.atom_channels * (max(self.lmax_list) + 1)]
             self.rad_func = RadialFunction(self.edge_channels_list)
             expand_index = torch.zeros([(max(self.lmax_list) + 1) ** 2]).long()
             for l in range(max(self.lmax_list) + 1):
@@ -1753,7 +1601,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
             self.register_buffer('expand_index', expand_index)
 
         self.so2_conv_1 = SO2_Convolution(
-            2 * self.sphere_channels,
+            2 * self.atom_channels,
             self.hidden_channels,
             self.lmax_list,
             self.mmax_list,
@@ -1863,7 +1711,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
         # radial function (scale all m components within a type-L vector of one channel with the same weight)
         if self.use_m_share_rad:
             x_edge_weight = self.rad_func(x_edge)
-            x_edge_weight = x_edge_weight.reshape(-1, (max(self.lmax_list) + 1), 2 * self.sphere_channels)
+            x_edge_weight = x_edge_weight.reshape(-1, (max(self.lmax_list) + 1), 2 * self.atom_channels)
             x_edge_weight = torch.index_select(x_edge_weight, dim=1, index=self.expand_index) # [E, (L_max + 1) ** 2, C]
             x_message.embedding = x_message.embedding * x_edge_weight
 
@@ -1936,7 +1784,7 @@ class FeedForwardNetwork(torch.nn.Module):
     FeedForwardNetwork: Perform feedforward network with S2 activation or gate activation
 
     Args:
-        sphere_channels (int):      Number of spherical channels
+        atom_channels (int):      Number of spherical channels
         hidden_channels (int):      Number of hidden channels used during feedforward network
         output_channels (int):      Number of output channels
 
@@ -1953,7 +1801,7 @@ class FeedForwardNetwork(torch.nn.Module):
 
     def __init__(
         self,
-        sphere_channels,
+        atom_channels,
         hidden_channels, 
         output_channels,
         lmax_list,
@@ -1965,13 +1813,13 @@ class FeedForwardNetwork(torch.nn.Module):
         use_sep_s2_act=True
     ):
         super(FeedForwardNetwork, self).__init__()
-        self.sphere_channels = sphere_channels
+        self.atom_channels = atom_channels
         self.hidden_channels = hidden_channels
         self.output_channels = output_channels
         self.lmax_list = lmax_list
         self.mmax_list = mmax_list
         self.num_resolutions = len(lmax_list)
-        self.sphere_channels_all = self.num_resolutions * self.sphere_channels
+        self.atom_channels_all = self.num_resolutions * self.atom_channels
         self.SO3_grid = SO3_grid
         self.use_gate_act = use_gate_act
         self.use_grid_mlp = use_grid_mlp
@@ -1979,11 +1827,11 @@ class FeedForwardNetwork(torch.nn.Module):
 
         self.max_lmax = max(self.lmax_list)
         
-        self.so3_linear_1 = SO3_LinearV2(self.sphere_channels_all, self.hidden_channels, lmax=self.max_lmax)
+        self.so3_linear_1 = SO3_LinearV2(self.atom_channels_all, self.hidden_channels, lmax=self.max_lmax)
         if self.use_grid_mlp:
             if self.use_sep_s2_act:
                 self.scalar_mlp = nn.Sequential(
-                    nn.Linear(self.sphere_channels_all, self.hidden_channels, bias=True), 
+                    nn.Linear(self.atom_channels_all, self.hidden_channels, bias=True), 
                     nn.SiLU(), 
                 )
             else:
@@ -1997,11 +1845,11 @@ class FeedForwardNetwork(torch.nn.Module):
             )
         else:
             if self.use_gate_act:
-                self.gating_linear = torch.nn.Linear(self.sphere_channels_all, self.max_lmax * self.hidden_channels)
+                self.gating_linear = torch.nn.Linear(self.atom_channels_all, self.max_lmax * self.hidden_channels)
                 self.gate_act = GateActivation(self.max_lmax, self.max_lmax, self.hidden_channels)
             else:
                 if self.use_sep_s2_act:
-                    self.gating_linear = torch.nn.Linear(self.sphere_channels_all, self.hidden_channels)
+                    self.gating_linear = torch.nn.Linear(self.atom_channels_all, self.hidden_channels)
                     self.s2_act = SeparableS2Activation(self.max_lmax, self.max_lmax)
                 else:
                     self.gating_linear = None
@@ -2123,7 +1971,7 @@ class TransBlockV2(torch.nn.Module):
     """
 
     Args:
-        sphere_channels (int):      Number of spherical channels
+        atom_channels (int):      Number of spherical channels
         attn_hidden_channels (int): Number of hidden channels used during SO(2) graph attention
         num_heads (int):            Number of attention heads
         attn_alpha_head (int):      Number of channels for alpha vector in each attention head
@@ -2161,7 +2009,7 @@ class TransBlockV2(torch.nn.Module):
 
     def __init__(
         self,
-        sphere_channels,
+        atom_channels,
         attn_hidden_channels,
         num_heads,
         attn_alpha_channels, 
@@ -2198,15 +2046,15 @@ class TransBlockV2(torch.nn.Module):
         super(TransBlockV2, self).__init__()
 
         max_lmax = max(lmax_list)
-        self.norm_1 = get_normalization_layer(norm_type, lmax=max_lmax, num_channels=sphere_channels)
+        self.norm_1 = get_normalization_layer(norm_type, lmax=max_lmax, num_channels=atom_channels)
 
         self.ga = SO2EquivariantGraphAttention(
-            sphere_channels=sphere_channels,
+            atom_channels=atom_channels,
             hidden_channels=attn_hidden_channels,
             num_heads=num_heads, 
             attn_alpha_channels=attn_alpha_channels,
             attn_value_channels=attn_value_channels, 
-            output_channels=sphere_channels,
+            output_channels=atom_channels,
             lmax_list=lmax_list,
             mmax_list=mmax_list,
             SO3_rotation=SO3_rotation, 
@@ -2227,10 +2075,10 @@ class TransBlockV2(torch.nn.Module):
         self.drop_path = GraphDropPath(drop_path_rate) if drop_path_rate > 0. else None
         self.proj_drop = EquivariantDropoutArraySphericalHarmonics(proj_drop, drop_graph=False) if proj_drop > 0.0 else None
 
-        self.norm_2 = get_normalization_layer(norm_type, lmax=max_lmax, num_channels=sphere_channels)
+        self.norm_2 = get_normalization_layer(norm_type, lmax=max_lmax, num_channels=atom_channels)
         
         self.ffn = FeedForwardNetwork(
-            sphere_channels=sphere_channels,
+            atom_channels=atom_channels,
             hidden_channels=ffn_hidden_channels, 
             output_channels=output_channels,
             lmax_list=lmax_list,
@@ -2242,8 +2090,8 @@ class TransBlockV2(torch.nn.Module):
             use_sep_s2_act=use_sep_s2_act
         )
 
-        if sphere_channels != output_channels:
-            self.ffn_shortcut = SO3_LinearV2(sphere_channels, output_channels, lmax=max_lmax)
+        if atom_channels != output_channels:
+            self.ffn_shortcut = SO3_LinearV2(atom_channels, output_channels, lmax=max_lmax)
         else:
             self.ffn_shortcut = None
 
@@ -2414,21 +2262,18 @@ class EquiformerV2(nn.Module):
         
         self.device = device
         self.regress_forces = False
-        # self.batch_size = 12
-        # self.edge_size = edge_size
-        # self.node_size = node_size
         self.cutoff = cutoff
 
         lmax_list = [6]
         self.num_resolutions = len(lmax_list)
         self.lmax_list = lmax_list
         mmax_list=[2]
-        self.sphere_channels=num_features
+        self.atom_channels=num_features
         self.mmax_list = mmax_list
 
         self.max_num_elements = 119
-        self.sphere_channels_all = self.num_resolutions * self.sphere_channels
-        self.sphere_embedding = nn.Embedding(self.max_num_elements, self.sphere_channels_all)
+        self.atom_channels_all = self.num_resolutions * self.atom_channels
+        self.atom_embedding = nn.Embedding(self.max_num_elements, self.atom_channels_all)
 
         self.weight_init = 'normal'
         assert self.weight_init in ['normal', 'uniform']
@@ -2499,7 +2344,7 @@ class EquiformerV2(nn.Module):
 
         # Edge-degree embedding
         self.edge_degree_embedding = EdgeDegreeEmbedding(
-            self.sphere_channels,
+            self.atom_channels,
             self.lmax_list,
             self.mmax_list,
             self.SO3_rotation,
@@ -2537,13 +2382,13 @@ class EquiformerV2(nn.Module):
         self.blocks = nn.ModuleList()
         for i in range(self.num_layers):
             block = TransBlockV2(
-                self.sphere_channels,
+                self.atom_channels,
                 self.attn_hidden_channels,
                 self.num_heads,
                 self.attn_alpha_channels,
                 self.attn_value_channels,
                 self.ffn_hidden_channels,
-                self.sphere_channels, 
+                self.atom_channels, 
                 self.lmax_list,
                 self.mmax_list,
                 self.SO3_rotation,
@@ -2568,9 +2413,9 @@ class EquiformerV2(nn.Module):
             self.blocks.append(block)
 
         # Output blocks for energy and forces
-        self.norm = get_normalization_layer(self.norm_type, lmax=max(self.lmax_list), num_channels=self.sphere_channels)
+        self.norm = get_normalization_layer(self.norm_type, lmax=max(self.lmax_list), num_channels=self.atom_channels)
         self.energy_block = FeedForwardNetwork(
-            self.sphere_channels,
+            self.atom_channels,
             self.ffn_hidden_channels, 
             1,
             self.lmax_list,
@@ -2583,7 +2428,7 @@ class EquiformerV2(nn.Module):
         )
         if self.regress_forces:
             self.force_block = SO2EquivariantGraphAttention(
-                self.sphere_channels,
+                self.atom_channels,
                 self.attn_hidden_channels,
                 self.num_heads, 
                 self.attn_alpha_channels,
@@ -2628,16 +2473,6 @@ class EquiformerV2(nn.Module):
 
         # atomic_numbers = data.atomic_numbers.long()
         num_atoms = len(atomic_numbers)
-        # pos = data.pos
-
-        # (
-        #     edge_idx,
-        #     edge_dist,
-        #     edge_diff,
-        #     cell_offsets,
-        #     _,  # cell offset distances
-        #     neighbors,
-        # ) = self.generate_graph(data)
 
         ###############################################################
         # Initialize data structures
@@ -2651,14 +2486,14 @@ class EquiformerV2(nn.Module):
             self.SO3_rotation[i].set_wigner(edge_rot_mat)
 
         ###############################################################
-        # Initialize node embeddings
+        # Embeddings
         ###############################################################
 
         # Init per node representations using an atomic number based embedding
         x = SO3_Embedding(
             num_atoms,
             self.lmax_list,
-            self.sphere_channels,
+            self.atom_channels,
             self.device,
             self.dtype,
         )
@@ -2666,14 +2501,15 @@ class EquiformerV2(nn.Module):
         offset_res = 0
         offset = 0
         # Initialize the l = 0, m = 0 coefficients for each resolution
+        # Atom embedding
         for i in range(self.num_resolutions):
             if self.num_resolutions == 1:
-                x.embedding[:, offset_res, :] = self.sphere_embedding(atomic_numbers)
+                x.embedding[:, offset_res, :] = self.atom_embedding(atomic_numbers)
             else:
-                x.embedding[:, offset_res, :] = self.sphere_embedding(
+                x.embedding[:, offset_res, :] = self.atom_embedding(
                     atomic_numbers
-                    )[:, offset : offset + self.sphere_channels]
-            offset = offset + self.sphere_channels
+                    )[:, offset : offset + self.atom_channels]
+            offset = offset + self.atom_channels
             offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
 
         # Edge encoding (distance and atom edge)
@@ -2693,7 +2529,7 @@ class EquiformerV2(nn.Module):
         x.embedding = x.embedding + edge_degree.embedding
 
         ###############################################################
-        # Update spherical node embeddings
+        # Seperable layer norm, and equivariant graph attention
         ###############################################################
 
         for i in range(self.num_layers):
@@ -2715,7 +2551,7 @@ class EquiformerV2(nn.Module):
         ###############################################################
         # Energy estimation
         ###############################################################
-        node_energy = self.energy_block(x) 
+        node_energy = self.energy_block(x) # feedforward NN
         node_energy = node_energy.embedding.narrow(1, 0, 1)
         energy = torch.zeros(len(natoms), device=node_energy.device, dtype=node_energy.dtype)
         # energy = torch.zeros(len(data.natoms), device=node_energy.device, dtype=node_energy.dtype)
