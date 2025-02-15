@@ -1858,7 +1858,6 @@ class FeedForwardNetwork(torch.nn.Module):
         
     
     def forward(self, input_embedding):
-
         gating_scalars = None
         if self.use_grid_mlp:
             if self.use_sep_s2_act:
@@ -2104,7 +2103,6 @@ class TransBlockV2(torch.nn.Module):
         edge_index,
         batch           # for GraphDropPath
     ):
-
         output_embedding = x
         
         x_res = output_embedding.embedding
@@ -2185,16 +2183,11 @@ class SO3_Grid(torch.nn.Module):
             self.lat_resolution = resolution
             self.long_resolution = resolution
 
-        # device = 'cpu'
-
         self.mapping = CoefficientMappingModule([self.lmax], [self.lmax], device)
-
-        
-
         to_grid = o3.ToS2Grid(
             self.lmax,
             (self.lat_resolution, self.long_resolution),
-            normalization=normalization, #normalization="integral",
+            normalization=normalization, 
             device=device,
         )
         to_grid_mat = torch.einsum("mbi, am -> bai", to_grid.shb, to_grid.sha).detach()
@@ -2256,7 +2249,6 @@ class SO3_Grid(torch.nn.Module):
         return embedding
 
 class EquiformerV2(nn.Module):
-    # def __init__(self, node_size: int, edge_size: int, cutoff: float):
     def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3):
         super().__init__()
         
@@ -2357,14 +2349,14 @@ class EquiformerV2(nn.Module):
 
         # Initialize the blocks for each layer of EquiformerV2
         self.num_layers = num_interactions # 12
-        self.attn_hidden_channels = 128
+        self.attn_hidden_channels = num_features
         self.num_heads = 8
-        self.attn_alpha_channels = 128
+        self.attn_alpha_channels = num_features
         self.attn_value_channels = 16
-        self.ffn_hidden_channels = 512
+        self.ffn_hidden_channels = num_features*4
         self.use_m_share_rad = False
         self.distance_function = 'gaussian'
-        self.num_distance_basis = 512
+        self.num_distance_basis = num_features*4
 
         self.attn_activation = 'scaled_silu'
         self.use_s2_act_attn = False
