@@ -288,14 +288,7 @@ def main():
         )
         logging.debug("target_mean=%f, target_stddev=%f" % (target_mean, target_stddev))
 
-    # net = MACE(
-    #     cutoff = args.cutoff,
-    #     num_interactions = args.num_interactions,
-    #     num_features = args.node_size,
-    #     correlation = 3,
-    #     species = None,
-    #     compute_forces = bool(args.forces_weight),
-    # )
+
     net = EquiformerV2(
         cutoff = args.cutoff,
         num_interactions = args.num_interactions,
@@ -349,9 +342,6 @@ def main():
             optimizer.zero_grad()
 
             # Forward, backward and optimize
-            # outputs = net(
-            #     batch, compute_forces=bool(args.forces_weight)
-            # )
             outputs = net(
                 batch.copy()
             )
