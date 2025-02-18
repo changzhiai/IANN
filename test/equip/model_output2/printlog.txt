@@ -1,6 +1,0 @@
-2024-11-06 22:20:18,149 [INFO ]  loading data Pt_ads.traj
-2024-11-06 22:20:18,150 [INFO ]  Dataset size: 278, training set size: 250, validation set size: 28
-2024-11-06 22:20:29,212 [INFO ]  step=0, energy_mae=169.805, energy_rmse=170.037, forces_l2_mae=0.000, forces_l2_rmse=0.000, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=0.000, sqrt(train_loss)=164.736, sqrt(smooth_loss)=0.000, patience=  0, training time=0.070 min, eval time=0.076 min
-2024-11-07 01:43:29,310 [INFO ]  step=2000, energy_mae=6.549, energy_rmse=7.522, forces_l2_mae=0.000, forces_l2_rmse=0.000, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=0.000, sqrt(train_loss)=74.157, sqrt(smooth_loss)=0.000, patience=  0, training time=202.289 min, eval time=0.089 min
-2024-11-07 05:03:39,448 [INFO ]  step=4000, energy_mae=5.978, energy_rmse=6.857, forces_l2_mae=0.000, forces_l2_rmse=0.000, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=0.000, sqrt(train_loss)=7.749, sqrt(smooth_loss)=0.000, patience=  0, training time=199.450 min, eval time=0.108 min
-2024-11-07 08:22:10,372 [INFO ]  step=6000, energy_mae=3.128, energy_rmse=3.516, forces_l2_mae=0.000, forces_l2_rmse=0.000, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=0.000, sqrt(train_loss)=6.216, sqrt(smooth_loss)=0.000, patience=  0, training time=197.842 min, eval time=0.085 min
