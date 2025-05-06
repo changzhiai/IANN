@@ -1,0 +1,59 @@
+# LAMMPS input script for IANN machine learning potential
+# Example for silicon with PaiNN potential
+# Complete silicon simulation example
+# Shows proper parameter settings for ML potentials
+# Includes equilibration, production, and analysis steps
+
+# Initialization
+units metal        # Use metal units (eV, Angstroms)
+dimension 3        # 3D simulation
+boundary p p p     # Periodic in all directions
+atom_style atomic  # Atomic system (no bonds)
+
+# Create simulation box and atoms
+# This example creates a silicon crystal (diamond structure)
+lattice diamond 5.431  # Silicon lattice constant in Angstroms
+region box block 0 4 0 4 0 4  # 4x4x4 unit cells
+create_box 1 box
+create_atoms 1 box
+
+# Define the ML potential
+# Syntax: pair_style iann model_type model_path cutoff
+pair_style iann painn painn_si_lammps.pt 5.5
+pair_coeff * *  # All atom types use this potential
+
+# Mass (adjust to match your system)
+mass 1 28.0855  # Silicon atomic mass
+
+# Initialize velocities
+velocity all create 300.0 4928459 dist gaussian
+
+# Define computes and output
+compute pe all pe
+compute ke all ke
+variable temp equal "ke/(1.5*boltz*count(all))"
+thermo_style custom step temp pe ke etotal press vol
+thermo 100
+
+# Equilibration
+fix 1 all nve                       # NVE ensemble
+fix 2 all temp/rescale 10 300 300 0.05 1.0  # Temperature control
+timestep 0.001                      # 1 fs timestep
+run 1000                           # Run for 1 ps
+
+# Production
+unfix 2
+fix 2 all nvt temp 300 300 0.1      # Switch to NVT ensemble
+dump 1 all custom 100 dump.lammpstrj id type x y z
+run 10000                          # Run for 10 ps
+
+# Calculate radial distribution function
+compute rdf all rdf 100 1 1
+fix 3 all ave/time 100 1 100 c_rdf[*] file rdf.dat mode vector
+
+# Run with RDF calculation
+run 5000
+
+# Print final information
+print "Final energy: $(pe) eV"
+print "Final temperature: ${temp} K" 

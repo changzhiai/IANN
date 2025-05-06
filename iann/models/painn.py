@@ -1,5 +1,8 @@
 import torch
 from torch import nn
+from iann.data.data import AtomsData
+from typing import List, Optional
+from torch import Tensor
 
 def sinc_expansion(edge_dist: torch.Tensor, edge_size: int, cutoff: float):
     """
@@ -7,8 +10,14 @@ def sinc_expansion(edge_dist: torch.Tensor, edge_size: int, cutoff: float):
     
     sin(n *pi*d/d_cut)/d
     """
-    n = torch.arange(edge_size, device=edge_dist.device) + 1
-    return torch.sin(edge_dist.unsqueeze(-1) * n * torch.pi / cutoff) / edge_dist.unsqueeze(-1)
+    # n tensor
+    n = torch.arange(edge_size, device=edge_dist.device, dtype=edge_dist.dtype) + 1
+    
+    # Compute expansion
+    expanded = edge_dist.unsqueeze(-1) * n * torch.pi / cutoff
+    result = torch.sin(expanded) / edge_dist.unsqueeze(-1)
+    
+    return result
 
 def cosine_cutoff(edge_dist: torch.Tensor, cutoff: float):
     """
@@ -41,12 +50,12 @@ class PainnMessage(nn.Module):
         
         self.filter_layer = nn.Linear(edge_size, node_size * 3)
         
-    def forward(self, node_scalar, node_vector, edge, edge_diff, edge_dist):
+    def forward(self, node_scalar, node_vector, edge_indices, edge_vectors, edge_dist):
         # remember to use v_j, s_j but not v_i, s_i        
         filter_weight = self.filter_layer(sinc_expansion(edge_dist, self.edge_size, self.cutoff))
         filter_weight = filter_weight * cosine_cutoff(edge_dist, self.cutoff).unsqueeze(-1)
-        scalar_out = self.scalar_message_mlp(node_scalar)        
-        filter_out = filter_weight * scalar_out[edge[:, 1]] # tensor attribute: sublist can be larger than original due to depuliation
+        scalar_out = self.scalar_message_mlp(node_scalar)      
+        filter_out = filter_weight * scalar_out[edge_indices[:, 1]]
         
         gate_state_vector, gate_edge_vector, message_scalar = torch.split(
             filter_out, 
@@ -55,15 +64,15 @@ class PainnMessage(nn.Module):
         )
         
         # num_pairs * 3 * node_size, num_pairs * node_size
-        message_vector =  node_vector[edge[:, 1]] * gate_state_vector.unsqueeze(1) 
-        edge_vector = gate_edge_vector.unsqueeze(1) * (edge_diff / edge_dist.unsqueeze(-1)).unsqueeze(-1)
+        message_vector = node_vector[edge_indices[:, 1]] * gate_state_vector.unsqueeze(1)
+        edge_vector = gate_edge_vector.unsqueeze(1) * (edge_vectors / edge_dist.unsqueeze(-1)).unsqueeze(-1)
         message_vector = message_vector + edge_vector
         
-        # sum message
-        residual_scalar = torch.zeros_like(node_scalar)
-        residual_vector = torch.zeros_like(node_vector)
-        residual_scalar.index_add_(0, edge[:, 0], message_scalar)
-        residual_vector.index_add_(0, edge[:, 0], message_vector)
+        # sum message - keep contiguous() here for index_add_ operations
+        residual_scalar = torch.zeros_like(node_scalar).contiguous()
+        residual_vector = torch.zeros_like(node_vector).contiguous()
+        residual_scalar.index_add_(0, edge_indices[:, 0], message_scalar)
+        residual_vector.index_add_(0, edge_indices[:, 0], message_vector)
         
         # new node state
         new_node_scalar = node_scalar + residual_scalar
@@ -86,26 +95,31 @@ class PainnUpdate(nn.Module):
         )
         
     def forward(self, node_scalar, node_vector):
+        # Linear transformations
         Uv = self.update_U(node_vector)
         Vv = self.update_V(node_vector)
         
+        # Compute norm
         Vv_norm = torch.linalg.norm(Vv, dim=1)
         mlp_input = torch.cat((Vv_norm, node_scalar), dim=1)
         mlp_output = self.update_mlp(mlp_input)
         
+        # Split
         a_vv, a_sv, a_ss = torch.split(
             mlp_output,                                        
             node_vector.shape[-1],                                       
             dim = 1,
         )
         
+        # Compute updates
         delta_v = a_vv.unsqueeze(1) * Uv
         inner_prod = torch.sum(Uv * Vv, dim=1)
         delta_s = a_sv * inner_prod + a_ss
         
+        # Return updated states
         return node_scalar + delta_s, node_vector + delta_v
 
-class PainnModel(nn.Module):
+class Painn(nn.Module):
     """PainnModel without edge updating"""
     def __init__(
         self, 
@@ -168,71 +182,115 @@ class PainnModel(nn.Module):
         if 'compute_forces' in kwargs.keys():
             if kwargs['compute_forces']:
                 self.compute_forces = True
+                
+        # Initialize parameters with proper memory layout
+        self.reset_parameters()
         
-    def forward(self, input_dict):
-        num_atoms = input_dict['num_atoms']
-        num_pairs = input_dict['num_pairs']
+    def reset_parameters(self):
+        """Reset parameters to ensure proper memory layout."""
+        with torch.no_grad():
+            for param in self.parameters():
+                if param.requires_grad and param.dim() >= 2:
+                    # Create a new tensor with the correct memory layout
+                    new_data = torch.empty_like(param.data)
+                    # Copy data with proper memory layout
+                    new_data.copy_(param.data)
+                    # Set strides to match DDP's expected layout
+                    if param.dim() == 2:
+                        # Create a new tensor with column-major layout
+                        new_data = torch.empty(param.shape[1], param.shape[0], device=param.device, dtype=param.dtype)
+                        new_data.copy_(param.data.t())
+                        new_data = new_data.t()
+                    param.data = new_data
+                    
+    def _make_contiguous(self, tensor: Optional[torch.Tensor]) -> torch.Tensor:
+        """Ensure tensor has proper memory layout for DDP."""
+        if tensor is None:
+            raise ValueError("tensor is None in _make_contiguous")
+        if tensor.dim() == 2 and tensor is not None:
+            # Create a new tensor with column-major layout
+            new_tensor = torch.empty(tensor.shape[1], tensor.shape[0], device=tensor.device, dtype=tensor.dtype)
+            new_tensor.copy_(tensor.t())
+            return new_tensor.t()
+        return tensor.contiguous()
+        
+    def forward(self, input_dict: AtomsData):
+        """
+        Args:
+            input_dict (AtomsData): A NamedTuple of model inputs generated by AseDataReader
 
-        # edge offset. Add offset to edges to get indices of pairs in a batch but not a structure
-        edge = input_dict['pairs']
-        # edge_offset = torch.cumsum(
-        #     torch.cat((torch.tensor([0], 
-        #                             device=num_atoms.device,
-        #                             dtype=num_atoms.dtype,                                    
-        #                            ), num_atoms[:-1])),
-        #     dim=0
-        # )
-        # edge_offset = torch.repeat_interleave(edge_offset, num_pairs)
-        # edge = edge + edge_offset.unsqueeze(-1) 
-        edge_diff = input_dict['n_diff']
+        Returns:
+            dict: A dictionary with keys 'energy' and 'forces'
+        """
+        num_atoms = input_dict.num_atoms
+        num_edges = input_dict.num_edges
+        positions = input_dict.positions
+        edge_indices = input_dict.edge_indices
+        edge_vectors = input_dict.edge_vectors
+        atomic_numbers = input_dict.atomic_numbers
+
         if self.compute_forces:
-            edge_diff.requires_grad_()
-        edge_dist = torch.linalg.norm(edge_diff, dim=1)
+            edge_vectors.requires_grad_()
+        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
         
-        node_scalar = self.atom_embedding(input_dict['elems'])
-        node_vector = torch.zeros((input_dict['coords'].shape[0], 3, self.hidden_state_size),
-                                  device=edge_diff.device,
-                                  dtype=edge_diff.dtype,
-                                 )
+        # Initialize node states
+        node_scalar = self.atom_embedding(atomic_numbers)
+        node_scalar = self._make_contiguous(node_scalar)
         
+        node_vector = torch.zeros((positions.shape[0], 3, self.hidden_state_size),
+                                  device=positions.device,
+                                  dtype=positions.dtype)
+        
+        # Message passing iterations
         for message_layer, update_layer in zip(self.message_layers, self.update_layers):
-            node_scalar, node_vector = message_layer(node_scalar, node_vector, edge, edge_diff, edge_dist)
+            node_scalar, node_vector = message_layer(node_scalar, node_vector, edge_indices, edge_vectors, edge_dist)
+            node_scalar = self._make_contiguous(node_scalar)
+            node_vector = self._make_contiguous(node_vector)
             node_scalar, node_vector = update_layer(node_scalar, node_vector)
-        
-        node_scalar = self.readout_mlp(node_scalar)
-        node_scalar.squeeze_()
 
-        image_idx = torch.arange(input_dict['num_atoms'].shape[0],
-                                 device=edge.device,
-                                )
+        node_scalar = self.readout_mlp(node_scalar)
+        node_scalar = self._make_contiguous(node_scalar)
+        node_scalar = node_scalar.squeeze()
+
+        image_idx = torch.arange(num_atoms.shape[0],
+                                 device=edge_indices.device)
         image_idx = torch.repeat_interleave(image_idx, num_atoms)
         
-        energy = torch.zeros_like(input_dict['num_atoms']).float()        
+        # Initialize energy with proper strides
+        energy = torch.zeros(num_atoms.shape[0], device=num_atoms.device, dtype=torch.float32)
         energy.index_add_(0, image_idx, node_scalar)
 
         # Apply (de-)normalization
         if self.normalization:
             normalizer = self.normalize_stddev
-            energy = normalizer * energy
+            energy = self._make_contiguous(normalizer * energy)
             mean_shift = self.normalize_mean
             if self.atomwise_normalization:
-                mean_shift = input_dict["num_atoms"] * mean_shift
-            energy = energy + mean_shift
+                mean_shift = self._make_contiguous(num_edges * mean_shift)
+            energy = self._make_contiguous(energy + mean_shift)
 
         result_dict = {'energy': energy, 'atomic_energy': node_scalar}
         
         if self.compute_forces:
+            # TorchScript requires explicit list types for grad arguments
+            outputs_list = torch.jit.annotate(List[Tensor], [energy])
+            inputs_list = torch.jit.annotate(List[Tensor], [edge_vectors])
+            grad_outputs_list = torch.jit.annotate(Optional[List[Optional[Tensor]]], [torch.ones_like(energy)])
             dE_ddiff = torch.autograd.grad(
-                energy,
-                edge_diff,
-                grad_outputs=torch.ones_like(energy),
+                outputs=outputs_list,
+                inputs=inputs_list,
+                grad_outputs=grad_outputs_list,
                 retain_graph=True,
                 create_graph=True,
             )[0]
+            dE_ddiff = self._make_contiguous(dE_ddiff)
             
-            i_forces = torch.zeros_like(input_dict['coords']).index_add(0, edge[:, 0], dE_ddiff)
-            j_forces = torch.zeros_like(input_dict['coords']).index_add(0, edge[:, 1], -dE_ddiff)
-            forces = i_forces + j_forces
+            # Initialize forces with proper strides
+            i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=positions.dtype)
+            j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=positions.dtype)
+            i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
+            j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
+            forces = self._make_contiguous(i_forces + j_forces)
             
             result_dict['forces'] = forces
             

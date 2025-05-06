@@ -4,6 +4,9 @@ import copy, os
 from e3nn import o3
 import math
 import torch_geometric
+from typing import Dict, List, Optional, Union, Callable
+from data_dev import AtomsData
+from iann.data.data import ScriptableAtomsBatch
 
 class SO3_Embedding():
     """
@@ -472,7 +475,10 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 # Borrowed from e3nn @ 0.4.0:
 # https://github.com/e3nn/e3nn/blob/0.4.0/e3nn/o3/_wigner.py#L10
 # _Jd is a list of tensors of shape (2l+1, 2l+1)
-_Jd = torch.load(os.path.join(os.path.dirname(__file__), "../data/Jd.pt"))
+_Jd = torch.load(
+    os.path.join(os.path.dirname(__file__), "../data/Jd.pt"),
+    weights_only=True,
+)
 
 # Borrowed from e3nn @ 0.4.0:
 # https://github.com/e3nn/e3nn/blob/0.4.0/e3nn/o3/_wigner.py#L37
@@ -768,7 +774,7 @@ class EquivariantLayerNormArray(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -859,7 +865,7 @@ class EquivariantLayerNormArraySphericalHarmonics(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, std_balance_degrees={self.std_balance_degrees})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -934,7 +940,7 @@ class EquivariantRMSNormArraySphericalHarmonics(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -1068,7 +1074,7 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, centering={self.centering}, std_balance_degrees={self.std_balance_degrees})"
 
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -2447,23 +2453,22 @@ class EquiformerV2(nn.Module):
         self.apply(self._uniform_init_rad_func_linear_weights)
 
 
-    def forward(self, data):
-        atomic_numbers = data['elems']
-        edge_diff = data['n_diff']
-        batch = data['image_idx']
-        natoms = data['num_atoms']
+    def forward(self, data: AtomsData):
+        # Handle both AtomsData and ScriptableAtomsBatch
+        if isinstance(data, ScriptableAtomsBatch):
+            # For TorchScript compatibility - use explicit attribute access
+            pass  # No conversion needed, all downstream methods use attribute access
 
-        edge_dist = torch.linalg.norm(edge_diff, dim=1)
-        edge_idx = data["pairs"]
-        edge_idx = edge_idx.T
-        i, j = edge_idx
-        edge_idx = j, i
+        species = data.atomic_numbers
+        pos = data.positions
+        edge_index = data.edge_indices
+        edge_vec = data.edge_vectors
 
-        # self.batch_size = len(data.natoms)
-        self.dtype = data['coords'].dtype
-        self.device = data['coords'].device
+        # Get dtype and device
+        dtype = pos.dtype
+        device = pos.device
 
-        # atomic_numbers = data.atomic_numbers.long()
+        atomic_numbers = species.long()
         num_atoms = len(atomic_numbers)
 
         ###############################################################
@@ -2471,7 +2476,7 @@ class EquiformerV2(nn.Module):
         ###############################################################
 
         # Compute 3x3 rotation matrix per edge
-        edge_rot_mat = init_edge_rot_mat(edge_diff)
+        edge_rot_mat = init_edge_rot_mat(edge_vec)
 
         # Initialize the WignerD matrices and other values for spherical harmonic calculations
         for i in range(self.num_resolutions):
@@ -2483,11 +2488,12 @@ class EquiformerV2(nn.Module):
 
         # Init per node representations using an atomic number based embedding
         x = SO3_Embedding(
-            num_atoms,
-            self.lmax_list,
+            self.lmax_list.tolist(),
+            self.num_channels.tolist(),
+            self.cutoff,
             self.atom_channels,
-            self.device,
-            self.dtype,
+            device,
+            dtype,
         )
 
         offset_res = 0
@@ -2505,10 +2511,10 @@ class EquiformerV2(nn.Module):
             offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
 
         # Edge encoding (distance and atom edge)
-        edge_dist = self.distance_expansion(edge_dist)
+        edge_dist = self.distance_expansion(torch.linalg.norm(edge_vec, dim=1))
         if self.share_atom_edge_embedding and self.use_atom_edge_embedding:
-            source_element = atomic_numbers[edge_idx[0]]  # Source atom atomic number
-            target_element = atomic_numbers[edge_idx[1]]  # Target atom atomic number
+            source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
+            target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
             source_embedding = self.source_embedding(source_element)
             target_embedding = self.target_embedding(target_element)
             edge_dist = torch.cat((edge_dist, source_embedding, target_embedding), dim=1)
@@ -2517,7 +2523,7 @@ class EquiformerV2(nn.Module):
         edge_degree = self.edge_degree_embedding(
             atomic_numbers,
             edge_dist,
-            edge_idx)
+            edge_index)
         x.embedding = x.embedding + edge_degree.embedding
 
         ###############################################################
@@ -2529,8 +2535,8 @@ class EquiformerV2(nn.Module):
                 x,                  # SO3_Embedding
                 atomic_numbers,
                 edge_dist,
-                edge_idx,
-                batch=batch # data.batch    # for GraphDropPath
+                edge_index,
+                batch=data.image_idx # data.batch    # for GraphDropPath
             )
 
         # Final layer norm
@@ -2545,10 +2551,8 @@ class EquiformerV2(nn.Module):
         ###############################################################
         node_energy = self.energy_block(x) # feedforward NN
         node_energy = node_energy.embedding.narrow(1, 0, 1)
-        energy = torch.zeros(len(natoms), device=node_energy.device, dtype=node_energy.dtype)
-        # energy = torch.zeros(len(data.natoms), device=node_energy.device, dtype=node_energy.dtype)
-        energy.index_add_(0, batch, node_energy.view(-1))
-        # energy.index_add_(0, data.batch, node_energy.view(-1))
+        energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
+        energy.index_add_(0, data.image_idx, node_energy.view(-1))
         energy = energy / _AVG_NUM_NODES
 
         ###############################################################
@@ -2558,7 +2562,7 @@ class EquiformerV2(nn.Module):
             forces = self.force_block(x,
                 atomic_numbers,
                 edge_dist,
-                edge_idx)
+                edge_index)
             forces = forces.embedding.narrow(1, 1, 3)
             forces = forces.view(-1, 3)            
         
@@ -2567,10 +2571,6 @@ class EquiformerV2(nn.Module):
         if self.regress_forces:
             result_dict['forces'] = forces
 
-        # if not self.regress_forces:
-        #     return energy
-        # else:
-        #     return energy, forces
         return result_dict
         
     

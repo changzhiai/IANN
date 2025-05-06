@@ -1,9 +1,53 @@
-from ase.io import read, write, Trajectory
+from ase.io import Trajectory
 import torch
-from typing import List
+from typing import List, Optional, Dict, Any, NamedTuple
 import asap3
 import numpy as np
 from scipy.spatial import distance_matrix
+from dataclasses import fields
+from dataclasses import dataclass
+
+class AtomsData(NamedTuple):
+    num_atoms: torch.Tensor
+    atomic_numbers: torch.Tensor
+    positions: torch.Tensor
+    cell: torch.Tensor
+    edge_indices: torch.Tensor
+    edge_vectors: torch.Tensor
+    num_edges: torch.Tensor
+    energy: Optional[torch.Tensor] = None
+    forces: Optional[torch.Tensor] = None
+    image_indices: Optional[torch.Tensor] = None
+
+    def to(self, device):
+        new_values = {}
+        for field in self._fields:
+            value = getattr(self, field)
+            if isinstance(value, torch.Tensor):
+                new_values[field] = value.to(device)
+            else:
+                new_values[field] = value
+        # Return a new instance with updated values
+        return self._replace(**new_values)
+
+    def contiguous(self):
+        new_values = {}
+        for field in self._fields:
+            value = getattr(self, field)
+            if isinstance(value, torch.Tensor):
+                cont_value = value.contiguous()
+                if cont_value.dim() == 2:
+                    tmp = torch.empty(cont_value.shape[1], cont_value.shape[0], 
+                                     device=cont_value.device, dtype=cont_value.dtype)
+                    tmp.copy_(cont_value.t())
+                    cont_value = tmp.t()
+                new_values[field] = cont_value
+            else:
+                new_values[field] = value
+        return self._replace(**new_values)
+    
+    def keys(self):
+        return [field for field in self._fields if getattr(self, field) is not None]
 
 class AseDataReader:
     def __init__(self, cutoff=5.0, compute_forces=False):            
@@ -11,65 +55,72 @@ class AseDataReader:
         self.compute_forces = compute_forces
         
     def __call__(self, atoms):
-        atoms_data = {
-            'num_atoms': torch.tensor([atoms.get_global_number_of_atoms()]),
-            'elems': torch.tensor(atoms.numbers),
-            'coords': torch.tensor(atoms.positions, dtype=torch.float),
-        }
+        num_atoms = torch.tensor([atoms.get_global_number_of_atoms()])
+        atomic_numbers = torch.tensor(atoms.numbers)
+        positions = torch.tensor(atoms.positions, dtype=torch.float)
+        cell = torch.tensor(atoms.cell[:], dtype=torch.float)
         
         if atoms.pbc.any():
-            pairs, n_diff = self.get_neighborlist(atoms)
-            atoms_data['cell'] = torch.tensor(atoms.cell[:], dtype=torch.float)
+            edge_indices, edge_vectors = self.get_neighborlist(atoms)
         else:
-            pairs, n_diff = self.get_neighborlist_simple(atoms)
+            edge_indices, edge_vectors = self.get_neighborlist_simple(atoms)
             
-        atoms_data['pairs'] = torch.from_numpy(pairs)
-        atoms_data['n_diff'] = torch.from_numpy(n_diff).float()
+        edge_indices = torch.from_numpy(edge_indices)
+        edge_vectors = torch.from_numpy(edge_vectors).float()
         if self.compute_forces:
-            atoms_data['n_diff'].requires_grad_()
-        atoms_data['num_pairs'] = torch.tensor([pairs.shape[0]])
+            edge_vectors.requires_grad_()
+        num_edges = torch.tensor([edge_indices.shape[0]])
         
         try:
             energy = torch.tensor([atoms.get_potential_energy()], dtype=torch.float)
-            atoms_data['energy'] = energy
         except (AttributeError, RuntimeError):
-            pass
-        
+            energy = None
+
         try: 
             forces = torch.tensor(atoms.get_forces(apply_constraint=False), dtype=torch.float)
-            atoms_data['forces'] = forces
         except (AttributeError, RuntimeError):
-            pass
+            forces = None
         
-        return atoms_data
-            
+        # Return as AtomsData object for TorchScript compatibility
+        return AtomsData(
+            num_atoms=num_atoms,
+            atomic_numbers=atomic_numbers,
+            positions=positions,
+            cell=cell,
+            edge_indices=edge_indices,
+            edge_vectors=edge_vectors,
+            num_edges=num_edges,
+            energy=energy,
+            forces=forces,
+            image_indices=None,
+        ).contiguous()
     
     def get_neighborlist(self, atoms):        
         nl = asap3.FullNeighborList(self.cutoff, atoms)
         pair_i_idx = []
         pair_j_idx = []
-        n_diff = []
+        edge_vectors = []
         for i in range(len(atoms)):
             indices, diff, _ = nl.get_neighbors(i)
-            pair_i_idx += [i] * len(indices)               # local index of pair i
-            pair_j_idx.append(indices)   # local index of pair j
-            n_diff.append(diff)
+            pair_i_idx += [i] * len(indices)            
+            pair_j_idx.append(indices)  
+            edge_vectors.append(diff)
 
         pair_j_idx = np.concatenate(pair_j_idx)
-        pairs = np.stack((pair_i_idx, pair_j_idx), axis=1)
-        n_diff = np.concatenate(n_diff)
+        edge_indices = np.stack((pair_i_idx, pair_j_idx), axis=1)
+        edge_vectors = np.concatenate(edge_vectors)
         
-        return pairs, n_diff
+        return edge_indices, edge_vectors
     
     def get_neighborlist_simple(self, atoms):
         pos = atoms.get_positions()
         dist_mat = distance_matrix(pos, pos)
         mask = dist_mat < self.cutoff
         np.fill_diagonal(mask, False)        
-        pairs = np.argwhere(mask)
-        n_diff = pos[pairs[:, 1]] - pos[pairs[:, 0]]
+        edge_indices = np.argwhere(mask)
+        edge_vectors = pos[edge_indices[:, 1]] - pos[edge_indices[:, 0]]
         
-        return pairs, n_diff
+        return edge_indices, edge_vectors
 
 class AseDataset(torch.utils.data.Dataset):
     def __init__(self, ase_db, cutoff=5.0, compute_forces=False, **kwargs):
@@ -97,27 +148,28 @@ def cat_tensors(tensors: List[torch.Tensor]):
     return torch.stack(tensors)
 
 def collate_atomsdata(atoms_data: List[dict], pin_memory=True):
-    # convert from list of dicts to dict of lists
-    dict_of_lists = {k: [dic[k] for dic in atoms_data] for k in atoms_data[0]}
-    if pin_memory:
-        pin = lambda x: x.pin_memory()
-    else:
-        pin = lambda x: x
-        
-    collated = {k: cat_tensors(v) for k, v in dict_of_lists.items()}
+    field_names = atoms_data[0].keys()
+    batched_atoms_data = AtomsData(**{
+        k: torch.cat([getattr(obj, k) for obj in atoms_data if getattr(obj, k) is not None])
+        for k in field_names
+    })
 
-    # create image index for each atom
-    image_idx = torch.repeat_interleave(
-        torch.arange(len(atoms_data)), collated['num_atoms'], dim=0
+    # Pin memory function
+    pin = (lambda x: x.pin_memory()) if pin_memory else (lambda x: x)
+
+    # create image index for each atom with proper memory layout
+    image_indices = torch.repeat_interleave(
+        torch.arange(len(atoms_data)), batched_atoms_data.num_atoms, dim=0
     )
-    collated['image_idx'] = image_idx
+    batched_atoms_data = batched_atoms_data._replace(image_indices=image_indices)
     
-    # shift index of edges (because of batching)
-    if 'pairs' in collated:
-        edge_offset = torch.zeros_like(collated['num_atoms'])
-        edge_offset[1:] = collated['num_atoms'][:-1]
+    # shift index of edges (because of batching) with proper memory layout
+    if batched_atoms_data.edge_indices is not None:
+        edge_offset = torch.zeros_like(batched_atoms_data.num_atoms)
+        edge_offset[1:] = batched_atoms_data.num_atoms[:-1]
         edge_offset = torch.cumsum(edge_offset, dim=0)
-        edge_offset = torch.repeat_interleave(edge_offset, collated['num_pairs'])
-        edge_idx = collated['pairs'] + edge_offset.unsqueeze(-1)
-        collated['pairs'] = edge_idx
-    return collated
+        edge_offset = torch.repeat_interleave(edge_offset, batched_atoms_data.num_edges)
+        edge_indices = batched_atoms_data.edge_indices + edge_offset.unsqueeze(-1)
+        batched_atoms_data = batched_atoms_data._replace(edge_indices=edge_indices)
+        
+    return batched_atoms_data
