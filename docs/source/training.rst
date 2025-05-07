@@ -35,7 +35,9 @@ Available models for model:
 * equiformerV2
 
 Available configurations for config:
+
 .. code-block:: python
+
    max_steps = 50000
    node_size = 128
    num_interactions = 3
@@ -83,21 +85,25 @@ Training Tips
 -----------
 
 1. **Data Preparation**
+
    * Ensure your dataset is properly normalized
    * Include diverse structures for better generalization
    * Balance the dataset if possible
 
 2. **Model Configuration**
+
    * Start with a small model and increase size if needed
    * Use appropriate cutoff radius for your system
    * Adjust forces_weight based on your priorities
 
 3. **Training Process**
+
    * Monitor validation loss for early stopping
    * Use learning rate scheduling if needed
    * Consider gradient clipping for stability
 
 4. **Performance Optimization**
+
    * Use the largest batch size that fits in memory
    * Enable mixed precision training if available
    * Profile your training to identify bottlenecks

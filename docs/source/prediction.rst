@@ -70,15 +70,18 @@ Performance Tips
 --------------
 
 1. **Memory Management**
+
    * Use appropriate batch sizes
    * Clear GPU cache if needed
 
 2. **Speed Optimization**
+
    * Enable CUDA if available
    * Use batch processing when possible
    * Consider model quantization for deployment
 
 3. **Accuracy Considerations**
+
    * Check cutoff radius matches training
    * Verify atomic numbers are correct
 

@@ -6,7 +6,12 @@ This section provides detailed documentation for the IANN package modules and cl
 Data
 ----
 
-.. automodule:: iann.data.data.AtomsData
+.. automodule:: iann.data.data
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: iann.data.data.AtomsData
    :members:
    :undoc-members:
    :show-inheritance:
@@ -19,7 +24,17 @@ Data
 Models
 ------
 
-.. automodule:: iann.models.painn.PaiNN
+.. automodule:: iann.models.painn
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: iann.models.painn.PaiNN
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: iann.models.nequip
    :members:
    :undoc-members:
    :show-inheritance:
@@ -29,7 +44,17 @@ Models
    :undoc-members:
    :show-inheritance:
 
+.. automodule:: iann.models.mace
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: iann.models.mace.MACE
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: iann.models.equiformerV2
    :members:
    :undoc-members:
    :show-inheritance:

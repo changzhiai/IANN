@@ -10,9 +10,10 @@ IANN supports distributed training using PyTorch's Distributed Data Parallel (DD
 
 Basic Usage
 ----------
-Multi-GPU Training: submit to multiple GPUs (in SLURM Workload Manager)
+Multi-GPU Training: submit to multiple GPUs and multiple nodes (in SLURM Workload Manager)
+
 .. code-block:: bash
-   # Run on multiple GPUs and multiple nodes
+
    #!/bin/bash
    #SBATCH -N 2                   # Number of nodes
    #SBATCH -C gpu                 # Use GPU nodes
@@ -22,9 +23,10 @@ Multi-GPU Training: submit to multiple GPUs (in SLURM Workload Manager)
    module load pytorch
    srun python run.py
 
-Multi-CPU Training: submit to multiple CPUs (in SLURM Workload Manager)
+Multi-CPU Training: submit to multiple CPUs and multiple nodes (in SLURM Workload Manager)
+
 .. code-block:: bash
-   # Run on multiple CPUs and multiple nodes
+
    #!/bin/bash
    #SBATCH -N 2                   # Number of nodes
    #SBATCH -C cpu                 # Use CPU nodes
@@ -67,16 +69,19 @@ Performance Optimization
 --------------------
 
 1. **Batch Size**
+
    * Set batch_size per GPU
    * Total batch size = batch_size * num_gpus
    * Adjust based on GPU memory
 
 2. **Data Loading**
+
    * Use multiple workers per GPU
    * Enable pin_memory for faster data transfer
    * Consider using persistent workers
 
 3. **Communication**
+
    * Use NCCL backend for GPU training
    * Set appropriate timeout values
    * Monitor GPU utilization
@@ -85,16 +90,19 @@ Common Issues
 -----------
 
 1. **Gradient Strides Warning**
+
    * You may see a warning about gradient strides not matching bucket view strides
    * This is not an error and typically doesn't affect training
    * Can be safely ignored in most cases
 
 2. **Memory Issues**
+
    * Reduce batch size if OOM errors occur
    * Monitor GPU memory usage
    * Consider gradient checkpointing for large models
 
 3. **Communication Errors**
+
    * Check network connectivity between nodes
    * Verify NCCL installation
    * Adjust timeout values if needed
@@ -103,16 +111,19 @@ Best Practices
 ------------
 
 1. **Scaling**
+
    * Start with a small number of GPUs
    * Monitor scaling efficiency
    * Adjust batch size and learning rate accordingly
 
 2. **Monitoring**
+
    * Use tools like nvidia-smi to monitor GPU usage
    * Check communication overhead
    * Profile training for bottlenecks
 
 3. **Debugging**
+
    * Run with a single GPU first
    * Enable debug logging if needed
    * Check for synchronization issues
