@@ -24,72 +24,56 @@ Data
 Models
 ------
 
-.. automodule:: iann.models.painn
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. .. autoclass:: iann.models.painn.PaiNN
+.. .. automodule:: iann.models.painn
 ..    :members:
 ..    :undoc-members:
 ..    :show-inheritance:
 
-.. automodule:: iann.models.nequip
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: iann.models.painn.PaiNN
+   :members: __init__, forward
 
-.. .. autoclass:: iann.models.nequip.NequIP
+.. .. automodule:: iann.models.nequip
 ..    :members:
 ..    :undoc-members:
 ..    :show-inheritance:
 
-.. automodule:: iann.models.mace
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: iann.models.nequip.NequIP
+   :members: __init__, forward
 
-.. .. autoclass:: iann.models.mace.MACE
+.. .. automodule:: iann.models.mace
 ..    :members:
 ..    :undoc-members:
 ..    :show-inheritance:
 
-.. automodule:: iann.models.equiformerV2
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: iann.models.mace.MACE
+   :members: __init__, forward
 
-.. .. autoclass:: iann.models.equiformerV2.EquiformerV2
+.. .. automodule:: iann.models.equiformerV2
 ..    :members:
 ..    :undoc-members:
 ..    :show-inheritance:
+
+.. autoclass:: iann.models.equiformerV2.EquiformerV2
+   :members: __init__, forward
 
 
 Calculators
 --------
 
 .. automodule:: iann.calculators.calculators.MLCalculator
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   :members: __init__, forward
 
 .. autoclass:: iann.calculators.calculators.EnsembleCalculator
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   :members: __init__, forward
 
 .. autoclass:: iann.calculators.calculators.AtomicEnsembleCalculator
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   :members: __init__, forward
 
 Trainer
 ------
 
 .. automodule:: iann.trainer.trainer.Trainer
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   :members: __init__, forward
 
 Plugins
 ------
