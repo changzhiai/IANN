@@ -18,9 +18,10 @@ A documentation is available at: https://iann.readthedocs.io
 
 ### Prerequisites
 
-- ASE (Atomic Simulation Environment) 3.24.0
+- ASE 3.24+
 - PyTorch 1.9+
 - Python 3.7+
+- ASAP 3.13+
 
 
 
