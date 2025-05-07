@@ -29,40 +29,40 @@ Models
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: iann.models.painn.PaiNN
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. .. autoclass:: iann.models.painn.PaiNN
+..    :members:
+..    :undoc-members:
+..    :show-inheritance:
 
 .. automodule:: iann.models.nequip
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: iann.models.nequip.NequIP
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. .. autoclass:: iann.models.nequip.NequIP
+..    :members:
+..    :undoc-members:
+..    :show-inheritance:
 
 .. automodule:: iann.models.mace
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: iann.models.mace.MACE
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. .. autoclass:: iann.models.mace.MACE
+..    :members:
+..    :undoc-members:
+..    :show-inheritance:
 
 .. automodule:: iann.models.equiformerV2
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: iann.models.equiformerV2.EquiformerV2
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. .. autoclass:: iann.models.equiformerV2.EquiformerV2
+..    :members:
+..    :undoc-members:
+..    :show-inheritance:
 
 
 Calculators
