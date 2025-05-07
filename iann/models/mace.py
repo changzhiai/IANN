@@ -12,8 +12,7 @@ from typing import List, Dict, Union
 from e3nn.nn import FullyConnectedNet
 from e3nn.util.codegen import CodeGenMixin
 import opt_einsum_fx, collections
-from data_dev import AtomsData
-from iann.data.data import ScriptableAtomsBatch
+from iann.data.data import AtomsData
 
 activation_fn = {
     "silu": torch.nn.SiLU(),
@@ -1024,11 +1023,7 @@ class MACE(nn.Module):
                 self.compute_forces = True
                 self.gradient_output = GradientOutput(model_outputs=['forces'])
             
-    def forward(self, data):
-        # Handle both AtomsData and ScriptableAtomsBatch
-        if isinstance(data, ScriptableAtomsBatch):
-            # For TorchScript compatibility - use explicit attribute access
-            pass  # No conversion needed, all downstream methods use attribute access
+    def forward(self, data: AtomsData):
 
         for m in self.embeddings.values():
             data = m(data)

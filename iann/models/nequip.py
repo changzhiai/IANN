@@ -10,8 +10,7 @@ from e3nn.o3 import Linear, TensorProduct, FullyConnectedTensorProduct
 from e3nn.nn import FullyConnectedNet
 from e3nn.nn import Gate, NormActivation
 from typing import Dict, List, Optional, Union, Callable
-from data_dev import AtomsData
-from iann.data.data import ScriptableAtomsBatch
+from iann.data.data import AtomsData
 
 class Transform(torch.nn.Module, metaclass=abc.ABCMeta):
     def __init__(self) -> None:

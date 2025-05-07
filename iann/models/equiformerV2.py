@@ -5,8 +5,7 @@ from e3nn import o3
 import math
 import torch_geometric
 from typing import Dict, List, Optional, Union, Callable
-from data_dev import AtomsData
-from iann.data.data import ScriptableAtomsBatch
+from iann.data.data import AtomsData
 
 class SO3_Embedding():
     """
@@ -2454,10 +2453,6 @@ class EquiformerV2(nn.Module):
 
 
     def forward(self, data: AtomsData):
-        # Handle both AtomsData and ScriptableAtomsBatch
-        if isinstance(data, ScriptableAtomsBatch):
-            # For TorchScript compatibility - use explicit attribute access
-            pass  # No conversion needed, all downstream methods use attribute access
 
         species = data.atomic_numbers
         pos = data.positions
