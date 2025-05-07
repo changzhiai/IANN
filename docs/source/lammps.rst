@@ -4,7 +4,7 @@ LAMMPS Interface
 This guide explains how to use IANN models as interatomic potentials in LAMMPS molecular dynamics simulations.
 
 Exporting Models
--------------
+----------------
 
 To use an IANN model in LAMMPS, first export it to the correct format:
 
@@ -17,7 +17,7 @@ To use an IANN model in LAMMPS, first export it to the correct format:
                             output_path='output_model.pth')
 
 LAMMPS Input Script
-----------------
+-------------------
 
 Here's a basic LAMMPS input script to use the exported model:
 

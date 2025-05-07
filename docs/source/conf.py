@@ -43,4 +43,4 @@ extensions = [
     'sphinx_rtd_theme',
 ]
 
-autodoc_mock_imports = ["asap3"]
+autodoc_mock_imports = ["asap3", "e3nn"]
