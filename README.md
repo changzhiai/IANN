@@ -2,7 +2,7 @@
 
 ## 1. Introductions
 
-IANN (InterAtomic Neural Network) is a equivariant interatomic neural network potential package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including PaiNN, Nequip, MACE, and EquiformerV2, focusing on predicting energies and forces with high accuracy. 
+IANN (InterAtomic Neural Network) is a equivariant interatomic neural network potential package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [PaiNN](https://arxiv.org/abs/2102.03150), [Nequip](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), and [EquiformerV2](https://arxiv.org/abs/2306.12059), focusing on predicting energies and forces with high accuracy. 
 
 Key features:
 - Multiple equivariant interatomic neural network models implementation
@@ -173,7 +173,7 @@ Submit to multiple GPUs (in SLURM Workload Manager)
 module load pytorch
 srun python run.py
 ```
-### Multi-GPU Training
+### Multi-CPU Training
 Submit to multiple CPUs (in SLURM Workload Manager)
 ```bash
 # Run on multiple CPUs and multiple nodes
@@ -240,7 +240,7 @@ timestep 0.001
 fix 1 all nvt temp 300.0 300.0 0.1
 dump 1 all custom 10 dump.xyz id type x y z
 
-run 2000
+run 5000
 ```
 
 ## 8. Modules
