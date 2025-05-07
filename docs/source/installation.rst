@@ -6,9 +6,9 @@ Prerequisites
 
 Before installing IANN, ensure you have the following prerequisites:
 
-* Python 3.7 or higher
+* ASE (Atomic Simulation Environment) 3.24 or higher
 * PyTorch 1.9 or higher
-* ASE (Atomic Simulation Environment)
+* Python 3.7 or higher
 
 Installing IANN
 --------------

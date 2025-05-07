@@ -3,59 +3,73 @@ API Reference
 
 This section provides detailed documentation for the IANN package modules and classes.
 
-Models
-------
-
-.. automodule:: iann.models.painn
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: iann.models.painn.PainnModel
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: iann.models.painn.PainnMessage
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: iann.models.painn.PainnUpdate
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Data
 ----
 
-.. automodule:: iann.data
+.. automodule:: iann.data.data.AtomsData
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: iann.data.AseDataset
+.. autoclass:: iann.data.data.AseDataset
    :members:
    :undoc-members:
    :show-inheritance:
 
-Utilities
---------
-
-.. automodule:: iann.utils
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. autoclass:: iann.utils.MLCalculator
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Export
+Models
 ------
 
-.. automodule:: iann.export
+.. automodule:: iann.models.painn.PaiNN
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: iann.models.nequip.NequIP
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: iann.models.mace.MACE
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: iann.models.equiformerV2.EquiformerV2
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+Calculators
+--------
+
+.. automodule:: iann.calculators.calculators.MLCalculator
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: iann.calculators.calculators.EnsembleCalculator
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: iann.calculators.calculators.AtomicEnsembleCalculator
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Trainer
+------
+
+.. automodule:: iann.trainer.train.Trainer
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Plugins
+------
+
+.. automodule:: iann.converter.LAMMPSModelWrapper
    :members:
    :undoc-members:
    :show-inheritance:
@@ -63,7 +77,7 @@ Export
 Configuration
 ------------
 
-The configuration system uses TOML files. Here are the available options:
+The configuration system uses Dict or TOML file. Here are the available options:
 
 .. code-block:: toml
 
@@ -98,6 +112,7 @@ The training script can be run with various command line arguments:
    python test/painn/train.py --cfg config.toml [options]
 
 Options:
+
 * ``--cfg``: Path to configuration file (required)
 * ``--resume``: Resume from checkpoint
 * ``--debug``: Enable debug mode

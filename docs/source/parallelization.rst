@@ -10,6 +10,32 @@ IANN supports distributed training using PyTorch's Distributed Data Parallel (DD
 
 Basic Usage
 ----------
+Multi-GPU Training: submit to multiple GPUs (in SLURM Workload Manager)
+.. code-block:: bash
+   # Run on multiple GPUs and multiple nodes
+   #!/bin/bash
+   #SBATCH -N 2                   # Number of nodes
+   #SBATCH -C gpu                 # Use GPU nodes
+   #SBATCH -q debug
+   #SBATCH -t 00:30:00 
+   #SBATCH --gpus-per-node=4      # Number of GPUs per node
+   module load pytorch
+   srun python run.py
+
+Multi-CPU Training: submit to multiple CPUs (in SLURM Workload Manager)
+.. code-block:: bash
+   # Run on multiple CPUs and multiple nodes
+   #!/bin/bash
+   #SBATCH -N 2                   # Number of nodes
+   #SBATCH -C cpu                 # Use CPU nodes
+   #SBATCH -q debug
+   #SBATCH -t 00:30:00
+   #SBATCH --ntasks-per-node=128  # Number of CPU cores per node
+   module load pytorch
+   srun python run.py
+
+Command Line Interface
+----------
 
 To run training on multiple GPUs:
 

@@ -10,22 +10,11 @@ To use an IANN model in LAMMPS, first export it to the correct format:
 
 .. code-block:: python
 
-   from iann.export import export_lammps
-   from iann.models.painn import PainnModel
-   import torch
+    from iann.plugins.converter import convert_model_for_lammps
 
-   # Load your trained model
-   state_dict = torch.load("model_output/best_model.pth")
-   model = PainnModel(
-       num_interactions=state_dict["num_layer"],
-       hidden_state_size=state_dict["node_size"],
-       cutoff=state_dict["cutoff"],
-       compute_forces=True
-   )
-   model.load_state_dict(state_dict["model"])
-
-   # Export for LAMMPS
-   export_lammps(model, "model_lammps.pt")
+    convert_model_for_lammps(model_path='best_model.pth', 
+                            model_type='painn', 
+                            output_path='output_model.pth')
 
 LAMMPS Input Script
 ----------------
@@ -34,38 +23,50 @@ Here's a basic LAMMPS input script to use the exported model:
 
 .. code-block:: lammps
 
-   # Basic LAMMPS input script for IANN
-   units metal
-   atom_style atomic
+    # LAMMPS input script example
+    units metal
+    atom_style atomic
+    boundary p p p
 
-   # Read structure
-   read_data your_structure.data
+    read_data initial.data
 
-   # Load ML potential
-   pair_style mlip
-   pair_coeff * * model_lammps.pt
+    # Define the IANN pair style
+    pair_style iann painn output_model.pt 5.5
+    pair_coeff * *
 
-   # Setup MD
-   fix 1 all nve
-   timestep 0.001
-   thermo 100
-   thermo_style custom step pe ke etotal temp press
+    mass 1 1.0079999997406976 # H
+    mass 2 195.08399994981576 # Pt
 
-   # Run MD
-   run 10000
+    neighbor 0.5 bin
+    neigh_modify every 1 delay 0 check yes
+
+    # Thermodynamic settings
+    thermo 10
+
+    # Initial minimization to relax the system before dynamics
+    minimize 1.0e-4 1.0e-6 100 1000
+
+    # Run your simulation
+    timestep 0.001
+    fix 1 all nvt temp 300.0 300.0 0.1
+    dump 1 all custom 10 dump.xyz id type x y z
+
+    run 5000
 
 Key Components
 ------------
 
 1. **Units and Style**
+
    * Use ``units metal`` for eV and Å
    * ``atom_style atomic`` for basic atomic systems
 
 2. **Potential Setup**
-   * ``pair_style mlip`` for ML interatomic potential
-   * ``pair_coeff * * model_lammps.pt`` to load the model
+
+   * ``pair_style iann painn output_model.pt 5.5`` for loading model
 
 3. **MD Settings**
+
    * Choose appropriate ensemble (NVE, NVT, NPT)
    * Set suitable timestep (typically 0.001 fs)
    * Configure output frequency
@@ -74,16 +75,19 @@ Advanced Usage
 ------------
 
 1. **Different Ensembles**
+
    * NVT: Use ``fix nvt``
    * NPT: Use ``fix npt``
    * Custom: Use appropriate fix commands
 
 2. **Output Options**
+
    * Energy components
    * Forces
    * Custom properties
 
 3. **Performance Tuning**
+
    * Neighbor list settings
    * Communication settings
    * Parallelization options
@@ -99,8 +103,8 @@ Example: NVT Simulation
    read_data your_structure.data
 
    # Load potential
-   pair_style mlip
-   pair_coeff * * model_lammps.pt
+   pair_style iann painn output_model.pt 5.5
+   pair_coeff * *
 
    # Setup NVT
    velocity all create 300.0 12345
@@ -116,16 +120,19 @@ Troubleshooting
 -------------
 
 1. **Model Loading**
+
    * Verify model file exists
    * Check file permissions
    * Ensure correct format
 
 2. **Performance Issues**
+
    * Adjust neighbor list settings
    * Check parallelization
    * Monitor memory usage
 
 3. **Accuracy Concerns**
+
    * Verify cutoff radius
    * Check unit conversion
    * Validate energy/force scaling

@@ -12,46 +12,47 @@ IANN works with ASE database (.db) or trajectory (.traj) files. Your data should
 * Energy labels
 * Force labels (optional, but recommended)
 
-Configuration
-------------
 
-Training is configured using a TOML file. Here's an example configuration:
+Running Training 
+--------------
 
-.. code-block:: toml
+.. code-block:: python
 
+   from iann.trainer.trainer import Trainer
+
+   trainer = Trainer(
+      model="painn",
+      config={"device": "cpu", 
+               'output_dir': 'output'},
+      distributed=False
+      )
+   trainer.train("dataset.traj")
+
+Available models for model:
+* painn
+* nequip
+* mace
+* equiformerV2
+
+Available configurations for config:
+.. code-block:: python
+   max_steps = 50000
    node_size = 128
    num_interactions = 3
    cutoff = 4.0
    val_ratio = 0.1
    output_dir = "model_output"
    dataset = "path/to/your/data.traj"
-   max_steps = 100000
    batch_size = 32
    initial_lr = 0.0001
    forces_weight = 0.9
    log_interval = 2000
    normalization = true
-   atomwise_normalization = true
    stop_patience = 50
-   random_seed = 42
+   random_seed = 666
+   load_model = None
+   device = 'cpu'
 
-Key parameters:
-* ``node_size``: Size of hidden states
-* ``num_interactions``: Number of message passing layers
-* ``cutoff``: Cutoff radius for atomic interactions
-* ``forces_weight``: Weight for force loss in total loss
-* ``normalization``: Whether to normalize energies
-* ``atomwise_normalization``: Whether to normalize per atom
-
-Running Training
---------------
-
-Single-GPU Training
-~~~~~~~~~~~~~~~~~
-
-.. code-block:: bash
-
-   python test/painn/train.py --cfg config.toml
 
 Multi-GPU Training
 ~~~~~~~~~~~~~~~~
@@ -60,6 +61,15 @@ See the :doc:`parallelization` guide for details on distributed training.
 
 Monitoring Training
 ----------------
+
+Command Line Training
+~~~~~~~~~~~~~~~~~
+
+Put all configurations in a TOML file, and run it in a python command line
+.. code-block:: bash 
+
+   python test/painn/train.py --cfg config.toml
+
 
 Training progress is logged to the specified output directory. You can monitor:
 

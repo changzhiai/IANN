@@ -10,33 +10,42 @@ Here's a simple example that demonstrates how to use IANN:
 
 .. code-block:: python
 
-   from iann.models.painn import PainnModel
-   from iann.data import AseDataset
-   from iann.utils import MLCalculator
-   from ase.io import read
+    from iann.models.painn import PainnModel
+    from iann.trainer.trainer import Trainer
+    import torch
+    from iann.calculators.calculators import MLCalculator
+    from ase.io import read
 
-   # Create a PaiNN model
-   model = PainnModel(
-       num_interactions=3,
-       hidden_state_size=128,
-       cutoff=4.0,
-       compute_forces=True
-   )
+    # Train a model
+    trainer = Trainer(
+        model="painn",
+        config={"device": "cpu", 
+                'output_dir': 'output'},
+        distributed=False
+        )
+    trainer.train("dataset.traj")
 
-   # Load your dataset
-   dataset = AseDataset("path/to/your/data.traj")
+    # Load model
+    state_dict = torch.load("best_model.pth")
+    model = PainnModel(
+        num_interactions=state_dict["num_layer"],
+        hidden_state_size=state_dict["node_size"],
+        cutoff=state_dict["cutoff"],
+        compute_forces=True
+    )
+    model.load_state_dict(state_dict["model"])
 
-   # Create a calculator for predictions
-   calc = MLCalculator(model)
+    # Create calculator
+    calc = MLCalculator(model)
 
-   # Make predictions
-   atoms = read("test_structures.traj", ":")
-   for atom in atoms:
-       atom.calc = calc
-       energy = atom.get_potential_energy()
-       forces = atom.get_forces()
-       print(f"Energy: {energy} eV")
-       print(f"Forces: {forces} eV/Å")
+    # Predict
+    atoms = read("test_structures.traj", ":")
+    for atom in atoms:
+        atom.calc = calc
+        energy = atom.get_potential_energy()
+        forces = atom.get_forces()
+        print(f"Energy: {energy} eV")
+        print(f"Forces: {forces} eV/Å")
 
 Running the Example Script
 -------------------------
@@ -45,13 +54,11 @@ IANN comes with example scripts to help you get started:
 
 .. code-block:: bash
 
-   # Run the quickstart example
    python examples/quickstart.py
 
 This script demonstrates:
 * Loading a dataset
-* Creating and training a PaiNN model
-* Evaluating the model
+* Creating and training a model
 * Using the model for predictions
 
 Next Steps
