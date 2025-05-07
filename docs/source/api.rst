@@ -16,23 +16,19 @@ Models
 ------
 
 .. autoclass:: iann.models.painn.PaiNN
-   :members: forward
-   :no-signatures:
+   :no-members:
 
 
 .. autoclass:: iann.models.nequip.NequIP
-   :members: forward
-   :no-signatures:
+   :no-members:
 
 
 .. autoclass:: iann.models.mace.MACE
-   :members: forward
-   :no-signatures:
+   :no-members:
 
 
 .. autoclass:: iann.models.equiformerV2.EquiformerV2
-   :members: forward
-   :no-signatures:
+   :no-members:
 
 Trainer
 ------
