@@ -16,19 +16,23 @@ Models
 ------
 
 .. autoclass:: iann.models.painn.PaiNN
-   :no-members:
+   :no-signature:
+   :members:
 
 
 .. autoclass:: iann.models.nequip.NequIP
-   :no-members:
+   :no-signature:
+   :members:
 
 
 .. autoclass:: iann.models.mace.MACE
-   :no-members:
+   :no-signature:
+   :members:
 
 
 .. autoclass:: iann.models.equiformerV2.EquiformerV2
-   :no-members:
+   :no-signature:
+   :members:
 
 Trainer
 ------

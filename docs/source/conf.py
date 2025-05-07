@@ -46,9 +46,3 @@ extensions = [
 autodoc_mock_imports = ["asap3", "e3nn", "torch", "torch_geometric", "opt_einsum_fx"]
 
 autodoc_class_signature = 'mixed'
-
-# Move type hints to the description section
-autodoc_typehints = "description"
-
-# Use shorter representations of types
-autodoc_typehints_format = "short"
