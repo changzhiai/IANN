@@ -135,6 +135,12 @@ General Tips
    * Regular testing
 
 For more specific issues or if you need additional help, please:
+
 1. Check the GitHub issues page
 2. Review the API documentation
 3. Contact the maintainers 
+
+Maintainers
+----------
+
+Maintainer ``Dr. Changzhi Ai`` (changzhi@stanford.edu) at SUNCAT center, Stanford University and SLAC, who is supervised by Dr. Johannes Voss and Dr. Frank Abild-Pedersen.
