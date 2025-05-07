@@ -36,6 +36,7 @@ Multi-CPU Training: submit to multiple CPUs and multiple nodes (in SLURM Workloa
    module load pytorch
    srun python run.py
 
+
 Command Line Interface
 ----------------------
 
@@ -46,16 +47,12 @@ To run training on multiple GPUs:
    # Run on N GPUs
    python -m torch.distributed.launch --nproc_per_node=N test/painn/train.py --cfg config.toml
 
-For example, to use 4 GPUs:
-
-.. code-block:: bash
-
-   python -m torch.distributed.launch --nproc_per_node=4 test/painn/train.py --cfg config.toml
+Note: nproc_per_node defines the number of local CPU or GPU workers. Setup ``device = "cpu"`` or ``device = "gpu"`` to make device selection in your config.toml.
 
 Configuration
 -----------
 
-When using DDP, consider these configuration parameters:
+When using DDP, keep in mind that these configuration parameters are vital, which are automatically obtained from the SLURM environment variables when using SLURM Workload Manager:
 
 .. code-block:: toml
 
@@ -71,7 +68,7 @@ Performance Optimization
 1. **Batch Size**
 
    * Set batch_size per GPU
-   * Total batch size = batch_size * num_gpus
+   * Total batch size = batch_size x num_gpus
    * Adjust based on GPU memory
 
 2. **Data Loading**
