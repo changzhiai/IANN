@@ -851,6 +851,13 @@ class NequIP(torch.nn.Module):
                 self.gradient_output = GradientOutput(model_outputs=['forces'])
 
     def forward(self, data: AtomsData) -> dict:
+        """
+        Args:
+            data (AtomsData): A NamedTuple of model inputs
+
+        Returns:
+            dict: A dictionary with keys 'energy' and 'forces'
+        """
         # Handle both dictionary and object inputs for TorchScript compatibility
         if isinstance(data, dict):
             # Dictionary access
