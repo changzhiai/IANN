@@ -2,7 +2,7 @@
 
 ## 1. Introductions
 
-IANN (InterAtomic Neural Network) is a equivariant interatomic neural network potential package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including PaiNN, Nequip, MACE, and EquiformerV2, focusing on predicting energies and forces with high accuracy.
+IANN (InterAtomic Neural Network) is a equivariant interatomic neural network potential package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including PaiNN, Nequip, MACE, and EquiformerV2, focusing on predicting energies and forces with high accuracy. 
 
 Key features:
 - Multiple equivariant interatomic neural network models implementation
@@ -10,6 +10,9 @@ Key features:
 - Distributed training on multiple GPUs and multiple server nodes
 - Integration with ASE and LAMMPS for molecular dynamics simulations
 - Customizable model architectures
+
+### Documentation
+A documentation is available at: https://iann.readthedocs.io
 
 ## 2. Installation
 
