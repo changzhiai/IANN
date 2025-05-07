@@ -46,3 +46,14 @@ extensions = [
 autodoc_mock_imports = ["asap3", "e3nn", "torch", "torch_geometric", "opt_einsum_fx"]
 
 autodoc_class_signature = 'mixed'
+
+def process_signature(app, what, name, obj, options, signature, return_annotation):
+    if what == "class" and (
+        "PaiNN" in name or 
+        "NequIP" in name or 
+        "MACE" in name or 
+        'EquiformerV2' in name):
+        return "(...)", return_annotation
+
+def setup(app):
+    app.connect("autodoc-process-signature", process_signature)
