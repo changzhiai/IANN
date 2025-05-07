@@ -53,7 +53,7 @@ def process_signature(app, what, name, obj, options, signature, return_annotatio
         "NequIP" in name or 
         "MACE" in name or 
         'EquiformerV2' in name):
-        return "(...)", return_annotation
+        return "(...)", None
 
 def setup(app):
     app.connect("autodoc-process-signature", process_signature)
