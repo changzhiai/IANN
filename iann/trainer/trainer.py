@@ -1,20 +1,14 @@
 import numpy as np
-import math
-import json, os, sys, toml
-from pathlib import Path
+import math, time
+import json, os, toml
 import argparse
 import logging
-import itertools
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-import time
-import warnings
 from iann.data.data import AseDataset, collate_atomsdata
-from datetime import datetime, timedelta
-import socket
-import re
+from datetime import timedelta
 
 
 path = os.path.abspath(os.path.join(os.path.dirname(__file__)))
@@ -25,7 +19,7 @@ DEFAULT_CONFIG = {
     "num_interactions": 3,
     "cutoff": 5.5,
     "val_ratio": 0.1,
-    "output_dir": "model_output",
+    "output_dir": "output",
     "max_steps": 1000000,
     "batch_size": 12,
     "initial_lr": 0.0001,
