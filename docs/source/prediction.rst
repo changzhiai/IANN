@@ -7,7 +7,7 @@ This guide explains how to use trained IANN models for making predictions.
 Using the ML Calculator
 --------------------
 
-The MLCalculator provides a convenient ASE calculator interface:
+The ``MLCalculator`` provides a convenient ASE calculator interface:
 
 .. code-block:: python
 
