@@ -10,6 +10,7 @@ Before installing IANN, ensure you have the following prerequisites:
 * PyTorch 1.9 or higher
 * Python 3.7 or higher
 * ASAP3 3.13 or higher
+* e3nn 0.4.4 or higher
 
 Installing IANN
 --------------

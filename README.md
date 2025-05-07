@@ -22,6 +22,7 @@ A documentation is available at: https://iann.readthedocs.io
 - PyTorch 1.9+
 - Python 3.7+
 - ASAP 3.13+
+- e3nn>=0.4.4
 
 
 

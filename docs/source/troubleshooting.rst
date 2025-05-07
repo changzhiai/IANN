@@ -7,6 +7,7 @@ Training Issues
 -------------
 
 1. **Memory Issues**
+
    * **Problem**: Out of Memory (OOM) errors during training
    * **Solutions**:
      * Reduce batch size
@@ -15,6 +16,7 @@ Training Issues
      * Clear GPU cache between runs
 
 2. **Training Instability**
+
    * **Problem**: Loss becomes NaN or training diverges
    * **Solutions**:
      * Reduce learning rate
@@ -23,6 +25,7 @@ Training Issues
      * Verify input data quality
 
 3. **Slow Training**
+
    * **Problem**: Training is slower than expected
    * **Solutions**:
      * Increase batch size if memory allows
@@ -34,10 +37,12 @@ DDP Issues
 ---------
 
 1. **Gradient Strides Warning**
+
    * **Problem**: Warning about gradient strides not matching bucket view strides
    * **Solution**: This is a known PyTorch DDP warning that can be safely ignored. It doesn't affect training accuracy.
 
 2. **Communication Errors**
+
    * **Problem**: DDP communication failures
    * **Solutions**:
      * Check network connectivity
@@ -46,6 +51,7 @@ DDP Issues
      * Check GPU compatibility
 
 3. **Synchronization Issues**
+
    * **Problem**: Models on different GPUs become desynchronized
    * **Solutions**:
      * Use consistent random seeds
@@ -57,6 +63,7 @@ Prediction Issues
 --------------
 
 1. **Incorrect Predictions**
+
    * **Problem**: Model predictions are inaccurate
    * **Solutions**:
      * Verify model loading
@@ -65,6 +72,7 @@ Prediction Issues
      * Validate atomic numbers
 
 2. **Performance Issues**
+
    * **Problem**: Slow prediction speed
    * **Solutions**:
      * Use batch processing
@@ -76,6 +84,7 @@ LAMMPS Integration
 ---------------
 
 1. **Model Loading**
+
    * **Problem**: LAMMPS fails to load the model
    * **Solutions**:
      * Verify model export format
@@ -84,6 +93,7 @@ LAMMPS Integration
      * Validate model compatibility
 
 2. **Energy/Force Issues**
+
    * **Problem**: Incorrect energies or forces in LAMMPS
    * **Solutions**:
      * Check unit conversion
@@ -92,6 +102,7 @@ LAMMPS Integration
      * Test with simple systems
 
 3. **Performance Problems**
+
    * **Problem**: Slow MD simulations
    * **Solutions**:
      * Optimize neighbor list settings
@@ -103,18 +114,21 @@ General Tips
 ----------
 
 1. **Debugging**
+
    * Enable debug logging
    * Use smaller test cases
    * Check intermediate outputs
    * Monitor memory usage
 
 2. **Performance Optimization**
+
    * Profile your code
    * Use appropriate batch sizes
    * Enable mixed precision
    * Optimize data loading
 
 3. **Best Practices**
+
    * Keep track of model versions
    * Document configuration changes
    * Use version control
