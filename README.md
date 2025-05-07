@@ -93,24 +93,26 @@ Available models for `model`:
 - equiformerV2
 ```
 
-Available configurations for `config`:
+Default configurations for `config`:
 ```
-max_steps = 50000
-node_size = 128
-num_interactions = 3
-cutoff = 4.0
-val_ratio = 0.1
-output_dir = "model_output"
-dataset = "path/to/your/data.traj"
-batch_size = 32
-initial_lr = 0.0001
-forces_weight = 0.9
-log_interval = 2000
-normalization = true
-stop_patience = 50
-random_seed = 666
-load_model = None
-device = 'cpu'
+config = {
+    "max_steps": 50000,
+    "node_size": 128,
+    "num_interactions": 3,
+    "cutoff": 4.0,
+    "val_ratio": 0.1,
+    "output_dir": "output",
+    "dataset": "path/to/your/data.traj",
+    "batch_size": 32,
+    "initial_lr": 0.0001,
+    "forces_weight": 0.9,
+    "log_interval": 2000,
+    "normalization": True,
+    "stop_patience": 50,
+    "random_seed": 666,
+    "load_model": None,
+    "device": "cpu",
+}
 ```
 
 ### Monitoring Training Progress

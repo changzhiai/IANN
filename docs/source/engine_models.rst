@@ -8,10 +8,10 @@ Overview
 
 IANN provides several state-of-the-art foundation models for interatomic potentials. All of them are graph-based equivariant neural networks:
 
-* 'PaiNN <https://arxiv.org/abs/2102.03150>'_ (Polarizable atom interaction Neural Network)
-* 'NequIP <https://doi.org/10.1038/s41467-022-29939-5>'_ (Neural equivariant Interatomic Potentials)
-* 'MACE <https://arxiv.org/abs/2206.07697>'_ (Message-passing Atomic Cluster Expansion)
-* 'EquiformerV2 <https://arxiv.org/abs/2306.12059>'_ (Equivariant Transformer V2)
+- `PaiNN <https://arxiv.org/abs/2102.03150>`_ (Polarizable atom interaction Neural Network)
+- `NequIP <https://doi.org/10.1038/s41467-022-29939-5>`_ (Neural equivariant Interatomic Potentials)
+- `MACE <https://arxiv.org/abs/2206.07697>`_ (Message-passing Atomic Cluster Expansion)
+- `EquiformerV2 <https://arxiv.org/abs/2306.12059>`_ (Equivariant Transformer V2)
 
 Each model has its own strengths and is suitable for different applications.
 
