@@ -6,82 +6,54 @@ This section provides detailed documentation for the IANN package modules and cl
 Data
 ----
 
-.. automodule:: iann.data.data
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. autoclass:: iann.data.data.AtomsData
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   :members: forward
 
 .. autoclass:: iann.data.data.AseDataset
-   :members:
-   :undoc-members:
-   :show-inheritance:
+   :members: forward
 
 Models
 ------
 
-.. .. automodule:: iann.models.painn
-..    :members:
-..    :undoc-members:
-..    :show-inheritance:
-
 .. autoclass:: iann.models.painn.PaiNN
-   :members: __init__, forward
+   :members: forward
 
-.. .. automodule:: iann.models.nequip
-..    :members:
-..    :undoc-members:
-..    :show-inheritance:
 
 .. autoclass:: iann.models.nequip.NequIP
-   :members: __init__, forward
+   :members: forward
 
-.. .. automodule:: iann.models.mace
-..    :members:
-..    :undoc-members:
-..    :show-inheritance:
 
 .. autoclass:: iann.models.mace.MACE
-   :members: __init__, forward
+   :members: forward
 
-.. .. automodule:: iann.models.equiformerV2
-..    :members:
-..    :undoc-members:
-..    :show-inheritance:
 
 .. autoclass:: iann.models.equiformerV2.EquiformerV2
-   :members: __init__, forward
+   :members: forward
 
 
 Calculators
 --------
 
-.. automodule:: iann.calculators.calculators.MLCalculator
-   :members: __init__, forward
+.. autoclass:: iann.calculators.calculators.MLCalculator
+   :members: forward
 
 .. autoclass:: iann.calculators.calculators.EnsembleCalculator
-   :members: __init__, forward
+   :members: forward
 
 .. autoclass:: iann.calculators.calculators.AtomicEnsembleCalculator
-   :members: __init__, forward
+   :members: forward
 
 Trainer
 ------
 
-.. automodule:: iann.trainer.trainer.Trainer
-   :members: __init__, forward
+.. autoclass:: iann.trainer.trainer.Trainer
+   :members: forward
 
 Plugins
 ------
 
-.. automodule:: iann.plugins.converter.LAMMPSModelWrapper
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. autoclass:: iann.plugins.converter.LAMMPSModelWrapper
+   :members: forward
 
 Configuration
 ------------
