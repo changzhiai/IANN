@@ -1,4 +1,4 @@
-Quickstart Guide
+Quickstart
 ===============
 
 This guide will help you get started with IANN quickly. We'll cover the basic usage of the package for training and prediction.

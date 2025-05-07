@@ -1,4 +1,4 @@
-Making Predictions
+Predicting Guide
 ===============
 
 This guide explains how to use trained IANN models for making predictions.
