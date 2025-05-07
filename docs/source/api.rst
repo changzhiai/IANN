@@ -86,7 +86,7 @@ Calculators
 Trainer
 ------
 
-.. automodule:: iann.trainer.train.Trainer
+.. automodule:: iann.trainer.trainer.Trainer
    :members:
    :undoc-members:
    :show-inheritance:
@@ -94,7 +94,7 @@ Trainer
 Plugins
 ------
 
-.. automodule:: iann.converter.LAMMPSModelWrapper
+.. automodule:: iann.plugins.converter.LAMMPSModelWrapper
    :members:
    :undoc-members:
    :show-inheritance:

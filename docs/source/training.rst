@@ -4,7 +4,7 @@ Training Guide
 This guide covers how to train IANN models for energy and force prediction.
 
 Preparing Your Dataset
---------------------
+----------------------
 
 IANN works with ASE database (.db) or trajectory (.traj) files. Your data should contain:
 
@@ -14,7 +14,7 @@ IANN works with ASE database (.db) or trajectory (.traj) files. Your data should
 
 
 Running Training 
---------------
+----------------
 
 .. code-block:: python
 
@@ -60,21 +60,21 @@ Available configurations for config:
 
 
 Multi-GPU Training
-~~~~~~~~~~~~~~~~
+------------------
 
 See the :doc:`parallelization` guide for details on distributed training.
 
-Monitoring Training
-----------------
-
 Command Line Training
-~~~~~~~~~~~~~~~~~
+---------------------
 
-Put all configurations in a TOML file, and run it in a python command line
+Run the trainin in command line is another way. Put all configurations in a TOML file, and run it in a python command line.
 .. code-block:: bash 
 
    python test/painn/train.py --cfg config.toml
 
+
+Monitoring Training
+-------------------
 
 Training progress is logged to the specified output directory. You can monitor:
 
@@ -85,7 +85,7 @@ Training progress is logged to the specified output directory. You can monitor:
 The best model is saved as ``best_model.pth`` in the output directory.
 
 Training Tips
------------
+-------------
 
 1. **Data Preparation**
 

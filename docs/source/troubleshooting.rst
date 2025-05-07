@@ -8,8 +8,9 @@ Training Issues
 
 1. **Memory Issues**
 
-   * **Problem**: Out of Memory (OOM) errors during training
-   * **Solutions**:
+   * Problem: Out of Memory (OOM) errors during training
+   * Solutions:
+
      * Reduce batch size
      * Use gradient checkpointing
      * Enable mixed precision training
@@ -17,8 +18,9 @@ Training Issues
 
 2. **Training Instability**
 
-   * **Problem**: Loss becomes NaN or training diverges
-   * **Solutions**:
+   * Problem: Loss becomes NaN or training diverges
+   * Solutions:
+
      * Reduce learning rate
      * Enable gradient clipping
      * Check data normalization
@@ -26,8 +28,9 @@ Training Issues
 
 3. **Slow Training**
 
-   * **Problem**: Training is slower than expected
-   * **Solutions**:
+   * Problem: Training is slower than expected
+   * Solutions:
+
      * Increase batch size if memory allows
      * Use multiple workers for data loading
      * Enable mixed precision training
@@ -38,13 +41,13 @@ DDP Issues
 
 1. **Gradient Strides Warning**
 
-   * **Problem**: Warning about gradient strides not matching bucket view strides
-   * **Solution**: This is a known PyTorch DDP warning that can be safely ignored. It doesn't affect training accuracy.
+   * Problem: Warning about gradient strides not matching bucket view strides
+   * Solution: This is a known PyTorch DDP warning that can be safely ignored. It doesn't affect training accuracy.
 
 2. **Communication Errors**
 
-   * **Problem**: DDP communication failures
-   * **Solutions**:
+   * Problem: DDP communication failures
+   * Solutions:
      * Check network connectivity
      * Verify NCCL installation
      * Increase DDP timeout
@@ -52,8 +55,8 @@ DDP Issues
 
 3. **Synchronization Issues**
 
-   * **Problem**: Models on different GPUs become desynchronized
-   * **Solutions**:
+   * Problem: Models on different GPUs become desynchronized
+   * Solutions:
      * Use consistent random seeds
      * Check data loading order
      * Verify batch size consistency
@@ -64,8 +67,8 @@ Prediction Issues
 
 1. **Incorrect Predictions**
 
-   * **Problem**: Model predictions are inaccurate
-   * **Solutions**:
+   * Problem: Model predictions are inaccurate
+   * Solutions:
      * Verify model loading
      * Check input data normalization
      * Ensure cutoff radius matches training
@@ -73,8 +76,8 @@ Prediction Issues
 
 2. **Performance Issues**
 
-   * **Problem**: Slow prediction speed
-   * **Solutions**:
+   * Problem: Slow prediction speed
+   * Solutions:
      * Use batch processing
      * Enable CUDA if available
      * Optimize data loading
@@ -85,8 +88,8 @@ LAMMPS Integration
 
 1. **Model Loading**
 
-   * **Problem**: LAMMPS fails to load the model
-   * **Solutions**:
+   * Problem: LAMMPS fails to load the model
+   * Solutions:
      * Verify model export format
      * Check file permissions
      * Ensure correct LAMMPS version
@@ -94,8 +97,8 @@ LAMMPS Integration
 
 2. **Energy/Force Issues**
 
-   * **Problem**: Incorrect energies or forces in LAMMPS
-   * **Solutions**:
+   * Problem: Incorrect energies or forces in LAMMPS
+   * Solutions:
      * Check unit conversion
      * Verify cutoff radius
      * Validate energy/force scaling
@@ -103,8 +106,8 @@ LAMMPS Integration
 
 3. **Performance Problems**
 
-   * **Problem**: Slow MD simulations
-   * **Solutions**:
+   * Problem: Slow MD simulations
+   * Solutions:
      * Optimize neighbor list settings
      * Adjust communication settings
      * Use appropriate parallelization
