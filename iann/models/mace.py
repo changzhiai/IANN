@@ -864,7 +864,7 @@ class EquivariantProductBasisBlock(torch.nn.Module):
 
         return self.linear(node_feats)
 
-@compile_mode('script')
+# @compile_mode('script')
 class MACE(nn.Module):
     def __init__(
         self,
