@@ -1,6 +1,9 @@
 Foundation Models
 =================
 
+Foundation models in future
+---------------------------
+
 Foundation models (pre-trained models) will be provided in future releases. These models are intended to accelerate downstream tasks such as property prediction or molecular dynamics by leveraging knowledge learned from large-scale datasets.
 
 The training data for these foundation models may be sourced from well-established materials databases, such as:
