@@ -119,7 +119,7 @@ class PainnUpdate(nn.Module):
         # Return updated states
         return node_scalar + delta_s, node_vector + delta_v
 
-class Painn(nn.Module):
+class PaiNN(nn.Module):
     """PainnModel without edge updating"""
     def __init__(
         self, 

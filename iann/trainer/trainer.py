@@ -406,8 +406,8 @@ class Trainer:
         }
         
         if self.model_type == "painn":
-            from iann.models.painn import Painn
-            model = Painn(
+            from iann.models.painn import PaiNN
+            model = PaiNN(
                 num_interactions=self.config["num_interactions"], 
                 hidden_state_size=self.config["node_size"],
                 normalization=self.config["normalization"],
@@ -418,10 +418,10 @@ class Trainer:
             )
         elif self.model_type == "nequip":
             try:
-                from iann.models.nequip import Nequip
+                from iann.models.nequip import NequIP
             except ImportError:
                 raise ImportError("NequipModel is not available")
-            model = Nequip(
+            model = NequIP(
                 num_interactions=self.config["num_interactions"],
                 num_features=self.config["node_size"],
                 lmax=2,  # Default lmax

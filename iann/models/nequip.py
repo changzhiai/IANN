@@ -709,8 +709,8 @@ class InteractionLayer(torch.nn.Module):
 
         return data
 
-class Nequip(torch.nn.Module):
-    """Nequip model."""
+class NequIP(torch.nn.Module):
+    """NequIP model."""
     def __init__(
         self,
         cutoff: float,
