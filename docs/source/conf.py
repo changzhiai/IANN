@@ -42,3 +42,5 @@ extensions = [
     'sphinx.ext.napoleon',  # if you're using Google or NumPy docstrings
     'sphinx_rtd_theme',
 ]
+
+autodoc_mock_imports = ["asap3"]

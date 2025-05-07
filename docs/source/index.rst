@@ -17,7 +17,9 @@ IANN (InterAtomic Neural Network) is a equivariant interatomic neural network po
    training
    prediction
    parallelization
+   foundation_models
    lammps
+   engine_models
    api
    troubleshooting
 

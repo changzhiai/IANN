@@ -4,7 +4,7 @@ Parallelization Guide
 This guide covers how to use IANN with distributed training for better performance.
 
 Distributed Data Parallel (DDP)
-----------------------------
+------------------------------
 
 IANN supports distributed training using PyTorch's Distributed Data Parallel (DDP). This allows training on multiple GPUs efficiently.
 
@@ -37,7 +37,7 @@ Multi-CPU Training: submit to multiple CPUs and multiple nodes (in SLURM Workloa
    srun python run.py
 
 Command Line Interface
-----------
+----------------------
 
 To run training on multiple GPUs:
 
@@ -66,7 +66,7 @@ When using DDP, consider these configuration parameters:
    ddp_timeout = 1800  # Timeout in seconds
 
 Performance Optimization
---------------------
+------------------------
 
 1. **Batch Size**
 
