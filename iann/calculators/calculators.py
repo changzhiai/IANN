@@ -1,27 +1,100 @@
 from ase.calculators.calculator import Calculator, all_changes
 from iann.data.data import AseDataReader
 import numpy as np
+import torch
+
 
 class MLCalculator(Calculator):
     implemented_properties = ["energy", "forces"]
 
     def __init__(
         self,
-        model,
+        model_path=None,
+        model=None,
+        config=None,
         energy_scale=1.0,
         forces_scale=1.0,
         **kwargs
     ):
         super().__init__(**kwargs)
 
-        self.model = model
-        self.model_device = next(model.parameters()).device
-        self.cutoff = model.cutoff
-        self.compute_forces = model.compute_forces
+        if model is not None:
+            self.model = model
+        elif model_path is not None:
+            self.model = self._load_model(model_path)
+        else:
+            raise ValueError("Either model or model_path must be provided")
+        
+        if config is not None:
+            self.config = config
+
+        self.model_device = next(self.model.parameters()).device
+        self.cutoff = self.model.cutoff
+        self.compute_forces = self.model.compute_forces
         self.ase_data_reader = AseDataReader(self.cutoff, self.compute_forces)
         self.energy_scale = energy_scale
         self.forces_scale = forces_scale
         
+
+    def _load_model(self, model_path):
+        """Load model from path and determine its type."""
+        state_dict = torch.load(model_path)
+        
+        # Determine model type from state dict
+        if "model_type" in state_dict:
+            model_type = state_dict["model_type"]
+        else:
+            # Try to determine from model architecture
+            if "num_layer" in state_dict:
+                model_type = "painn"
+            elif "irreps" in state_dict:
+                model_type = "nequip"
+            elif "correlation" in state_dict:
+                model_type = "mace"
+            elif "transformer" in state_dict:
+                model_type = "equiformerV2"
+            else:
+                raise ValueError("Could not determine model type from state dict")
+
+        # Create appropriate model
+        if model_type == "painn":
+            from iann.models.painn import PaiNN
+            model = PaiNN(
+                num_interactions=state_dict["num_layer"],
+                hidden_state_size=state_dict["node_size"],
+                cutoff=state_dict["cutoff"],
+                compute_forces=True
+            )
+        elif model_type == "nequip":
+            from iann.models.nequip import NequIP
+            model = NequIP(
+                num_interactions=state_dict["num_layer"],
+                hidden_state_size=state_dict["node_size"],
+                cutoff=state_dict["cutoff"],
+                compute_forces=True
+            )
+        elif model_type == "mace":
+            from iann.models.mace import MACE
+            model = MACE(
+                num_interactions=state_dict["num_layer"],
+                hidden_state_size=state_dict["node_size"],
+                cutoff=state_dict["cutoff"],
+                compute_forces=True
+            )
+        elif model_type == "equiformerV2":
+            from iann.models.equiformerV2 import EquiformerV2
+            model = EquiformerV2(
+                num_interactions=state_dict["num_layer"],
+                hidden_state_size=state_dict["node_size"],
+                cutoff=state_dict["cutoff"],
+                compute_forces=True
+            )
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+
+        # Load state dict
+        model.load_state_dict(state_dict["model"])
+        return model
 
     def calculate(self, atoms=None, properties=["energy",], system_changes=all_changes):
         """

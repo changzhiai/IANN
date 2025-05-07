@@ -3,46 +3,36 @@ Predicting Guide
 
 This guide explains how to use trained IANN models for making predictions.
 
-Loading a Trained Model
---------------------
-
-To load a trained model:
-
-.. code-block:: python
-
-   from iann.models.painn import PainnModel
-   import torch
-
-   # Load model
-   state_dict = torch.load("model_output/best_model.pth")
-   model = PainnModel(
-      num_interactions=state_dict["num_layer"],
-      hidden_state_size=state_dict["node_size"],
-      cutoff=state_dict["cutoff"],
-      compute_forces=True
-   )
-   model.load_state_dict(state_dict["model"])
 
 Using the ML Calculator
 --------------------
 
-IANN provides an ASE calculator interface for easy integration:
+The MLCalculator provides a convenient ASE calculator interface:
 
 .. code-block:: python
 
    from iann.calculators.calculators import MLCalculator
    from ase.io import read
 
-   # Create calculator
-   calc = MLCalculator(model)
-
+   # Create calculator with model path
+   calc = MLCalculator("trained/best_model.pth")
+   
+   # Read structures
    atoms = read("test_structures.traj", ":")
+   
+   # Make predictions
    for atom in atoms:
       atom.calc = calc
       energy = atom.get_potential_energy()
       forces = atom.get_forces()
       print(f"Energy: {energy} eV")
       print(f"Forces: {forces} eV/Å")
+
+The calculator automatically:
+
+* Determines the model type from the saved state dict
+* Use the model architecture
+* Do prediction
 
 Note: ``EnsembleCalculator`` and ``AtomicEnsembleCalculator`` are available to get uncertainty for each structure and each atom, respectively.
 
