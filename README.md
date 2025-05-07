@@ -59,8 +59,7 @@ python examples/quickstart.py
 
 This script demonstrates:
 - Loading a dataset
-- Creating and training a PaiNN model
-- Evaluating the model
+- Creating and training a model
 - Using the model for predictions
 
 Check out the `examples/` directory for more sample scripts and tutorials.
