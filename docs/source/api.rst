@@ -17,17 +17,27 @@ Models
 
 .. autoclass:: iann.models.painn.PaiNN
    :members: forward
+   :no-signatures:
 
 
 .. autoclass:: iann.models.nequip.NequIP
    :members: forward
+   :no-signatures:
 
 
 .. autoclass:: iann.models.mace.MACE
    :members: forward
+   :no-signatures:
 
 
 .. autoclass:: iann.models.equiformerV2.EquiformerV2
+   :members: forward
+   :no-signatures:
+
+Trainer
+------
+
+.. autoclass:: iann.trainer.trainer.Trainer
    :members: forward
 
 
@@ -43,11 +53,6 @@ Calculators
 .. autoclass:: iann.calculators.calculators.AtomicEnsembleCalculator
    :members: forward
 
-Trainer
-------
-
-.. autoclass:: iann.trainer.trainer.Trainer
-   :members: forward
 
 Plugins
 ------

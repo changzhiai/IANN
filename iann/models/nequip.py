@@ -709,7 +709,6 @@ class InteractionLayer(torch.nn.Module):
         return data
 
 class NequIP(torch.nn.Module):
-    """NequIP model."""
     def __init__(
         self,
         cutoff: float,

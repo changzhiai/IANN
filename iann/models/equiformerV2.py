@@ -470,21 +470,17 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 
         return x_edge_embedding
 
-
-# Borrowed from e3nn @ 0.4.0:
-# https://github.com/e3nn/e3nn/blob/0.4.0/e3nn/o3/_wigner.py#L10
-# _Jd is a list of tensors of shape (2l+1, 2l+1)
-_Jd = torch.load(
-    os.path.join(os.path.dirname(__file__), "../data/Jd.pt"),
-    weights_only=True,
-)
-
-# Borrowed from e3nn @ 0.4.0:
-# https://github.com/e3nn/e3nn/blob/0.4.0/e3nn/o3/_wigner.py#L37
 #
 # In 0.5.0, e3nn shifted to torch.matrix_exp which is significantly slower:
 # https://github.com/e3nn/e3nn/blob/0.5.0/e3nn/o3/_wigner.py#L92
 def wigner_D(l, alpha, beta, gamma):
+    # Borrowed from e3nn @ 0.4.0:
+    # https://github.com/e3nn/e3nn/blob/0.4.0/e3nn/o3/_wigner.py#L10
+    # _Jd is a list of tensors of shape (2l+1, 2l+1)
+    _Jd = torch.load(
+        os.path.join(os.path.dirname(__file__), "../data/Jd.pt"),
+        weights_only=True,
+    )
     if not l < len(_Jd):
         raise NotImplementedError(
             f"wigner D maximum l implemented is {len(_Jd) - 1}, send us an email to ask for more"
