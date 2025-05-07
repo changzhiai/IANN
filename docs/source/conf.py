@@ -44,3 +44,5 @@ extensions = [
 ]
 
 autodoc_mock_imports = ["asap3", "e3nn", "torch", "torch_geometric", "opt_einsum_fx"]
+
+autodoc_class_signature = 'mixed'

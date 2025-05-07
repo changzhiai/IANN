@@ -866,7 +866,6 @@ class EquivariantProductBasisBlock(torch.nn.Module):
 
 @compile_mode('script')
 class MACE(nn.Module):
-    """MACE model."""
     def __init__(
         self,
         cutoff: float,
