@@ -1,5 +1,11 @@
 from setuptools import setup, find_packages
 
+def parse_requirements(filename):
+    with open(filename, 'r') as f:
+        return [line.strip() for line in f.readlines() if line.strip() and not line.startswith('#')]
+
+requirements = parse_requirements('requirements.txt')
+
 setup(
     name="IANN",
     version="0.1.0",
@@ -8,12 +14,7 @@ setup(
     author_email="changzhi@.stanford.edu",
     url="https://github.com/changzhiai/IANN",
     packages=find_packages(),
-    install_requires=[
-        "torch>=1.9.0",
-        "numpy>=1.19.0",
-        "ase>=3.21.0",
-        "toml>=0.10.2",
-    ],
+    install_requires=requirements,
     extras_require={
         "dev": [
             "pytest>=6.0.0",
