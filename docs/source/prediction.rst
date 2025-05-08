@@ -18,13 +18,13 @@ The ``MLCalculator`` provides a convenient ASE calculator interface:
    calc = MLCalculator("trained/best_model.pth")
    
    # Read structures
-   atoms = read("test_structures.traj", ":")
-   
+   images = read("test_structures.traj", ":")
+
    # Make predictions
-   for atom in atoms:
-      atom.calc = calc
-      energy = atom.get_potential_energy()
-      forces = atom.get_forces()
+   for atoms in images:
+      atoms.calc = calc
+      energy = atoms.get_potential_energy()
+      forces = atoms.get_forces()
       print(f"Energy: {energy} eV")
       print(f"Forces: {forces} eV/Å")
 
