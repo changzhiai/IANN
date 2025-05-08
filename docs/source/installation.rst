@@ -24,10 +24,8 @@ You can install IANN using pip:
    cd IANN
 
    # Install with pip
-   pip install -e .
+   pip install .
 
-   # Or install with requirements.txt
-   pip install -r requirements.txt
 
 GPU Support
 ----------

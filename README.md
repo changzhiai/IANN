@@ -35,9 +35,6 @@ cd IANN
 
 # Install with pip
 pip install -e .
-
-# Or install with requirements.txt
-pip install -r requirements.txt
 ```
 
 ### GPU Support
