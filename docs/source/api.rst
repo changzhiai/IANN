@@ -7,7 +7,7 @@ Data
 ----
 
 .. autoclass:: iann.data.data.AtomsData
-   :members: __init__, forward
+   :members: forward
 
 .. autoclass:: iann.data.data.AseDataset
    :members: forward

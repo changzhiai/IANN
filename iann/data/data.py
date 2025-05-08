@@ -1,11 +1,9 @@
 from ase.io import Trajectory
 import torch
-from typing import List, Optional, Dict, Any, NamedTuple
+from typing import List, Optional, NamedTuple
 import asap3
 import numpy as np
 from scipy.spatial import distance_matrix
-from dataclasses import fields
-from dataclasses import dataclass
 
 class AtomsData(NamedTuple):
     num_atoms: torch.Tensor
