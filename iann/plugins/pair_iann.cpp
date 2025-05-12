@@ -160,12 +160,29 @@ void PairIANN::compute(int eflag, int vflag)
       coord_acc[i][2] = x[i][2];
   }
 
-  // Convert box to tensor (3,3) for orthogonal box
-  torch::Tensor cell_tensor = torch::zeros({3,3}, torch::kFloat64);
-  auto cell_acc = cell_tensor.accessor<double,2>();
-  cell_acc[0][0] = domain->boxhi[0] - domain->boxlo[0];
-  cell_acc[1][1] = domain->boxhi[1] - domain->boxlo[1];
-  cell_acc[2][2] = domain->boxhi[2] - domain->boxlo[2];
+    // Convert box to tensor (3,3) for both orthogonal and non-orthogonal boxes
+    torch::Tensor cell_tensor = torch::zeros({3,3}, torch::kFloat64);
+    auto cell_acc = cell_tensor.accessor<double,2>();
+    
+    // Get box vectors
+    double *boxlo = domain->boxlo;
+    double *boxhi = domain->boxhi;
+    double xy = domain->xy;
+    double xz = domain->xz;
+    double yz = domain->yz;
+    
+    // Set cell matrix elements
+    cell_acc[0][0] = boxhi[0] - boxlo[0];  // a_x
+    cell_acc[0][1] = 0.0;
+    cell_acc[0][2] = 0.0;
+
+    cell_acc[1][0] = xy;                  // b_x
+    cell_acc[1][1] = boxhi[1] - boxlo[1]; // b_y
+    cell_acc[1][2] = 0.0;
+
+    cell_acc[2][0] = xz;                  // c_x
+    cell_acc[2][1] = yz;                  // c_y
+    cell_acc[2][2] = boxhi[2] - boxlo[2]; // c_z
 
   // Build edges based on neighborlist
   build_edges(list->inum, list->ilist, list->numneigh, list->firstneigh);
