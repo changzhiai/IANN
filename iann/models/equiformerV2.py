@@ -2461,13 +2461,19 @@ class EquiformerV2(nn.Module):
         edge_index = data.edge_indices
         edge_vectors = data.edge_vectors
 
+        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
+        edge_index = edge_index.T
+        i, j = edge_index
+        edge_index = j, i
+
         # Get dtype and device
         positions = data.positions
-        dtype = positions.dtype
-        device = positions.device
+        self.dtype = positions.dtype
+        self.device = positions.device
 
         atomic_numbers = atomic_numbers.long()
-        num_atoms = data.num_atoms
+        # num_atoms = data.num_atoms
+        num_atoms = len(atomic_numbers)
         image_indices = data.image_indices
 
         ###############################################################
@@ -2487,12 +2493,11 @@ class EquiformerV2(nn.Module):
 
         # Init per node representations using an atomic number based embedding
         x = SO3_Embedding(
-            self.lmax_list.tolist(),
-            self.num_channels.tolist(),
-            self.cutoff,
+            num_atoms,
+            self.lmax_list,
             self.atom_channels,
-            device,
-            dtype,
+            self.device,
+            self.dtype,
         )
 
         offset_res = 0
@@ -2550,7 +2555,7 @@ class EquiformerV2(nn.Module):
         ###############################################################
         node_energy = self.energy_block(x) # feedforward NN
         node_energy = node_energy.embedding.narrow(1, 0, 1)
-        energy = torch.zeros(len(num_atoms), device=node_energy.device, dtype=node_energy.dtype)
+        energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
         energy.index_add_(0, image_indices, node_energy.view(-1))
         energy = energy / _AVG_NUM_NODES
 
