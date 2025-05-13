@@ -270,7 +270,7 @@ Tools for converting models:
 For questions, issues, and contributions, please use the GitHub issue tracker
 
 ## Maintainer
-Maintainer `Dr. Changzhi Ai` (changzhi@stanford.edu) at SUNCAT center, Stanford University and SLAC, who is supervised by Dr. Johannes Voss and Dr. Frank Abild-Pedersen .
+Maintainer `Dr. Changzhi Ai` (changzhi@stanford.edu) at SUNCAT center, Stanford University and SLAC, who is supervised by Dr. Johannes Voss and Dr. Frank Abild-Pedersen.
 
 ## References
 
