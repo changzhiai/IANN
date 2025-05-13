@@ -2457,24 +2457,25 @@ class EquiformerV2(nn.Module):
             dict: A dictionary with keys 'energy' and 'forces'
         """
 
-        species = data.atomic_numbers
-        pos = data.positions
+        atomic_numbers = data.atomic_numbers
         edge_index = data.edge_indices
-        edge_vec = data.edge_vectors
+        edge_vectors = data.edge_vectors
 
         # Get dtype and device
-        dtype = pos.dtype
-        device = pos.device
+        positions = data.positions
+        dtype = positions.dtype
+        device = positions.device
 
-        atomic_numbers = species.long()
-        num_atoms = len(atomic_numbers)
+        atomic_numbers = atomic_numbers.long()
+        num_atoms = data.num_atoms
+        image_indices = data.image_indices
 
         ###############################################################
         # Initialize data structures
         ###############################################################
 
         # Compute 3x3 rotation matrix per edge
-        edge_rot_mat = init_edge_rot_mat(edge_vec)
+        edge_rot_mat = init_edge_rot_mat(edge_vectors)
 
         # Initialize the WignerD matrices and other values for spherical harmonic calculations
         for i in range(self.num_resolutions):
@@ -2509,7 +2510,7 @@ class EquiformerV2(nn.Module):
             offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
 
         # Edge encoding (distance and atom edge)
-        edge_dist = self.distance_expansion(torch.linalg.norm(edge_vec, dim=1))
+        edge_dist = self.distance_expansion(torch.linalg.norm(edge_vectors, dim=1))
         if self.share_atom_edge_embedding and self.use_atom_edge_embedding:
             source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
             target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
@@ -2534,7 +2535,7 @@ class EquiformerV2(nn.Module):
                 atomic_numbers,
                 edge_dist,
                 edge_index,
-                batch=data.image_idx # data.batch    # for GraphDropPath
+                batch=image_indices # data.batch    # for GraphDropPath
             )
 
         # Final layer norm
@@ -2549,8 +2550,8 @@ class EquiformerV2(nn.Module):
         ###############################################################
         node_energy = self.energy_block(x) # feedforward NN
         node_energy = node_energy.embedding.narrow(1, 0, 1)
-        energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
-        energy.index_add_(0, data.image_idx, node_energy.view(-1))
+        energy = torch.zeros(len(num_atoms), device=node_energy.device, dtype=node_energy.dtype)
+        energy.index_add_(0, image_indices, node_energy.view(-1))
         energy = energy / _AVG_NUM_NODES
 
         ###############################################################
@@ -2564,13 +2565,14 @@ class EquiformerV2(nn.Module):
             forces = forces.embedding.narrow(1, 1, 3)
             forces = forces.view(-1, 3)            
         
-        result_dict = {'energy': energy}
-
+        data = data._replace(energy=energy)
+        # result_dict = {'energy': energy}
         if self.regress_forces:
-            result_dict['forces'] = forces
+            # result_dict['forces'] = forces
+            data = data._replace(forces=forces)
 
-        return result_dict
-        
+        # return result_dict
+        return data
     
     @property
     def num_params(self):

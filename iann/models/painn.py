@@ -268,7 +268,8 @@ class PaiNN(nn.Module):
                 mean_shift = self._make_contiguous(num_edges * mean_shift)
             energy = self._make_contiguous(energy + mean_shift)
 
-        result_dict = {'energy': energy, 'atomic_energy': node_scalar}
+        data = data._replace(energy=energy)
+        # result_dict = {'energy': energy, 'atomic_energy': node_scalar}
         
         if self.compute_forces:
             # TorchScript requires explicit list types for grad arguments
@@ -291,6 +292,8 @@ class PaiNN(nn.Module):
             j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
             forces = self._make_contiguous(i_forces + j_forces)
             
-            result_dict['forces'] = forces
+            # result_dict['forces'] = forces
+            data = data._replace(forces=forces)
             
-        return result_dict
+        # return result_dict
+        return data

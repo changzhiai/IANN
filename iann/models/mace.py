@@ -129,18 +129,20 @@ class OneHotAtomEncoding(torch.nn.Module):
             self.irreps_out['node_feat'] = self.irreps_out['node_attr']
             
     def forward(self, data):
-        if not hasattr(data, 'atomic_types'):
+        if hasattr(data, 'atomic_types'):
             if self.type_mapper is not None:
                 data = self.type_mapper(data)
             else:
-                data.atomic_types = data.atomic_numbers - 1
+                # data.atomic_types = data.atomic_numbers - 1
+                data = data._replace(atomic_types=data.atomic_numbers - 1)
         onehot = torch.nn.functional.one_hot(
             data.atomic_types, num_classes=self.num_elements
         ).to(device=data.positions.device, dtype=data.positions.dtype)
         
-        data.node_attr = onehot
+        data = data._replace(node_attr=onehot)
+
         if self.set_features:
-            data.node_feat = onehot
+            data = data._replace(node_feat=onehot)
         return data
     
 class AtomwiseLinear(torch.nn.Module):
@@ -148,8 +150,6 @@ class AtomwiseLinear(torch.nn.Module):
         self,
         irreps_in: Optional[o3.Irreps]=None,
         irreps_out: Optional[o3.Irreps]=None,
-        field: str='node_feat',
-        out_field: Optional[str]=None,
     ):
         super().__init__()
         self.irreps_in: Optional[o3.Irreps] = irreps_in
@@ -160,11 +160,10 @@ class AtomwiseLinear(torch.nn.Module):
         self.linear = Linear(
             irreps_in=self.irreps_in, irreps_out=self.irreps_out
         )
-        self.field = field
-        self.out_field = out_field if out_field is not None else self.field
 
     def forward(self, data):
-        setattr(data, self.out_field, self.linear(getattr(data, self.field)))
+        node_feat = self.linear(data.node_feat)
+        data = data._replace(node_feat=node_feat)
         return data
 
 @compile_mode("script") 
@@ -307,10 +306,11 @@ class RadialBasisEdgeEncoding(torch.nn.Module):
     def forward(self, data):
         edge_diff = data.edge_vectors
         edge_dist = torch.linalg.norm(edge_diff, dim=1)
-        data.edge_dist_embedding = (
+        edge_dist_embedding = (
             self.basis(edge_dist) * self.cutoff_fn(edge_dist)[:, None]
         )
-        
+        data = data._replace(edge_dist_embedding=edge_dist_embedding)
+
         return data
 
 class SphericalHarmonicEdgeAttrs(torch.nn.Module):
@@ -330,9 +330,11 @@ class SphericalHarmonicEdgeAttrs(torch.nn.Module):
         self.irreps_out = edge_sh_irreps
 
     def forward(self, data):
-        data.edge_diff_embedding = self.sh(
+        edge_diff_embedding = self.sh(
             data.edge_vectors
         )
+        data = data._replace(edge_diff_embedding=edge_diff_embedding)
+        
         return data
 
 # Based on mir-group/nequip
@@ -1055,7 +1057,7 @@ class MACE(nn.Module):
             node_es_list.append(readout(node_feat).squeeze())
         
         node_es = torch.sum(torch.stack(node_es_list, dim=0), dim=0)
-        data.atomic_energy = node_es
+        data = data._replace(atomic_energy=node_es)
 
         data = self.atomwise_reduce(data)
         
@@ -1072,29 +1074,26 @@ class AtomwiseReduce(nn.Module):
         aggregation_mode: str = "sum",     # should be sum or mean
     ) -> None:
         super().__init__()
-        self.model_outputs = [output_key]
-        if per_atom_output:
-            self.model_outputs.append(output_key + '_per_atom')
+        # self.model_outputs = [output_key]
+        # if per_atom_output:
+        #     self.model_outputs.append(output_key + '_per_atom')
         self.aggregation_mode = aggregation_mode
-        self.output_key = output_key
         self.per_atom_output = per_atom_output
     
     def forward(self, data):
         y = torch.zeros_like(
             data.num_atoms, 
             dtype=data.edge_vectors.dtype
-        )
-        if not hasattr(data, 'image_idx'):
-            data.image_idx = torch.zeros(data.num_atoms, device=y.device, dtype=torch.int)
-        y.index_add_(0, data.image_idx, data.atomic_energy)
+        )  
+        y.index_add_(0, data.image_indices, data.atomic_energy)
         
         if self.aggregation_mode == "mean":
             y = y / data.num_atoms
         
-        setattr(data, self.output_key, y)
+        data = data._replace(energy=y)
         if self.per_atom_output:
-            setattr(data, self.output_key + '_per_atom', data.atomic_energy)
-        
+            energy_per_atom = data.atomic_energy
+            data = data._replace(energy_per_atom=energy_per_atom)
         return data
     
 class GradientOutput(torch.nn.Module):
@@ -1146,13 +1145,13 @@ class GradientOutput(torch.nn.Module):
                 i_forces.index_add_(0, edge_idx[:, 0], dE_ddiff)
                 j_forces.index_add_(0, edge_idx[:, 1], -dE_ddiff)
                 forces = i_forces + j_forces
-                data.forces = forces
+                data = data._replace(forces=forces)
 
                 # Reference: https://en.wikipedia.org/wiki/Virial_stress
                 # This method calculates virials by giving pair-wise force components
                 
                 if 'stress' in self.model_outputs or 'virial' in self.model_outputs:
-                    image_idx = data.image_idx
+                    image_indices = data.image_indices
                     atomic_virial = torch.einsum("ij, ik -> ijk", edge_diff, dE_ddiff)           # I'm quite not sure if a negative sign should be added before dE_ddiff, but I think it should be right
                     # stress = torch.zeros_like(cell).index_add(0, , atomic_stress)
                     atomic_virial = torch.zeros(
@@ -1166,13 +1165,13 @@ class GradientOutput(torch.nn.Module):
                     virial = torch.zeros(
                         energy.shape[0], 3, 3, 
                         dtype=forces.dtype, 
-                        device=forces.device).index_add(0, image_idx, atomic_virial)  # don't need to divide by two
-                    data.virial = virial.view(-1, 9)[:, [0, 4, 8, 5, 2, 1]]
-                    if hasattr(data, "cell") and ('stress' in self.model_outputs or 'virial' in self.model_outputs):
+                        device=forces.device).index_add(0, image_indices, atomic_virial)  # don't need to divide by two
+                    data["virial"] = virial.view(-1, 9)[:, [0, 4, 8, 5, 2, 1]]
+                    if "cell" in data and 'stress' in self.model_outputs:
                         cell = data.cell.view(-1, 3, 3)
                         volumes = torch.sum(cell[:, 0] * cell[:, 1].cross(cell[:, 2], dim=-1), dim=1)
                         stress = - virial / volumes[:, None, None]
-                        data.stress = stress.view(-1, 9)[:, [0, 4, 8, 5, 2, 1]]
+                        data["stress"] = stress.view(-1, 9)[:, [0, 4, 8, 5, 2, 1]]
             
         elif self.grad_on_positions:
             energy = data.energy
@@ -1180,7 +1179,7 @@ class GradientOutput(torch.nn.Module):
             if 'forces' in self.model_outputs:
                 grad_inputs = [data.positions]
                 if 'stress' in self.model_outputs:
-                    grad_inputs.append(data.strain)
+                    grad_inputs.append(data["strain"])
                 grads = torch.autograd.grad(
                     [energy,],
                     grad_inputs,
@@ -1194,14 +1193,14 @@ class GradientOutput(torch.nn.Module):
                 data.forces = -dEdR
                     
                 if 'stress' in self.model_outputs:
-                    if hasattr(data, "cell"):
+                    if "cell" in data:
                         stress = grads[1]
                         if stress is None:
                             stress = torch.zeros_like(data.cell)
                         cell = data.cell.view(-1, 3, 3)
                         volumes = torch.sum(cell[:, 0] * cell[:, 1].cross(cell[:, 2], dim=-1), dim=1)
                         stress /= volumes[:, None, None]
-                        data.stress = stress.view(-1, 9)[:, [0, 4, 8, 5, 2, 1]] 
+                        data["stress"] = stress.view(-1, 9)[:, [0, 4, 8, 5, 2, 1]] 
         
         else:
             raise ValueError("Gradients must be calculated with respect to positions or R_ij. Nothing is given!")
