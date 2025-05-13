@@ -8,3 +8,4 @@ test/painn/model_*
 __pycache__/
 *.pyc
 *.DS_Store
+*/model_output/*
