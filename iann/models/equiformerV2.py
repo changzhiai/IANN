@@ -2250,11 +2250,11 @@ class SO3_Grid(torch.nn.Module):
         return embedding
 
 class EquiformerV2(nn.Module):
-    def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3):
+    def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3, compute_forces=False, **kwargs):
         super().__init__()
         
         self.device = device
-        self.regress_forces = False
+        self.regress_forces = compute_forces
         self.cutoff = cutoff
 
         lmax_list = [6]
