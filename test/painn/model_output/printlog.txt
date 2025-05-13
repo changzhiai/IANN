@@ -1,7 +1,0 @@
-2025-05-06 12:54:20,885 [RANK0] [INFO ]  PyTorch version: 2.2.2
-2025-05-06 12:54:20,885 [RANK0] [INFO ]  Running in single-CPU mode
-2025-05-06 12:54:20,886 [RANK0] [INFO ]  Loading data from test/Pt_ads.traj
-2025-05-06 12:54:20,887 [RANK0] [INFO ]  Dataset size: 278, training set size: 250, validation set size: 28
-2025-05-06 12:54:20,896 [RANK0] [INFO ]  Total trainable parameters: 600577
-2025-05-06 12:54:20,897 [RANK0] [INFO ]  Total memory: 2.29 MB
-2025-05-06 12:54:24,272 [RANK0] [INFO ]  step=0, energy_mae=167.871, energy_rmse=168.117, forces_mae=0.255, forces_rmse=0.366, sqrt(total_loss)=53.168, sqrt(train_loss)=55.173, patience=  0, training time=0.022 min, eval time=0.025 min

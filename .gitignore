@@ -9,3 +9,5 @@ __pycache__/
 *.pyc
 *.DS_Store
 */model_output/*
+*.json
+*log.txt
