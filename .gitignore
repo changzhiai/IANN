@@ -2,7 +2,7 @@ iann/__pycache__
 data/__pycache__
 model_output/__pycache__
 test/lammps_plugin/*.pth
-test/Pt_ads.traj
+# test/Pt_ads.traj
 test/painn/model_*
 *.pth
 __pycache__/
