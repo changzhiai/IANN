@@ -18,7 +18,7 @@ class AtomsData(NamedTuple):
     image_indices: Optional[torch.Tensor] = None
     atomic_energy: Optional[torch.Tensor] = None
 
-    # nequip
+    # nequip and mace
     atomic_types: Optional[torch.Tensor] = None
     node_attr: Optional[torch.Tensor] = None
     node_feat: Optional[torch.Tensor] = None
@@ -26,7 +26,6 @@ class AtomsData(NamedTuple):
     edge_diff_embedding: Optional[torch.Tensor] = None
     atomic_energy_per_atom: Optional[torch.Tensor] = None
 
-    # mace
 
     def to(self, device):
         new_values = {}
