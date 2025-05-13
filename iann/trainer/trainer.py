@@ -281,7 +281,6 @@ class Trainer:
                 logging.info(f"World Size (number of CPUs): {self.world_size}")
             logging.info(f"Master Address: {master_addr}")
             logging.info(f"Master Port: {master_port}")
-            logging.info(f"PyTorch version: {torch.__version__}")
 
         time.sleep(self.rank * 0.1 + 0.1) 
 
@@ -322,7 +321,7 @@ class Trainer:
     def _setup_data(self, dataset_path):
         """Setup dataset and dataloaders"""
         if self.rank == 0:
-            logging.info(f"Loading data from {dataset_path}")
+            logging.info(f"Loading data from {os.path.abspath(dataset_path)}")
         
         # Load dataset
         self.dataset = AseDataset(
@@ -677,13 +676,56 @@ class Trainer:
         else:
             # Single-GPU or CPU mode
             self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-            logging.info(f"Running in single-{'GPU' if torch.cuda.is_available() else 'CPU'} mode")
+            logging.info(f"Running in single-{'GPU' if torch.cuda.is_available() else 'CPU'}.")
+            import cpuinfo
+            info = cpuinfo.get_cpu_info()
+            logging.info(f"Hardware architecture: {torch.cuda.get_device_name() if torch.cuda.is_available() else info['brand_raw']}")
         
         # Setup dataset and dataloaders
         self._setup_data(dataset_path)
         
         # Setup model, optimizer, and scheduler
         self._setup_model()
+        
+        # Log detailed model configuration and setup
+        if self.rank == 0:
+            logging.info("--------------------------------")
+            logging.info("Configuration settings:")
+            logging.info("Model Configuration:")
+            logging.info(f"  Model Type: {self.model_type}")
+            logging.info(f"  Node Size: {self.config['node_size']}")
+            logging.info(f"  Number of Interactions: {self.config['num_interactions']}")
+            logging.info(f"  Cutoff Radius: {self.config['cutoff']}")
+            logging.info(f"  Forces Weight: {self.config['forces_weight']}")
+            logging.info(f"  Normalization: {self.config['normalization']}")
+            logging.info(f"  Atomwise Normalization: {self.config['atomwise_normalization']}")
+            
+            logging.info("\nTraining Configuration:")
+            logging.info(f"  Batch Size: {self.config['batch_size']}")
+            logging.info(f"  Initial Learning Rate: {self.config['initial_lr']}")
+            logging.info(f"  Max Steps: {self.config['max_steps']}")
+            logging.info(f"  Max Epochs: {self.config['max_epochs']}")
+            logging.info(f"  Early Stopping Patience: {self.config['stop_patience']}")
+            logging.info(f"  Plateau Scheduler: {self.config['plateau_scheduler']}")
+            
+            logging.info("\nDevice Configuration:")
+            logging.info(f"  Device: {self.device}")
+            logging.info(f"  Distributed Training: {self.distributed}")
+            if self.distributed:
+                logging.info(f"  World Size: {self.world_size}")
+                logging.info(f"  Rank: {self.rank}")
+            
+            logging.info("\nDataset Configuration:")
+            logging.info(f"  Validation Ratio: {self.config['val_ratio']}")
+            logging.info(f"  Split File: {self.config['split_file']}")
+            logging.info(f"  Training Set Size: {len(self.datasplits['train'])}")
+            logging.info(f"  Validation Set Size: {len(self.datasplits['validation'])}")
+            
+            if self.config['normalization']:
+                logging.info("\nNormalization Parameters:")
+                logging.info(f"  Target Mean: {self.target_mean}")
+                logging.info(f"  Target Stddev: {self.target_stddev}")
+            logging.info("--------------------------------")
         
         # Initialize counters
         local_steps = 0
