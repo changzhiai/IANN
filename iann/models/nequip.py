@@ -886,7 +886,7 @@ class GradientOutput(torch.nn.Module):
                 # This method calculates virials by giving pair-wise force components
                 
                 if 'stress' in self.model_outputs or 'virial' in self.model_outputs:
-                    image_idx = data.image_indices
+                    image_indices = data.image_indices
                     atomic_virial = torch.einsum("ij, ik -> ijk", edge_diff, dE_ddiff)           # I'm quite not sure if a negative sign should be added before dE_ddiff, but I think it should be right
                     # stress = torch.zeros_like(cell).index_add(0, , atomic_stress)
                     atomic_virial = torch.zeros(
@@ -900,7 +900,7 @@ class GradientOutput(torch.nn.Module):
                     virial = torch.zeros(
                         energy.shape[0], 3, 3, 
                         dtype=forces.dtype, 
-                        device=forces.device).index_add(0, image_idx, atomic_virial)  # don't need to divide by two
+                        device=forces.device).index_add(0, image_indices, atomic_virial)  # don't need to divide by two
                     data["virial"] = virial.view(-1, 9)[:, [0, 4, 8, 5, 2, 1]]
                     if "cell" in data and 'stress' in self.model_outputs:
                         cell = data.cell.view(-1, 3, 3)
