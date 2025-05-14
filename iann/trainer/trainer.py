@@ -274,6 +274,7 @@ class Trainer:
         os.environ['MASTER_ADDR'] = master_addr
         os.environ['MASTER_PORT'] = master_port
         if self.rank == 0:
+            logging.info(f"PyTorch version: {torch.__version__}") 
             logging.info(f"Node List: {os.environ.get('SLURM_JOB_NODELIST', 'N/A')}")
             if torch.cuda.is_available():
                 logging.info(f"World Size (number of GPUs): {self.world_size}")
@@ -670,7 +671,6 @@ class Trainer:
             return  # Return after spawning processes - only the spawned children continue
         
         # Setup distributed training if enabled
-        logging.info(f"PyTorch version: {torch.__version__}") 
         if self.distributed:
             self._setup_distributed()
         else:
@@ -711,8 +711,6 @@ class Trainer:
                 logging.info(f"Rank: {self.rank}")
             logging.info(f"Validation Ratio: {self.config['val_ratio']}")
             logging.info(f"Split File: {self.config['split_file']}")
-            logging.info(f"Training Set Size: {len(self.datasplits['train'])}")
-            logging.info(f"Validation Set Size: {len(self.datasplits['validation'])}")
             if self.config['normalization']:
                 logging.info(f"Target Mean: {self.target_mean}")
                 logging.info(f"Target Stddev: {self.target_stddev}")
