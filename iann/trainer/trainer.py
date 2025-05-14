@@ -621,6 +621,10 @@ class Trainer:
         # Clear existing handlers
         root = logging.getLogger()
         for h in root.handlers[:]:
+            try:
+                h.flush()
+            except Exception:
+                pass
             root.removeHandler(h)
         root.setLevel(logging.DEBUG)
         
