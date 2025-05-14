@@ -57,10 +57,10 @@ class LAMMPSModelWrapper(torch.nn.Module):
         )
         if self.compute_forces:
             model_inputs.edge_vectors.requires_grad_()
-        result = self.model(model_inputs)
-        if 'forces' not in result:
+        data = self.model(model_inputs)
+        if hasattr(self.model, 'compute_forces') and self.model.compute_forces:
             raise RuntimeError("Model did not return forces. Make sure compute_forces=True")
-        return {'energy': result['energy'], 'forces': result['forces']}
+        return {'energy': data['energy'], 'forces': data['forces']}
 
 def convert_model_for_lammps(model_path, model_type, output_path=None):
     """Wrap a trained model in a TorchScript-compatible wrapper for LAMMPS.
