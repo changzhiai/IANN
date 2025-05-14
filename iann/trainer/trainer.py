@@ -634,7 +634,7 @@ class Trainer:
         
         # Create and configure file handler
         log_file = os.path.join(self.config["output_dir"], "printlog.txt")
-        file_handler = logging.FileHandler(log_file, mode="w")
+        file_handler = logging.FileHandler(log_file, mode="a")
         file_handler.setFormatter(formatter)
         file_handler.addFilter(RankFilter(self.rank))
         
