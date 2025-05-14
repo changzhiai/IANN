@@ -81,11 +81,11 @@ def convert_model_for_lammps(model_path, model_type, output_path=None):
     
     # Create appropriate model wrapper based on type
     if model_type.lower() == "painn":
-        from iann.models.painn import Painn
+        from iann.models.painn import PaiNN
         node_size = state_dict.get("node_size", 128)
         num_interactions = state_dict.get("num_layer", 3)
         cutoff = state_dict.get("cutoff", 5.5)
-        raw_model = Painn(
+        raw_model = PaiNN(
             hidden_state_size=node_size,
             num_interactions=num_interactions,
             cutoff=cutoff,
@@ -96,11 +96,11 @@ def convert_model_for_lammps(model_path, model_type, output_path=None):
         raw_model.load_state_dict(state_dict["model"])
     elif model_type.lower() == "nequip":
         try:
-            from iann.models.nequip import Nequip
+            from iann.models.nequip import NequIP
             num_interactions = state_dict.get("num_layer", 3)
             node_size = state_dict.get("node_size", 128)
             cutoff = state_dict.get("cutoff", 5.5)
-            raw_model = Nequip(
+            raw_model = NequIP(
                 num_interactions=num_interactions,
                 num_features=node_size,
                 cutoff=cutoff,
