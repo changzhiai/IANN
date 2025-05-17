@@ -1,9 +1,10 @@
 from ase.io import Trajectory
 import torch
-from typing import List, Optional, NamedTuple
+from typing import List, Optional, NamedTuple, Dict, Any, Union
 import asap3
 import numpy as np
 from scipy.spatial import distance_matrix
+from e3nn import o3
 
 class AtomsData(NamedTuple):
     num_atoms: torch.Tensor
@@ -24,7 +25,6 @@ class AtomsData(NamedTuple):
     node_feat: Optional[torch.Tensor] = None
     edge_dist_embedding: Optional[torch.Tensor] = None
     edge_diff_embedding: Optional[torch.Tensor] = None
-    atomic_energy_per_atom: Optional[torch.Tensor] = None
 
 
     def to(self, device):
@@ -56,6 +56,38 @@ class AtomsData(NamedTuple):
     
     def keys(self):
         return [field for field in self._fields if getattr(self, field) is not None]
+
+
+def replace_properties(
+    data: AtomsData,
+    energy: Optional[torch.Tensor] = None,
+    forces: Optional[torch.Tensor] = None,
+    image_indices: Optional[torch.Tensor] = None,
+    atomic_energy: Optional[torch.Tensor] = None,
+    atomic_types: Optional[torch.Tensor] = None,
+    node_attr: Optional[torch.Tensor] = None,
+    node_feat: Optional[torch.Tensor] = None,
+    edge_dist_embedding: Optional[torch.Tensor] = None,
+    edge_diff_embedding: Optional[torch.Tensor] = None,
+) -> AtomsData:
+    return AtomsData(
+        num_atoms=data.num_atoms,
+        atomic_numbers=data.atomic_numbers,
+        positions=data.positions,
+        cell=data.cell,
+        edge_indices=data.edge_indices,
+        edge_vectors=data.edge_vectors,
+        num_edges=data.num_edges,
+        energy=energy if energy is not None else data.energy,
+        forces=forces if forces is not None else data.forces,
+        image_indices=image_indices if image_indices is not None else data.image_indices,
+        atomic_energy=atomic_energy if atomic_energy is not None else data.atomic_energy,
+        atomic_types=atomic_types if atomic_types is not None else data.atomic_types,
+        node_attr=node_attr if node_attr is not None else data.node_attr,
+        node_feat=node_feat if node_feat is not None else data.node_feat,
+        edge_dist_embedding=edge_dist_embedding if edge_dist_embedding is not None else data.edge_dist_embedding,
+        edge_diff_embedding=edge_diff_embedding if edge_diff_embedding is not None else data.edge_diff_embedding,
+    )
 
 class AseDataReader:
     def __init__(self, cutoff=5.0, compute_forces=False):            
