@@ -8,7 +8,7 @@ trainer = Trainer(
     model="painn",
     config={"device": "cpu", 
             'output_dir': 'test/painn/model_output',
-            "log_interval": 10, },
+            "log_interval": 1, },
     distributed=False
     )
 trainer.train("test/Pt_ads.traj")
