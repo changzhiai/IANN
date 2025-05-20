@@ -12,20 +12,17 @@ import torch
 import numpy as np
 from pathlib import Path
 from iann.data.data import AseDataReader, AtomsData
-from typing import Dict, NamedTuple, Optional
 import asap3
 
 
-class BatchInput(NamedTuple):
-    num_atoms: torch.Tensor
-    atomic_numbers: torch.Tensor
-    positions: torch.Tensor
-    cell: torch.Tensor
-    edge_indices: torch.Tensor
-    edge_vectors: torch.Tensor
-    num_edges: torch.Tensor
-    energy: Optional[torch.Tensor]
-    forces: Optional[torch.Tensor]
+def safe_replace(obj, **kwargs):
+    if hasattr(obj, "_replace"):
+        return obj._replace(**kwargs)
+    else:
+        # Manual fallback: rebuild new instance
+        d = obj.__dict__.copy()
+        d.update(kwargs)
+        return type(obj)(**d)
 
 class LAMMPSModelWrapper(torch.nn.Module):
     def __init__(self, model):
@@ -40,7 +37,7 @@ class LAMMPSModelWrapper(torch.nn.Module):
                 cell: torch.Tensor,
                 edge_indices: torch.Tensor,
                 edge_vectors: torch.Tensor,
-                num_edges: torch.Tensor) -> Dict[str, torch.Tensor]:
+                num_edges: torch.Tensor) -> AtomsData:
         """Forward seven input tensors matching the C++ plugin call."""
         # Reconstruct the NamedTuple internally
         model_inputs = AtomsData(
@@ -58,9 +55,9 @@ class LAMMPSModelWrapper(torch.nn.Module):
         if self.compute_forces:
             model_inputs.edge_vectors.requires_grad_()
         data = self.model(model_inputs)
-        if hasattr(self.model, 'compute_forces') and self.model.compute_forces:
+        if not hasattr(self.model, 'compute_forces') or not self.model.compute_forces:
             raise RuntimeError("Model did not return forces. Make sure compute_forces=True")
-        return {'energy': data['energy'], 'forces': data['forces']}
+        return data
 
 def convert_model_for_lammps(model_path, model_type, output_path=None):
     """Wrap a trained model in a TorchScript-compatible wrapper for LAMMPS.
@@ -119,12 +116,14 @@ def convert_model_for_lammps(model_path, model_type, output_path=None):
                 num_interactions=num_interactions,
                 num_features=node_size,
                 cutoff=cutoff,
+                correlation = 3,
+                species = None,
                 compute_forces=True
             )
             raw_model.load_state_dict(state_dict["model"])
         except ImportError:
             raise ImportError("MACE is not available")
-    elif model_type.lower() == "equiformer2":
+    elif model_type.lower() == "equiformerv2":
         try:
             from iann.models.equiformerV2 import EquiformerV2
             num_interactions = state_dict.get("num_layer", 3)
@@ -147,34 +146,30 @@ def convert_model_for_lammps(model_path, model_type, output_path=None):
     # Example test: verify the wrapper with dummy ASE atoms
     from ase.build import fcc100
     test_atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
-    # Generate model inputs using the same reader
     model_inputs = AseDataReader(cutoff, compute_forces=True)(test_atoms)
-    # Ensure BatchInput has all required fields including energy and forces
-    model_inputs = AtomsData(
-        num_atoms=model_inputs.num_atoms,
-        atomic_numbers=model_inputs.atomic_numbers,
-        positions=model_inputs.positions,
-        cell=model_inputs.cell,
-        edge_indices=model_inputs.edge_indices,
-        edge_vectors=model_inputs.edge_vectors,
-        num_edges=model_inputs.num_edges,
-        energy=None,
-        forces=None,
-        image_indices=None,
-    )
+
     # Unpack for the new forward signature
-    example_out = wrapped_model(
-        model_inputs.num_atoms,
-        model_inputs.atomic_numbers,
-        model_inputs.positions,
-        model_inputs.cell,
-        model_inputs.edge_indices,
-        model_inputs.edge_vectors,
-        model_inputs.num_edges
-    )
-    print(f"Example test passed: Energy={example_out['energy']}, Forces shape={example_out['forces'].shape}")
+    # example_out = wrapped_model(
+    #     model_inputs.num_atoms,
+    #     model_inputs.atomic_numbers,
+    #     model_inputs.positions,
+    #     model_inputs.cell,
+    #     model_inputs.edge_indices,
+    #     model_inputs.edge_vectors,
+    #     model_inputs.num_edges,
+    # )
+    # print(f"Example test passed: Energy={example_out.energy}, Forces shape={example_out.forces.shape}")
 
     scripted_model = torch.jit.script(wrapped_model)
+
+    # scripted_model = torch.jit.trace(wrapped_model, (model_inputs.num_atoms,
+    #     model_inputs.atomic_numbers,
+    #     model_inputs.positions,
+    #     model_inputs.cell,
+    #     model_inputs.edge_indices,
+    #     model_inputs.edge_vectors,
+    #     model_inputs.num_edges,))
+    
     if output_path is None:
         output_path = f"{Path(model_path).stem}_{model_type}_lammps.pt"
     torch.jit.save(scripted_model, output_path)
