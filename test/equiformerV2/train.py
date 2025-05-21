@@ -5,9 +5,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 
 trainer = Trainer(
-    model="mace",
+    model="equiformerV2",
     config={"device": "cpu", 
-            'output_dir': 'test/mace/model_output',
+            'output_dir': 'test/equiformerV2/model_output',
             'log_interval': 1},
     distributed=False
     )
