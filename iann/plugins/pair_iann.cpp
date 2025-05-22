@@ -99,6 +99,7 @@ PairIANN::PairIANN(LAMMPS *lmp) : Pair(lmp)
   model_type = nullptr;
   model_path = nullptr;
   cutoff = 0.0;
+  debug = false;  // Initialize debug flag to false
   
   // Default settings
   comm_forward = 1;  // We need to communicate forces

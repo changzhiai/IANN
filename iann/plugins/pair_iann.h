@@ -85,6 +85,8 @@ class PairIANN : public Pair {
   double **force_variance;         // Per-atom force variances
   bool has_ensemble_stats;         // Whether model provides ensemble statistics
   
+  bool debug;  // Debug flag
+  
 };
 
 }    // namespace LAMMPS_NS
