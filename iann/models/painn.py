@@ -259,6 +259,9 @@ class PaiNN(nn.Module):
         energy = torch.zeros(num_atoms.shape[0], device=num_atoms.device, dtype=torch.float32)
         energy.index_add_(0, image_idx, node_scalar)
 
+        atomic_energy = node_scalar
+        data = replace_properties(data, atomic_energy=atomic_energy)
+
         # Apply (de-)normalization
         if self.normalization:
             normalizer = self.normalize_stddev
