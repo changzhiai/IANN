@@ -9,11 +9,9 @@ Supports all four model types with proper error handling
 
 import argparse
 import torch
-import numpy as np
 from pathlib import Path
 from iann.data.data import AseDataReader, AtomsData
-import asap3
-
+from typing import Dict
 
 class LAMMPSModelWrapper(torch.nn.Module):
     def __init__(self, model, compute_forces=True):
@@ -28,7 +26,7 @@ class LAMMPSModelWrapper(torch.nn.Module):
                 cell: torch.Tensor,
                 edge_indices: torch.Tensor,
                 edge_vectors: torch.Tensor,
-                num_edges: torch.Tensor) -> AtomsData:
+                num_edges: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Forward seven input tensors matching the C++ plugin call."""
         # Reconstruct the NamedTuple internally
         model_inputs = AtomsData(
@@ -48,7 +46,15 @@ class LAMMPSModelWrapper(torch.nn.Module):
         data = self.model(model_inputs)
         if not hasattr(self.model, 'compute_forces') or not self.model.compute_forces:
             raise RuntimeError("Model did not return forces. Make sure compute_forces=True")
-        results = {'energy': data.energy, 'forces': data.forces, 'atomic_energy': data.atomic_energy}
+
+        results = {}
+        if data.energy is not None:
+            results['energy'] = data.energy
+        if data.forces is not None:
+            results['forces'] = data.forces
+        if data.atomic_energy is not None:
+            results['atomic_energy'] = data.atomic_energy
+            
         return results
     
 class EnsembleLAMMPSModelWrapper(torch.nn.Module):
@@ -64,7 +70,7 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
                 cell: torch.Tensor,
                 edge_indices: torch.Tensor,
                 edge_vectors: torch.Tensor,
-                num_edges: torch.Tensor) -> AtomsData:
+                num_edges: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Forward pass that computes ensemble averages and variances."""
         # Reconstruct the NamedTuple internally
         model_inputs = AtomsData(
@@ -99,6 +105,7 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
             all_energies.append(energy)
             all_forces.append(forces)
             all_atomic_energies.append(atomic_energies)
+            
         # Calculate ensemble averages and variances
         avg_energy = torch.mean(torch.stack(all_energies), dim=0)
         avg_forces = torch.mean(torch.stack(all_forces), dim=0)
@@ -106,9 +113,19 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
         # Calculate variances
         energy_var = torch.var(torch.stack(all_energies), dim=0)
         forces_var = torch.var(torch.stack(all_forces), dim=0)
-
         atomic_energy_var = torch.var(torch.stack(all_atomic_energies), dim=0)
-        results = {'energy': avg_energy, 'forces': avg_forces, 'atomic_energy_var': atomic_energy_var, 'energy_variance': energy_var, 'forces_variance': forces_var}
+        
+        results = {}
+        if avg_energy is not None:
+            results['energy'] = avg_energy
+        if avg_forces is not None:
+            results['forces'] = avg_forces
+        if energy_var is not None:
+            results['energy_variance'] = energy_var
+        if forces_var is not None:
+            results['forces_variance'] = forces_var
+        if atomic_energy_var is not None:
+            results['atomic_energy_variance'] = atomic_energy_var
         return results
 
 def convert_model_for_lammps(model_path, model_type, output_path=None, compute_forces=True):
@@ -314,23 +331,6 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, compute
     torch.jit.save(scripted_model, output_path)
     print(f"Ensemble model exported to {output_path}")
     return output_path 
-
-def get_neighborlist(atoms, cutoff):        
-    nl = asap3.FullNeighborList(cutoff, atoms)
-    pair_i_idx = []
-    pair_j_idx = []
-    edge_vectors_list = []
-    for i in range(len(atoms)):
-        indices, diff, _ = nl.get_neighbors(i)
-        pair_i_idx += [i] * len(indices)
-        pair_j_idx.append(indices)
-        edge_vectors_list.append(diff)
-
-    pair_j_idx = np.concatenate(pair_j_idx)
-    edge_indices = np.stack((pair_i_idx, pair_j_idx), axis=1)
-    edge_vectors = np.concatenate(edge_vectors_list)
-    
-    return edge_indices, edge_vectors
 
 
 def main():
