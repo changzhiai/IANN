@@ -26,6 +26,10 @@ class AtomsData(NamedTuple):
     edge_dist_embedding: Optional[torch.Tensor] = None
     edge_diff_embedding: Optional[torch.Tensor] = None
 
+    # ensemble
+    energy_variance: Optional[torch.Tensor] = None
+    forces_variance: Optional[torch.Tensor] = None
+
 
     def to(self, device):
         new_values = {}
@@ -69,6 +73,8 @@ def replace_properties(
     node_feat: Optional[torch.Tensor] = None,
     edge_dist_embedding: Optional[torch.Tensor] = None,
     edge_diff_embedding: Optional[torch.Tensor] = None,
+    energy_variance: Optional[torch.Tensor] = None,
+    forces_variance: Optional[torch.Tensor] = None,
 ) -> AtomsData:
     return AtomsData(
         num_atoms=data.num_atoms,
@@ -87,6 +93,8 @@ def replace_properties(
         node_feat=node_feat if node_feat is not None else data.node_feat,
         edge_dist_embedding=edge_dist_embedding if edge_dist_embedding is not None else data.edge_dist_embedding,
         edge_diff_embedding=edge_diff_embedding if edge_diff_embedding is not None else data.edge_diff_embedding,
+        energy_variance=energy_variance if energy_variance is not None else data.energy_variance,
+        forces_variance=forces_variance if forces_variance is not None else data.forces_variance,
     )
 
 class AseDataReader:
