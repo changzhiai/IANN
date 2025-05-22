@@ -11,7 +11,7 @@ import argparse
 import torch
 from pathlib import Path
 from iann.data.data import AseDataReader, AtomsData
-from typing import Dict
+from typing import Dict, Optional
 
 class LAMMPSModelWrapper(torch.nn.Module):
     def __init__(self, model, compute_forces=True):
@@ -46,14 +46,13 @@ class LAMMPSModelWrapper(torch.nn.Module):
         data = self.model(model_inputs)
         if not hasattr(self.model, 'compute_forces') or not self.model.compute_forces:
             raise RuntimeError("Model did not return forces. Make sure compute_forces=True")
-
-        results = {}
-        if data.energy is not None:
-            results['energy'] = data.energy
-        if data.forces is not None:
-            results['forces'] = data.forces
-        if data.atomic_energy is not None:
-            results['atomic_energy'] = data.atomic_energy
+        energy = data.energy
+        forces = data.forces
+        atomic_energy = data.atomic_energy
+        assert energy is not None
+        assert forces is not None
+        assert atomic_energy is not None
+        results = {'energy': energy, 'forces': forces, 'atomic_energy': atomic_energy}
             
         return results
     
@@ -115,17 +114,7 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
         forces_var = torch.var(torch.stack(all_forces), dim=0)
         atomic_energy_var = torch.var(torch.stack(all_atomic_energies), dim=0)
         
-        results = {}
-        if avg_energy is not None:
-            results['energy'] = avg_energy
-        if avg_forces is not None:
-            results['forces'] = avg_forces
-        if energy_var is not None:
-            results['energy_variance'] = energy_var
-        if forces_var is not None:
-            results['forces_variance'] = forces_var
-        if atomic_energy_var is not None:
-            results['atomic_energy_variance'] = atomic_energy_var
+        results = {'energy': avg_energy, 'forces': avg_forces, 'energy_variance': energy_var, 'forces_variance': forces_var, 'atomic_energy_variance': atomic_energy_var}
         return results
 
 def convert_model_for_lammps(model_path, model_type, output_path=None, compute_forces=True):
