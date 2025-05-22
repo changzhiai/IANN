@@ -139,8 +139,11 @@ void PairIANN::compute(int eflag, int vflag)
   int nall = nlocal + atom->nghost;
   int natoms_global = atom->natoms;  // Total number of atoms in the system
 
-  if (comm->me == 0)
+  static bool cutoff_printed = false;  // Static variable to track if cutoff has been printed
+  if (comm->me == 0 && !cutoff_printed) {
     std::cout << "[PAIR_IANN] Using cutoff: " << cutoff << " Angstrom" << std::endl;
+    cutoff_printed = true;  // Mark that we've printed the cutoff
+  }
   
   // Convert number of atoms to tensor
   torch::Tensor num_atoms_tensor = torch::tensor({nlocal}, torch::kInt64);
@@ -194,13 +197,15 @@ void PairIANN::compute(int eflag, int vflag)
   build_edges(list->inum, list->ilist, list->numneigh, list->firstneigh);
 
   // Debug: print input tensor sizes for sanity
-  std::cout << "[PAIR_IANN] total_atoms=" << num_atoms_tensor << std::endl;
-  std::cout << "[PAIR_IANN] atom_types=" << atomic_numbers_tensor << std::endl;
-  std::cout << "[PAIR_IANN] atom_positions=" << positions_tensor << std::endl;
-  std::cout << "[PAIR_IANN] cell=" << cell_tensor << std::endl;
-  std::cout << "[PAIR_IANN] edge_indices=" << edge_indices_tensor << std::endl;
-  std::cout << "[PAIR_IANN] edge_vectors=" << edge_vectors_tensor << std::endl;
-  std::cout << "[PAIR_IANN] num_edges=" << num_edges_tensor << std::endl;
+  if (debug && comm->me == 0) {
+    std::cout << "[PAIR_IANN] total_atoms=" << num_atoms_tensor << std::endl;
+    std::cout << "[PAIR_IANN] atom_types=" << atomic_numbers_tensor << std::endl;
+    std::cout << "[PAIR_IANN] atom_positions=" << positions_tensor << std::endl;
+    std::cout << "[PAIR_IANN] cell=" << cell_tensor << std::endl;
+    std::cout << "[PAIR_IANN] edge_indices=" << edge_indices_tensor << std::endl;
+    std::cout << "[PAIR_IANN] edge_vectors=" << edge_vectors_tensor << std::endl;
+    std::cout << "[PAIR_IANN] num_edges=" << num_edges_tensor << std::endl;
+  }
   
   // Inference: call the scripted model with raw tensor inputs matching wrapper signature
   try {
@@ -229,13 +234,15 @@ void PairIANN::compute(int eflag, int vflag)
     }
     
     // Debug: print energy value and forces tensor shape
-    double e_val = energy.item<double>();
-    auto f_sizes = forces.sizes();
-    std::cout << "[PAIR_IANN] returned energy = " << e_val << std::endl;
-    std::cout << "[PAIR_IANN] forces shape = [" << f_sizes[0] << ", " << f_sizes[1] << "]" << std::endl;
-    if (has_variances) {
-        std::cout << "[PAIR_IANN] energy variance = " << energy_var.item<double>() << std::endl;
-        std::cout << "[PAIR_IANN] forces variance shape = [" << forces_var.size(0) << ", " << forces_var.size(1) << "]" << std::endl;
+    if (debug && comm->me == 0) {
+        double e_val = energy.item<double>();
+        auto f_sizes = forces.sizes();
+        std::cout << "[PAIR_IANN] returned energy = " << e_val << std::endl;
+        std::cout << "[PAIR_IANN] forces shape = [" << f_sizes[0] << ", " << f_sizes[1] << "]" << std::endl;
+        if (has_variances) {
+            std::cout << "[PAIR_IANN] energy variance = " << energy_var.item<double>() << std::endl;
+            std::cout << "[PAIR_IANN] forces variance shape = [" << forces_var.size(0) << ", " << forces_var.size(1) << "]" << std::endl;
+        }
     }
     
     // Handle forces tensor
@@ -339,6 +346,15 @@ void PairIANN::settings(int narg, char **arg)
   
   // Get cutoff
   cutoff = utils::numeric(FLERR, arg[iarg++], false, lmp);
+  
+  // Check for debug flag
+  for (int i = iarg; i < narg; i++) {
+    if (strcmp(arg[i], "debug") == 0) {
+      debug = true;
+      if (comm->me == 0)
+        error->message(FLERR, "PAIR_IANN: Debug mode enabled");
+    }
+  }
   
   // Load the model
   try {
