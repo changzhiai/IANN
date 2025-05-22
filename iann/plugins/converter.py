@@ -48,7 +48,8 @@ class LAMMPSModelWrapper(torch.nn.Module):
         data = self.model(model_inputs)
         if not hasattr(self.model, 'compute_forces') or not self.model.compute_forces:
             raise RuntimeError("Model did not return forces. Make sure compute_forces=True")
-        return data
+        results = {'energy': data.energy, 'forces': data.forces, 'atomic_energy': data.atomic_energy}
+        return results
     
 class EnsembleLAMMPSModelWrapper(torch.nn.Module):
     def __init__(self, models, compute_forces=True):
@@ -84,18 +85,20 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
         # Collect predictions from all models
         all_energies = []
         all_forces = []
-        
+        all_atomic_energies = []
         for model in self.models:
             data = model(model_inputs)
             if not hasattr(model, 'compute_forces') or not model.compute_forces:
                 raise RuntimeError("Model did not return forces. Make sure compute_forces=True")
             energy = data.energy
             forces = data.forces
+            atomic_energies = data.atomic_energy
             assert energy is not None
             assert forces is not None
+            assert atomic_energies is not None
             all_energies.append(energy)
             all_forces.append(forces)
-
+            all_atomic_energies.append(atomic_energies)
         # Calculate ensemble averages and variances
         avg_energy = torch.mean(torch.stack(all_energies), dim=0)
         avg_forces = torch.mean(torch.stack(all_forces), dim=0)
@@ -104,21 +107,9 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
         energy_var = torch.var(torch.stack(all_energies), dim=0)
         forces_var = torch.var(torch.stack(all_forces), dim=0)
 
-        # Return results with ensemble statistics
-        return AtomsData(
-            num_atoms=num_atoms,
-            atomic_numbers=atomic_numbers,
-            positions=positions,
-            cell=cell,
-            edge_indices=edge_indices,
-            edge_vectors=edge_vectors,
-            num_edges=num_edges,
-            energy=avg_energy,
-            forces=avg_forces,
-            image_indices=None,
-            energy_variance=energy_var,
-            forces_variance=forces_var
-        )
+        atomic_energy_var = torch.var(torch.stack(all_atomic_energies), dim=0)
+        results = {'energy': avg_energy, 'forces': avg_forces, 'atomic_energy_var': atomic_energy_var, 'energy_variance': energy_var, 'forces_variance': forces_var}
+        return results
 
 def convert_model_for_lammps(model_path, model_type, output_path=None, compute_forces=True):
     """Wrap a trained model in a TorchScript-compatible wrapper for LAMMPS.
@@ -205,31 +196,23 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
     wrapped_model = LAMMPSModelWrapper(raw_model, compute_forces=compute_forces)
     wrapped_model.eval()
     # Example test: verify the wrapper with dummy ASE atoms
-    from ase.build import fcc100
-    test_atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
-    model_inputs = AseDataReader(cutoff, compute_forces=compute_forces)(test_atoms)
-
-    # Unpack for the new forward signature
-    # example_out = wrapped_model(
-    #     model_inputs.num_atoms,
-    #     model_inputs.atomic_numbers,
-    #     model_inputs.positions,
-    #     model_inputs.cell,
-    #     model_inputs.edge_indices,
-    #     model_inputs.edge_vectors,
-    #     model_inputs.num_edges,
-    # )
-    # print(f"Example test passed: Energy={example_out.energy}, Forces shape={example_out.forces.shape}")
+    example = False
+    if example:
+        from ase.build import fcc100
+        test_atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
+        model_inputs = AseDataReader(cutoff, compute_forces=compute_forces)(test_atoms)
+        example_out = wrapped_model(
+            model_inputs.num_atoms,
+            model_inputs.atomic_numbers,
+            model_inputs.positions,
+            model_inputs.cell,
+            model_inputs.edge_indices,
+            model_inputs.edge_vectors,
+            model_inputs.num_edges,
+        )
+        print(f"Example test passed: Energy={example_out.energy}, Forces shape={example_out.forces.shape}")
 
     scripted_model = torch.jit.script(wrapped_model)
-
-    # scripted_model = torch.jit.trace(wrapped_model, (model_inputs.num_atoms,
-    #     model_inputs.atomic_numbers,
-    #     model_inputs.positions,
-    #     model_inputs.cell,
-    #     model_inputs.edge_indices,
-    #     model_inputs.edge_vectors,
-    #     model_inputs.num_edges,))
     
     if output_path is None:
         output_path = f"{Path(model_path).stem}_{model_type}_lammps.pt"
