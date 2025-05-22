@@ -103,6 +103,11 @@ PairIANN::PairIANN(LAMMPS *lmp) : Pair(lmp)
   // Default settings
   comm_forward = 1;  // We need to communicate forces
   comm_reverse = 1;  // We need to gather positions
+
+  // Initialize ensemble statistics variables
+  energy_variance = 0.0;
+  force_variance = nullptr;
+  has_ensemble_stats = false;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -112,6 +117,7 @@ PairIANN::~PairIANN()
   if (allocated) {
     memory->destroy(setflag);
     memory->destroy(cutsq);
+    if (force_variance) memory->destroy(force_variance);
   }
   
   if (model_type) delete[] model_type;
@@ -212,11 +218,25 @@ void PairIANN::compute(int eflag, int vflag)
     auto energy = output.at("energy").toTensor();
     auto forces = output.at("forces").toTensor();
     
+    // Extract variances if they exist (ensemble model)
+    torch::Tensor energy_var, forces_var;
+    bool has_variances = false;
+    if (output.find("energy_variance") != output.end() && 
+        output.find("forces_variance") != output.end()) {
+        has_variances = true;
+        energy_var = output.at("energy_variance").toTensor();
+        forces_var = output.at("forces_variance").toTensor();
+    }
+    
     // Debug: print energy value and forces tensor shape
     double e_val = energy.item<double>();
     auto f_sizes = forces.sizes();
     std::cout << "[PAIR_IANN] returned energy = " << e_val << std::endl;
     std::cout << "[PAIR_IANN] forces shape = [" << f_sizes[0] << ", " << f_sizes[1] << "]" << std::endl;
+    if (has_variances) {
+        std::cout << "[PAIR_IANN] energy variance = " << energy_var.item<double>() << std::endl;
+        std::cout << "[PAIR_IANN] forces variance shape = [" << forces_var.size(0) << ", " << forces_var.size(1) << "]" << std::endl;
+    }
     
     // Handle forces tensor
     auto forces_accessor = forces.accessor<float, 2>();
@@ -236,15 +256,36 @@ void PairIANN::compute(int eflag, int vflag)
     }
     
     // Set energy in LAMMPS if requested
-    if (eflag_global) eng_vdwl = energy.item<double>();
+    if (eflag_global) {
+        eng_vdwl = energy.item<double>();
+        if (has_variances) {
+            // Store energy variance in a global variable if available
+            // You may need to add this variable to the PairIANN class
+            energy_variance = energy_var.item<double>();
+        }
+
+        // Store force variances per atom if available
+        if (has_variances) {
+            auto forces_var_accessor = forces_var.accessor<float, 2>();
+            for (int i = 0; i < nlocal; i++) {
+                // Store force variances in a per-atom array if available
+                // You may need to add this array to the PairIANN class
+                force_variance[i][0] = forces_var_accessor[i][0];
+                force_variance[i][1] = forces_var_accessor[i][1];
+                force_variance[i][2] = forces_var_accessor[i][2];
+            }
+        }
+    }
     
-    // Per-atom energies (if model provides them)
-    if (eflag_atom && output.find("atomic_energy") != output.end()) {
-      auto atom_energies = output.at("atomic_energy").toTensor();
-      auto energies_accessor = atom_energies.accessor<float, 1>();
-      for (int i = 0; i < nlocal; i++) {
-        eatom[i] = energies_accessor[i];
-      }
+    // Per-atom energies and variances (if model provides them)
+    if (eflag_atom) {
+        if (output.find("atomic_energy") != output.end()) {
+            auto atom_energies = output.at("atomic_energy").toTensor();
+            auto energies_accessor = atom_energies.accessor<float, 1>();
+            for (int i = 0; i < nlocal; i++) {
+                eatom[i] = energies_accessor[i];
+            }
+        }
     }
     
     if (vflag_fdotr) virial_fdotr_compute();
@@ -277,6 +318,9 @@ void PairIANN::allocate()
       setflag[i][j] = 0;
   
   memory->create(cutsq, n + 1, n + 1, "pair:cutsq");
+
+  // Allocate force variance array
+  memory->create(force_variance, atom->nmax, 3, "pair:force_variance");
 }
 
 /* ---------------------------------------------------------------------- */

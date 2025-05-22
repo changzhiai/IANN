@@ -1,18 +1,26 @@
 /* -*- c++ -*- ----------------------------------------------------------
-   LAMMPS - Large-scale Atomic/Molecular Massively Parallel Simulator
-   https://www.lammps.org/, Sandia National Laboratories
-   LAMMPS development team: developers@lammps.org
-
-   Copyright (2003) Sandia Corporation.  Under the terms of Contract
-   DE-AC04-94AL85000 with Sandia Corporation, the U.S. Government retains
-   certain rights in this software.  This software is distributed under
-   the GNU General Public License.
-
-   See the README file in the top-level LAMMPS directory.
-
    Inherits from LAMMPS Pair class
    Uses LibTorch C++ API to interface with trained models
    Handles neighbor list construction, energy/force calculations
+   Handles ensemble statistics (energy variance, force variances)
+   Handles per-atom energies and variances (if model provides them)
+   Handles virial calculation
+
+   Model Input (AtomsData NamedTuple):
+     num_atoms        : Tensor[1]    number of atoms (N)
+     atomic_numbers   : Tensor[N]    element types (0-indexed)
+     positions        : Tensor[N,3]  atomic positions
+     cell             : Tensor[3,3]  cell box vectors
+     edge_indices     : Tensor[M,2]  edge indices (source, target)
+     edge_vectors     : Tensor[M,3]  edge vectors for each edge
+     num_edges        : Tensor[1]    total number of neighbor edges (M)
+   
+   Model Output:
+     energy    : Tensor[1]  total system energy
+     forces    : Tensor[N,3] per-atom forces
+     energy_variance: Tensor[1]  global energy variance
+     forces_variance: Tensor[N,3] per-atom force variances
+     atomic_energy: Tensor[N] per-atom energies
 ------------------------------------------------------------------------- */
 
 #ifdef PAIR_CLASS
@@ -32,19 +40,6 @@ PairStyle(iann,PairIANN);
 #include <ATen/ATen.h>
 
 namespace LAMMPS_NS {
-
-// Model Input (AtomsData NamedTuple) fields:
-//   num_atoms        : Tensor[1]    number of atoms (N)
-//   atomic_numbers   : Tensor[N]    element types (0-indexed)
-//   positions        : Tensor[N,3]  atomic positions
-//   cell             : Tensor[3,3]  cell box vectors
-//   edge_indices     : Tensor[M,2]  edge indices (source, target)
-//   edge_vectors     : Tensor[M,3]  edge vectors for each edge
-//   num_edges        : Tensor[1]    total number of neighbor edges (M)
-//
-// Model Output:
-//   energy    : Tensor[1]  total system energy
-//   forces    : Tensor[N,3] per-atom forces
 
 class PairIANN : public Pair {
  public:
@@ -84,7 +79,11 @@ class PairIANN : public Pair {
   std::shared_ptr<torch::jit::Module> model;
   
   void build_edges(int inum, int *ilist, int *numneigh, int **firstneigh);
-  
+
+  // Variables for storing ensemble statistics
+  double energy_variance;           // Global energy variance
+  double **force_variance;         // Per-atom force variances
+  bool has_ensemble_stats;         // Whether model provides ensemble statistics
   
 };
 
