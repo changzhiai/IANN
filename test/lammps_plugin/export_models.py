@@ -32,7 +32,7 @@ def export_models(export="painn"):
         output_path = convert_models_for_lammps(
             model_paths=model_paths,
             model_type="painn",
-            output_path="ensemble_painn_lammps.pt"
+            output_path="test/lammps_plugin/export_ensemble_painn.pth"
         )
 
 if __name__ == "__main__":
