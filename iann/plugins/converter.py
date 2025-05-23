@@ -202,7 +202,7 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
     wrapped_model = LAMMPSModelWrapper(raw_model, compute_forces=compute_forces)
     wrapped_model.eval()
     # Example test: verify the wrapper with dummy ASE atoms
-    example = False
+    example = True
     if example:
         from ase.build import fcc100
         test_atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
@@ -216,7 +216,7 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
             model_inputs.edge_vectors,
             model_inputs.num_edges,
         )
-        print(f"Example test passed: Energy={example_out.energy}, Forces shape={example_out.forces.shape}")
+        print(f"Example test passed: Energy={example_out['energy']}, Forces shape={example_out['forces'].shape}")
 
     scripted_model = torch.jit.script(wrapped_model)
     
