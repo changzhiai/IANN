@@ -2705,6 +2705,8 @@ class EquiformerV2(nn.Module):
         #         edge_index,
         #         batch=image_indices # data.batch    # for GraphDropPath
         #     )
+        if image_indices is None:
+            image_indices = torch.zeros_like(atomic_numbers, dtype=torch.long)
         assert image_indices is not None
         for idx, block in enumerate(self.blocks):
             self.x = block(
@@ -2730,7 +2732,9 @@ class EquiformerV2(nn.Module):
         energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
         energy.index_add_(0, image_indices, node_energy.view(-1))
         energy = energy / _AVG_NUM_NODES
-
+        
+        atomic_energy = node_energy.view(-1)
+        data = replace_properties(data, atomic_energy=atomic_energy)
         ###############################################################
         # Force estimation
         ###############################################################
