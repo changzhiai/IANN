@@ -343,8 +343,8 @@ class SO3_Rotation(torch.nn.Module):
         )
         # self.wigner = torch.tensor([], device=self.device)
         # self.wigner_inv = torch.tensor([], device=self.device)
-        self.register_buffer("wigner", torch.empty(0, device=self.device))
-        self.register_buffer("wigner_inv", torch.empty(0, device=self.device))
+        self.register_buffer("wigner", None, persistent=True)
+        self.register_buffer("wigner_inv", None, persistent=True)
     
     @torch.jit.export
     def set_wigner(self, rot_mat3x3: torch.Tensor):
