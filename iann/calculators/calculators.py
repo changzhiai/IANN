@@ -69,7 +69,7 @@ class MLCalculator(Calculator):
             from iann.models.nequip import NequIP
             model = NequIP(
                 num_interactions=state_dict["num_layer"],
-                hidden_state_size=state_dict["node_size"],
+                num_features=state_dict["node_size"],
                 cutoff=state_dict["cutoff"],
                 compute_forces=True
             )
@@ -77,15 +77,17 @@ class MLCalculator(Calculator):
             from iann.models.mace import MACE
             model = MACE(
                 num_interactions=state_dict["num_layer"],
-                hidden_state_size=state_dict["node_size"],
+                num_features=state_dict["node_size"],
+                correlation = 3,
+                species = None,
                 cutoff=state_dict["cutoff"],
-                compute_forces=True
+                compute_forces=True,
             )
         elif model_type == "equiformerV2":
             from iann.models.equiformerV2 import EquiformerV2
             model = EquiformerV2(
                 num_interactions=state_dict["num_layer"],
-                hidden_state_size=state_dict["node_size"],
+                num_features=state_dict["node_size"],
                 cutoff=state_dict["cutoff"],
                 compute_forces=True
             )
@@ -107,26 +109,29 @@ class MLCalculator(Calculator):
             self.atoms = atoms.copy()       
 
         model_inputs = self.ase_data_reader(self.atoms)
-        model_inputs = {
-            k: v.to(self.model_device) for (k, v) in model_inputs.items()
-        }
+        # model_inputs = {
+        #     k: v.to(self.model_device) for (k, v) in model_inputs.items()
+        # }
 
         model_results = self.model(model_inputs)
 
         results = {}
+        results["energy"] = model_results.energy
+        if self.compute_forces:
+            results["forces"] = model_results.forces
 
         # Convert outputs to calculator format
-        if self.compute_forces:
-            results["forces"] = (
-                model_results["forces"].detach().cpu().numpy() * self.forces_scale
-            )
-        results["energy"] = (
-            model_results["energy"][0].detach().cpu().numpy().item()
-            * self.energy_scale
-        )
+        # if self.compute_forces:
+        #     results["forces"] = (
+        #         model_results["forces"].detach().cpu().numpy() * self.forces_scale
+        #     )
+        # results["energy"] = (
+        #     model_results["energy"][0].detach().cpu().numpy().item()
+        #     * self.energy_scale
+        # )
 
-        if model_results.get("fps"):
-            atoms.info["fps"] = model_results["fps"].detach().cpu().numpy()
+        # if model_results.get("fps"):
+        #     atoms.info["fps"] = model_results["fps"].detach().cpu().numpy()
     
         self.results = results
 

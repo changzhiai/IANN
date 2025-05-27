@@ -2761,9 +2761,9 @@ class EquiformerV2(nn.Module):
     # def num_params(self):
     #     return sum(p.numel() for p in self.parameters())
     
-    def parameters(self):
-        """Override parameters() to return a list instead of a generator for TorchScript compatibility."""
-        return list(super().parameters())
+    # def parameters(self):
+    #     """Override parameters() to return a list instead of a generator for TorchScript compatibility."""
+    #     return list(super().parameters())
     
     def _init_weights(self, m):
         if (isinstance(m, torch.nn.Linear)
