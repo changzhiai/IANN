@@ -369,6 +369,8 @@ class SO3_Rotation(torch.nn.Module):
         wigner_inv = self.wigner_inv[:, :, in_mask]
         wigner_inv_rescale = self.mapping.get_rotate_inv_rescale(in_lmax, in_mmax)
         wigner_inv = wigner_inv * wigner_inv_rescale
+        if wigner_inv.shape[0] != embedding.shape[0]:
+            raise RuntimeError(f"rotate_inv(): Batch mismatch: wigner_inv {wigner_inv.shape}, embedding {embedding.shape}")
         return torch.bmm(wigner_inv, embedding)
     
     # In 0.5.0, e3nn shifted to torch.matrix_exp which is significantly slower:
@@ -873,9 +875,9 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 
     def forward(
         self,
-        atomic_numbers,
-        edge_dist,
-        edge_idx
+        atomic_numbers: torch.Tensor,
+        edge_dist: torch.Tensor,
+        edge_idx: torch.Tensor
     ):    
         
         if self.use_atom_edge_embedding:
