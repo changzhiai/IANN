@@ -132,9 +132,9 @@ class CoefficientMappingModule(torch.nn.Module):
         self.device = device
         
         # Compute the degree (l) and order (m) for each entry of the embedding
-        l_harmonic = torch.tensor([], device=self.device).long()
-        m_harmonic = torch.tensor([], device=self.device).long()
-        m_complex  = torch.tensor([], device=self.device).long()
+        l_harmonic = torch.zeros(0, device=self.device).long()
+        m_harmonic = torch.zeros(0, device=self.device).long()
+        m_complex  = torch.zeros(0, device=self.device).long()
 
         res_size = torch.zeros([self.num_resolutions], device=self.device).long()
 
@@ -187,8 +187,8 @@ class CoefficientMappingModule(torch.nn.Module):
         # for caching the output of `coefficient_idx`
         self.lmax_cache = -3 # -3 is initialized value
         self.mmax_cache = -3 # -3 is initialized value
-        self.mask_indices_cache = torch.tensor([], dtype=torch.long)
-        self.rotate_inv_rescale_cache = torch.tensor([], dtype=torch.float)
+        self.mask_indices_cache = torch.zeros(0, dtype=torch.long, device=self.device)  # Initialize as empty tensor
+        self.rotate_inv_rescale_cache = torch.zeros(0, dtype=torch.float, device=self.device)
 
 
     # Return mask containing coefficients of order m (real and imaginary parts)
@@ -343,32 +343,60 @@ class SO3_Rotation(torch.nn.Module):
         )
         # self.wigner = torch.tensor([], device=self.device)
         # self.wigner_inv = torch.tensor([], device=self.device)
-        self.register_buffer("wigner", None, persistent=True)
-        self.register_buffer("wigner_inv", None, persistent=True)
-    
+        # self.wigner = torch.zeros(0, device=self.device)
+        # self.wigner_inv = torch.zeros(0, device=self.device)
+        
+        # Register wigner matrices as buffers
+        # self.register_buffer('wigner', torch.zeros(0, device=device))
+        # self.register_buffer('wigner_inv', torch.zeros(0, device=device))
+
     @torch.jit.export
     def set_wigner(self, rot_mat3x3: torch.Tensor):
-        # self.device, self.dtype = rot_mat3x3.device, rot_mat3x3.dtype
-        length = len(rot_mat3x3)  
-        self.wigner = self.RotationToWignerDMatrix(rot_mat3x3, 0, self.lmax)
-        self.wigner_inv = torch.transpose(self.wigner, 1, 2).contiguous()
-        self.wigner = self.wigner.detach()
-        self.wigner_inv = self.wigner_inv.detach()
+                # self.device, self.dtype = rot_mat3x3.device, rot_mat3x3.dtype
+        # length = len(rot_mat3x3)
+        # self.wigner = self.RotationToWignerDMatrix(rot_mat3x3, 0, self.lmax)
+        # self.wigner_inv = torch.transpose(self.wigner, 1, 2).contiguous()
+        # self.wigner = self.wigner.detach()
+        # self.wigner_inv = self.wigner_inv.detach()
+        # print("setup self.wigner_inv: ", self.wigner_inv.shape)
+        
+        # wigner = self.RotationToWignerDMatrix(rot_mat3x3, 0, self.lmax)
+        # wigner_inv = torch.transpose(wigner, 1, 2).contiguous()
+        # wigner = wigner.detach()
+        # wigner_inv = wigner_inv.detach()
+        # # Update the buffers
+        # self.wigner.copy_(wigner)
+        # self.wigner_inv.copy_(wigner_inv)
+        # print("setup wigner_inv: ", self.wigner_inv.shape)
+        wigner = self.RotationToWignerDMatrix(rot_mat3x3, 0, self.lmax)
+        wigner_inv = torch.transpose(wigner, 1, 2).contiguous()
+        wigner = wigner.detach()
+        wigner_inv = wigner_inv.detach()
+        # print("setup wigner_inv: ", wigner_inv.shape)
+        return wigner, wigner_inv
 
     # Rotate the embedding
     @torch.jit.export
-    def rotate(self, embedding: torch.Tensor, out_lmax: int, out_mmax: int):
+    def rotate(self, embedding: torch.Tensor, out_lmax: int, out_mmax: int, wigner: torch.Tensor):
         out_mask = self.mapping.coefficient_idx(out_lmax, out_mmax)
-        assert hasattr(self, "wigner"), "Wigner matrix must be initialized before calling rotate()"
-        wigner = self.wigner[:, out_mask, :]
+        # assert hasattr(self, "wigner"), "Wigner matrix must be initialized before calling rotate()"
+        # wigner = self.wigner[:, out_mask, :]
+        # print("wigner in rotate: ", wigner.shape)
+        wigner = wigner[:, out_mask, :]
         return torch.bmm(wigner, embedding)
 
     # Rotate the embedding by the inverse of the rotation matrix
     @torch.jit.export
-    def rotate_inv(self, embedding: torch.Tensor, in_lmax: int, in_mmax: int):
+    # def rotate_inv(self, embedding: torch.Tensor, in_lmax: int, in_mmax: int):
+    #     print("self.wigner_inv: ", self.wigner_inv.shape)
+    def rotate_inv(self, embedding: torch.Tensor, in_lmax: int, in_mmax: int, wigner_inv: torch.Tensor):
+        # print("wigner_inv in rotate_inv: ", wigner_inv.shape)
+        # if embedding.shape[0] == 1928:
+        #     raise RuntimeError(f"wigner_inv: {wigner_inv.shape}, embedding: {embedding.shape}")
         in_mask = self.mapping.coefficient_idx(in_lmax, in_mmax)
-        assert hasattr(self, "wigner_inv"), "Wigner matrix must be initialized before calling rotate_inv()"
-        wigner_inv = self.wigner_inv[:, :, in_mask]
+        # assert hasattr(self, "wigner_inv"), "Wigner matrix must be initialized before calling rotate_inv()"
+        # wigner_inv = self.wigner_inv[:, :, in_mask]
+        wigner_inv = wigner_inv[:, :, in_mask]
         wigner_inv_rescale = self.mapping.get_rotate_inv_rescale(in_lmax, in_mmax)
         wigner_inv = wigner_inv * wigner_inv_rescale
         if wigner_inv.shape[0] != embedding.shape[0]:
@@ -377,6 +405,7 @@ class SO3_Rotation(torch.nn.Module):
     
     # In 0.5.0, e3nn shifted to torch.matrix_exp which is significantly slower:
     # https://github.com/e3nn/e3nn/blob/0.5.0/e3nn/o3/_wigner.py#L92
+    @torch.jit.export
     def wigner_D(self, l: int, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor):
         # Borrowed from e3nn @ 0.4.0:
         # https://github.com/e3nn/e3nn/blob/0.4.0/e3nn/o3/_wigner.py#L10
@@ -426,7 +455,7 @@ class SO3_Rotation(torch.nn.Module):
     #     return M
 
     # Compute Wigner matrices from rotation matrix
-    # @torch.jit.export
+    @torch.jit.export
     def RotationToWignerDMatrix(self, edge_rot_mat: torch.Tensor, start_lmax: int, end_lmax: int):
         # x = edge_rot_mat @ edge_rot_mat.new_tensor([0.0, 1.0, 0.0])
         x = edge_rot_mat @ torch.tensor([0.0, 1.0, 0.0], dtype=edge_rot_mat.dtype, device=edge_rot_mat.device)
@@ -554,18 +583,20 @@ class SO3_Embedding(nn.Module):
         self.embedding = torch.einsum("nac, ab -> nbc", self.embedding, mapping.to_m)
 
     @torch.jit.export
-    def _rotate(self, SO3_rotation: List[SO3_Rotation], lmax_list: List[int], mmax_list: List[int]):
+    def _rotate(self, SO3_rotation: List[SO3_Rotation], lmax_list: List[int], mmax_list: List[int], edge_rot_mat: torch.Tensor):
         if self.num_resolutions == 1:
-            embedding_rotate = SO3_rotation[0].rotate(self.embedding, lmax_list[0], mmax_list[0])
+            wigner, _ = SO3_rotation[0].set_wigner(edge_rot_mat)
+            embedding_rotate = SO3_rotation[0].rotate(self.embedding, lmax_list[0], mmax_list[0], wigner)
         else:
             offset = 0
             embedding_rotate = torch.tensor([], device=self.device, dtype=self.dtype)
             for i in range(self.num_resolutions):
                 num_coefficients = int((self.lmax_list[i] + 1) ** 2)
                 embedding_i = self.embedding[:, offset : offset + num_coefficients]
+                wigner, _ = SO3_rotation[i].set_wigner(edge_rot_mat)
                 embedding_rotate = torch.cat([
                         embedding_rotate,
-                        SO3_rotation[i].rotate(embedding_i, lmax_list[i], mmax_list[i])],
+                        SO3_rotation[i].rotate(embedding_i, lmax_list[i], mmax_list[i], wigner)],
                     dim=1)
                 offset = offset + num_coefficients
 
@@ -573,18 +604,24 @@ class SO3_Embedding(nn.Module):
         self.set_lmax_mmax(lmax_list.copy(), mmax_list.copy())
 
     @torch.jit.export
-    def _rotate_inv(self, SO3_rotation: List[SO3_Rotation], mappingReduced: CoefficientMappingModule):
+    def _rotate_inv(self, SO3_rotation: List[SO3_Rotation], mappingReduced: CoefficientMappingModule, edge_rot_mat: torch.Tensor):
         if self.num_resolutions == 1:
-            embedding_rotate = SO3_rotation[0].rotate_inv(self.embedding, self.lmax_list[0], self.mmax_list[0])
+            # embedding_rotate = SO3_rotation[0].rotate_inv(self.embedding, self.lmax_list[0], self.mmax_list[0])
+            wigner, wigner_inv = SO3_rotation[0].set_wigner(edge_rot_mat)
+            # print("wigner in rotate_inv: ", wigner.shape)
+            # print("wigner_inv in rotate_inv: ", wigner_inv.shape)
+            embedding_rotate = SO3_rotation[0].rotate_inv(self.embedding, self.lmax_list[0], self.mmax_list[0], wigner_inv)
         else:
             offset = 0
             embedding_rotate = torch.tensor([], device=self.device, dtype=self.dtype)
             for i in range(self.num_resolutions):
                 num_coefficients = mappingReduced.res_size[i]
                 embedding_i = self.embedding[:, offset : offset + num_coefficients]
+                wigner, wigner_inv = SO3_rotation[i].set_wigner(edge_rot_mat)
                 embedding_rotate = torch.cat([
                         embedding_rotate,
-                        SO3_rotation[i].rotate_inv(embedding_i, self.lmax_list[i], self.mmax_list[i])],
+                        # SO3_rotation[i].rotate_inv(embedding_i, self.lmax_list[i], self.mmax_list[i])],
+                        SO3_rotation[i].rotate_inv(embedding_i, self.lmax_list[i], self.mmax_list[i], wigner_inv)],
                     dim=1)
                 offset = offset + num_coefficients
         self.embedding = embedding_rotate
@@ -820,7 +857,7 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 
     def __init__(
         self,
-        atom_channels,
+        atom_channels: int,
         
         lmax_list: list[int],
         mmax_list: list[int],
@@ -879,7 +916,8 @@ class EdgeDegreeEmbedding(torch.nn.Module):
         self,
         atomic_numbers: torch.Tensor,
         edge_dist: torch.Tensor,
-        edge_idx: torch.Tensor
+        edge_idx: torch.Tensor,
+        edge_rot_mat: torch.Tensor
     ):    
         
         if self.use_atom_edge_embedding:
@@ -900,16 +938,17 @@ class EdgeDegreeEmbedding(torch.nn.Module):
             self.atom_channels), 
             device=x_edge_m_0.device)
         x_edge_m_all = torch.cat((x_edge_m_0, x_edge_m_pad), dim=1)
-
+        # print("x_edge_m_all.shape: ", x_edge_m_all.shape) # after this line
         
         self.x_edge_embedding.set_embedding(x_edge_m_all)
         self.x_edge_embedding.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
 
         # Reshape the spherical harmonics based on l (degree)
         self.x_edge_embedding._l_primary(self.mappingReduced)
-
+        
+        # print("wigner_inv in EdgeEmbedding", list(self.SO3_rotation)[0].wigner_inv.shape) # before this line
         # Rotate back the irreps
-        self.x_edge_embedding._rotate_inv(list(self.SO3_rotation), self.mappingReduced)
+        self.x_edge_embedding._rotate_inv(list(self.SO3_rotation), self.mappingReduced, edge_rot_mat)
 
         # Compute the sum of the incoming neighboring messages for each target node
         self.x_edge_embedding._reduce_edge(edge_idx[1], atomic_numbers.shape[0])
@@ -1874,7 +1913,8 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
         x: SO3_Embedding,
         atomic_numbers: torch.Tensor,
         edge_distance: torch.Tensor,
-        edge_index: torch.Tensor
+        edge_index: torch.Tensor,
+        edge_rot_mat: torch.Tensor
     ) -> SO3_Embedding:
         
         # Compute edge scalar features (invariant to rotations)
@@ -1917,7 +1957,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
             self.x_message.embedding = self.x_message.embedding * x_edge_weight
 
         # Rotate the irreps to align with the edge
-        self.x_message._rotate(list(self.SO3_rotation), self.lmax_list, self.mmax_list)
+        self.x_message._rotate(list(self.SO3_rotation), self.lmax_list, self.mmax_list, edge_rot_mat)
 
         # First SO(2)-convolution
         if self.use_s2_act_attn:
@@ -1987,7 +2027,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
         self.x_message.embedding = attn
 
         # Rotate back the irreps
-        self.x_message._rotate_inv(list(self.SO3_rotation), self.mappingReduced)
+        self.x_message._rotate_inv(list(self.SO3_rotation), self.mappingReduced, edge_rot_mat)
 
         # Compute the sum of the incoming neighboring messages for each target node
         self.x_message._reduce_edge(edge_index[1], len(x.embedding))
@@ -2330,6 +2370,7 @@ class TransBlockV2(torch.nn.Module):
         atomic_numbers: torch.Tensor,
         edge_distance: torch.Tensor,
         edge_index: torch.Tensor,
+        edge_rot_mat: torch.Tensor,
         batch: torch.Tensor           # for GraphDropPath
     ):
         output_embedding = x
@@ -2339,7 +2380,8 @@ class TransBlockV2(torch.nn.Module):
         output_embedding = self.ga(output_embedding, 
             atomic_numbers,
             edge_distance,
-            edge_index)
+            edge_index,
+            edge_rot_mat)
         
         if self.drop_path is not None:
             output_embedding.embedding = self.drop_path(output_embedding.embedding, batch)
@@ -2622,6 +2664,7 @@ class EquiformerV2(nn.Module):
         atomic_numbers = data.atomic_numbers
         edge_index = data.edge_indices
         edge_vectors = data.edge_vectors
+        # print("edge_vectors: ", edge_vectors.shape)
 
         edge_dist = torch.linalg.norm(edge_vectors, dim=1)
         edge_index = edge_index.T
@@ -2646,12 +2689,15 @@ class EquiformerV2(nn.Module):
         # Compute 3x3 rotation matrix per edge
         edge_rot_mat = init_edge_rot_mat(edge_vectors)
 
+
         # Initialize the WignerD matrices and other values for spherical harmonic calculations
         
         # for i in range(self.num_resolutions):
         #     self.SO3_rotation[i].set_wigner(edge_rot_mat)
-        for i, module in enumerate(self.SO3_rotation):
-            module.set_wigner(edge_rot_mat)
+        # for i, module in enumerate(self.SO3_rotation):
+        #     module.set_wigner(edge_rot_mat)
+        #     print(f"After set_wigner - wigner shape: {module.wigner.shape}")
+        #     print(f"After set_wigner_inv - wigner_inv shape: {module.wigner_inv.shape}")
 
         ###############################################################
         # Embeddings
@@ -2689,12 +2735,17 @@ class EquiformerV2(nn.Module):
             source_embedding = self.source_embedding(source_element)
             target_embedding = self.target_embedding(target_element)
             edge_dist = torch.cat((edge_dist, source_embedding, target_embedding), dim=1)
+        
+        # for i, module in enumerate(self.SO3_rotation):
+        #     print(f"2 set_wigner - wigner shape: {module.wigner.shape}")
+        #     print(f"2 set_wigner - wigner_inv shape: {module.wigner_inv.shape}") # after this line
 
         # Edge-degree embedding
-        edge_degree = self.edge_degree_embedding(
+        edge_degree = self.edge_degree_embedding( # torchscript error
             atomic_numbers,
             edge_dist,
-            edge_index)
+            edge_index,
+            edge_rot_mat)
         self.x.embedding = self.x.embedding + edge_degree.embedding
 
         ###############################################################
@@ -2718,6 +2769,7 @@ class EquiformerV2(nn.Module):
                 atomic_numbers,
                 edge_dist,
                 edge_index,
+                edge_rot_mat,
                 batch=image_indices # data.batch    # for GraphDropPath
             )
 
@@ -2746,7 +2798,8 @@ class EquiformerV2(nn.Module):
             forces = self.force_block(self.x,
                 atomic_numbers,
                 edge_dist,
-                edge_index)
+                edge_index,
+                edge_rot_mat)
             forces = forces.embedding.narrow(1, 1, 3)
             forces = forces.view(-1, 3)
         else:
