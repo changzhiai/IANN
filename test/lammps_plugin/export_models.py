@@ -36,4 +36,4 @@ def export_models(export="painn"):
         )
 
 if __name__ == "__main__":
-    export_models(export="ensemble_painn")
+    export_models(export="equiformerV2")
