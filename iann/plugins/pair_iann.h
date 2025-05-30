@@ -82,8 +82,9 @@ class PairIANN : public Pair {
 
   // Variables for storing ensemble statistics
   double energy_variance;           // Global energy variance
-  double **force_variance;         // Per-atom force variances
-  bool has_ensemble_stats;         // Whether model provides ensemble statistics
+  double force_variance;           // Variance of force magnitudes
+  double max_energy_variance;      // Maximum of atomic energy variances
+  double max_force_variance;       // Maximum of force variances
   
   bool debug;  // Debug flag
   

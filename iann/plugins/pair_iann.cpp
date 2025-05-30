@@ -107,8 +107,9 @@ PairIANN::PairIANN(LAMMPS *lmp) : Pair(lmp)
 
   // Initialize ensemble statistics variables
   energy_variance = 0.0;
-  force_variance = nullptr;
-  has_ensemble_stats = false;
+  force_variance = 0.0;
+  max_energy_variance = 0.0;
+  max_force_variance = 0.0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -118,7 +119,6 @@ PairIANN::~PairIANN()
   if (allocated) {
     memory->destroy(setflag);
     memory->destroy(cutsq);
-    if (force_variance) memory->destroy(force_variance);
   }
   
   if (model_type) delete[] model_type;
@@ -225,13 +225,15 @@ void PairIANN::compute(int eflag, int vflag)
     auto forces = output.at("forces").toTensor();
     
     // Extract variances if they exist (ensemble model)
-    torch::Tensor energy_var, forces_var;
+    torch::Tensor energy_var, forces_var, atomic_energy_var;
     bool has_variances = false;
     if (output.find("energy_variance") != output.end() && 
-        output.find("forces_variance") != output.end()) {
+        output.find("forces_variance") != output.end() &&
+        output.find("atomic_energy_variance") != output.end()) {
         has_variances = true;
         energy_var = output.at("energy_variance").toTensor();
         forces_var = output.at("forces_variance").toTensor();
+        atomic_energy_var = output.at("atomic_energy_variance").toTensor();
     }
     
     // Debug: print energy value and forces tensor shape
@@ -243,6 +245,7 @@ void PairIANN::compute(int eflag, int vflag)
         if (has_variances) {
             std::cout << "[PAIR_IANN] energy variance = " << energy_var.item<double>() << std::endl;
             std::cout << "[PAIR_IANN] forces variance shape = [" << forces_var.size(0) << ", " << forces_var.size(1) << "]" << std::endl;
+            std::cout << "[PAIR_IANN] atomic energy variance shape = [" << atomic_energy_var.size(0) << "]" << std::endl;
         }
     }
     
@@ -267,20 +270,30 @@ void PairIANN::compute(int eflag, int vflag)
     if (eflag_global) {
         eng_vdwl = energy.item<double>();
         if (has_variances) {
-            // Store energy variance in a global variable if available
-            // You may need to add this variable to the PairIANN class
             energy_variance = energy_var.item<double>();
-        }
-
-        // Store force variances per atom if available
-        if (has_variances) {
+            
+            // Calculate variance of force magnitudes
+            auto force_norms = torch::norm(forces, 2, 1);  // Calculate L2 norm along dimension 1 (xyz components)
+            force_variance = torch::var(force_norms, 0).item<double>(); // variance of force magnitudes
+            
+            max_energy_variance = atomic_energy_var.max().item<double>();
+            
+            // Calculate maximum force variance
+            max_force_variance = 0.0;
             auto forces_var_accessor = forces_var.accessor<float, 2>();
             for (int i = 0; i < nlocal; i++) {
-                // Store force variances in a per-atom array if available
-                // You may need to add this array to the PairIANN class
-                force_variance[i][0] = forces_var_accessor[i][0];
-                force_variance[i][1] = forces_var_accessor[i][1];
-                force_variance[i][2] = forces_var_accessor[i][2];
+              double atom_max_var = std::max({forces_var_accessor[i][0], 
+                                            forces_var_accessor[i][1], 
+                                            forces_var_accessor[i][2]});
+              max_force_variance = std::max(max_force_variance, atom_max_var);
+            }
+            
+            // Print variance statistics
+            if (debug && comm->me == 0) {
+              std::cout << "[PAIR_IANN] Energy variance: " << energy_variance << std::endl;
+              std::cout << "[PAIR_IANN] Force variance: " << force_variance << std::endl;
+              std::cout << "[PAIR_IANN] Maximum energy variance: " << max_energy_variance << std::endl;
+              std::cout << "[PAIR_IANN] Maximum force variance: " << max_force_variance << std::endl;
             }
         }
     }
@@ -327,8 +340,6 @@ void PairIANN::allocate()
   
   memory->create(cutsq, n + 1, n + 1, "pair:cutsq");
 
-  // Allocate force variance array
-  memory->create(force_variance, atom->nmax, 3, "pair:force_variance");
 }
 
 /* ---------------------------------------------------------------------- */
