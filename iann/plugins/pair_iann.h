@@ -51,6 +51,16 @@ class PairIANN : public Pair {
   void init_style() override;
   double init_one(int, int) override;
   
+  // Variables for storing ensemble statistics
+  double energy_variance;           // Global energy variance
+  double force_variance;           // Variance of force magnitudes
+  double max_energy_variance;      // Maximum of atomic energy variances
+  double max_force_variance;       // Maximum of force variances
+  
+  // Global properties for thermo output
+  double *global_properties;       // Array to store global properties
+  int n_global_properties;         // Number of global properties
+  
  protected:
   void allocate();
   
@@ -70,8 +80,8 @@ class PairIANN : public Pair {
   torch::Tensor num_edges_tensor;         // Number of neighbor pairs (scalar)
   
   torch::Tensor neighbor_offsets; // Neighbor offsets (M, 3)
-  
   torch::Tensor neighbor_indices;
+  
   // Map from atom tags to sequential indices
   std::vector<int> tag_to_index;
   
@@ -79,15 +89,8 @@ class PairIANN : public Pair {
   std::shared_ptr<torch::jit::Module> model;
   
   void build_edges(int inum, int *ilist, int *numneigh, int **firstneigh);
-
-  // Variables for storing ensemble statistics
-  double energy_variance;           // Global energy variance
-  double force_variance;           // Variance of force magnitudes
-  double max_energy_variance;      // Maximum of atomic energy variances
-  double max_force_variance;       // Maximum of force variances
   
   bool debug;  // Debug flag
-  
 };
 
 }    // namespace LAMMPS_NS

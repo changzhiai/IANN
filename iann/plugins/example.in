@@ -4,56 +4,86 @@
 # Shows proper parameter settings for ML potentials
 # Includes equilibration, production, and analysis steps
 
-# Initialization
-units metal        # Use metal units (eV, Angstroms)
-dimension 3        # 3D simulation
-boundary p p p     # Periodic in all directions
-atom_style atomic  # Atomic system (no bonds)
+# example 1: 
 
-# Create simulation box and atoms
-# This example creates a silicon crystal (diamond structure)
-lattice diamond 5.431  # Silicon lattice constant in Angstroms
-region box block 0 4 0 4 0 4  # 4x4x4 unit cells
-create_box 1 box
-create_atoms 1 box
+units metal
+atom_style atomic
+boundary p p p
 
-# Define the ML potential
-# Syntax: pair_style iann model_type model_path cutoff
-pair_style iann painn painn_si_lammps.pt 5.5
-pair_coeff * *  # All atom types use this potential
+read_data initial.data
 
-# Mass (adjust to match your system)
-mass 1 28.0855  # Silicon atomic mass
+# Define the IANN pair style
+pair_style iann painni export_ensemble_painn.pth  5.5
+pair_coeff * *
 
-# Initialize velocities
-velocity all create 300.0 4928459 dist gaussian
+mass 1 1.0079999997406976 # H
+mass 2 195.08399994981576 # Pt
 
-# Define computes and output
-compute pe all pe
-compute ke all ke
-variable temp equal "ke/(1.5*boltz*count(all))"
-thermo_style custom step temp pe ke etotal press vol
+neighbor 0.5 bin
+neigh_modify every 1 delay 0 check yes
+
+# Thermodynamic settings
+thermo 1
+
+# Initial minimization to relax the system before dynamics
+minimize 1.0e-4 1.0e-6 100 1000
+
+# Run your simulation
+timestep 0.001
+fix 1 all nvt temp 300.0 300.0 0.1
+dump 1 all custom 10 dump.xyz id type x y z
+
+run 2000
+
+
+
+
+# example 2
+
+units metal
+atom_style atomic
+boundary p p p
+newton on
+
+read_data initial.data
+
+# Define the IANN pair style
+pair_style iann painn export_ensemble_painn.pth  5.5
+pair_coeff * *
+
+mass 1 1.0079999997406976 # H
+mass 2 195.08399994981576 # Pt
+
+velocity all create 900 126342 dist gaussian rot yes mom yes
+
+timestep 0.0001
+
+info computes
+
+compute variance all iann/variance
+
+# thermo_style custom step pe ke etotal press energy_variance force_variance max_energy_variance max_force_variance
+thermo_style custom step pe ke etotal press c_variance[1] c_variance[2] c_variance[3] c_variance[4]
 thermo 100
 
-# Equilibration
-fix 1 all nve                       # NVE ensemble
-fix 2 all temp/rescale 10 300 300 0.05 1.0  # Temperature control
-timestep 0.001                      # 1 fs timestep
-run 1000                           # Run for 1 ps
+dump 1 all custom 100 dump.xyz type x y z
 
-# Production
+
+variable v equal vol
+variable t equal temp
+variable p equal press
+variable px equal pxx
+variable py equal pyy
+variable pz equal pzz
+
+# record rolling average of volume, temperature, and pressure
+fix 1 all ave/time 1 1000 1000 v_v v_t v_p v_px v_py v_pz file output.txt
+
+# equilibrate with box height frozen
+fix 2 all npt temp 900 900 0.1 x 0.0 0.0 1.0 y 0.0 0.0 1.0
+run 5000000  # 0.5 ns
 unfix 2
-fix 2 all nvt temp 300 300 0.1      # Switch to NVT ensemble
-dump 1 all custom 100 dump.lammpstrj id type x y z
-run 10000                          # Run for 10 ps
 
-# Calculate radial distribution function
-compute rdf all rdf 100 1 1
-fix 3 all ave/time 100 1 100 c_rdf[*] file rdf.dat mode vector
 
-# Run with RDF calculation
-run 5000
-
-# Print final information
-print "Final energy: $(pe) eV"
-print "Final temperature: ${temp} K" 
+# Initial minimization to relax the system before dynamics
+minimize 1.0e-4 1.0e-6 100 1000

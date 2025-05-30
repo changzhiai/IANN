@@ -27,6 +27,8 @@
 #include "neigh_request.h"
 #include "neighbor.h"
 #include "update.h"
+#include "output.h"
+#include "thermo.h"
 #include "domain.h"
 #include <mpi.h>  // for MPI_Allgather, MPI_Allgatherv
 
@@ -110,6 +112,13 @@ PairIANN::PairIANN(LAMMPS *lmp) : Pair(lmp)
   force_variance = 0.0;
   max_energy_variance = 0.0;
   max_force_variance = 0.0;
+
+  // Initialize global properties
+  n_global_properties = 4;  // We have 4 variance values to track
+  global_properties = new double[n_global_properties];
+  for (int i = 0; i < n_global_properties; i++) {
+    global_properties[i] = 0.0;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -123,6 +132,9 @@ PairIANN::~PairIANN()
   
   if (model_type) delete[] model_type;
   if (model_path) delete[] model_path;
+  
+  // Clean up global properties
+  delete[] global_properties;
   
   // LibTorch cleanup is automatic via shared_ptr
 }
@@ -287,6 +299,12 @@ void PairIANN::compute(int eflag, int vflag)
                                             forces_var_accessor[i][2]});
               max_force_variance = std::max(max_force_variance, atom_max_var);
             }
+            
+            // Update global properties for thermo output
+            global_properties[0] = energy_variance;
+            global_properties[1] = force_variance;
+            global_properties[2] = max_energy_variance;
+            global_properties[3] = max_force_variance;
             
             // Print variance statistics
             if (debug && comm->me == 0) {
