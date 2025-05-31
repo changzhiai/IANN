@@ -50,8 +50,19 @@ cmake ../cmake   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares
   -DTorch_DIR=/global/homes/c/changzhi/changzhi/softwares/libtorch/share/cmake/Torch \
   -DPKG_USER-MISC=ON   -DBUILD_MPI=ON   -DBUILD_OMP=ON   \
   -DCMAKE_EXE_LINKER_FLAGS="-L/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -Wl,-rpath,/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -ltorch \
-  -ltorch_cpu -lc10" ;
-make -j 8
+  -ltorch_cpu -lc10" ; make -j 8
+
+GPU install:
+cmake ../cmake   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares/libtorch \
+  -DCMAKE_CXX_FLAGS="-I/global/homes/c/changzhi/changzhi/softwares/libtorch/include/torch/csrc/api/include -I/global/homes/c/changzhi/changzhi/softwares/libtorch/include"   \
+  -DTorch_DIR=/global/homes/c/changzhi/changzhi/softwares/libtorch/share/cmake/Torch \
+  -DCMAKE_BUILD_TYPE=Release -DPKG_GPU=yes  -DGPU_API=cuda -DGPU_ARCH="NVIDIA A100-PCIE-40GB" \
+  -DPKG_USER-MISC=ON   -DBUILD_MPI=ON   -DBUILD_OMP=ON   \
+  -DCMAKE_EXE_LINKER_FLAGS="-L/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -Wl,-rpath,/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -ltorch \
+  -ltorch_cpu -lc10" ; make -j 8
+
+
+Note: always use same cuda version when export, compile and run, for example: module load cudatoolkit/11.7
 ```
 
 ## Usage
