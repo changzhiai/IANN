@@ -40,6 +40,7 @@ run 2000
 
 # example 2
 
+log log.lammps
 units metal
 atom_style atomic
 boundary p p p
@@ -56,19 +57,20 @@ mass 2 195.08399994981576 # Pt
 
 velocity all create 900 126342 dist gaussian rot yes mom yes
 
-timestep 0.0001
-
-info computes
+timestep 0.0001 # 0.1 fs
 
 compute variance all iann/variance
-
-# thermo_style custom step pe ke etotal press energy_variance force_variance max_energy_variance max_force_variance
-thermo_style custom step pe ke etotal press c_variance[1] c_variance[2] c_variance[3] c_variance[4]
 thermo 100
+thermo_style custom step pe ke etotal temp press c_variance[1] c_variance[2] c_variance[3] c_variance[4]
+thermo_modify colname c_variance[1] energy_variance
+thermo_modify colname c_variance[2] force_variance
+thermo_modify colname c_variance[3] max_energy_variance
+thermo_modify colname c_variance[4] max_force_variance
+thermo_modify flush yes
 
 dump 1 all custom 100 dump.xyz type x y z
 
-
+info computes
 variable v equal vol
 variable t equal temp
 variable p equal press
@@ -83,7 +85,3 @@ fix 1 all ave/time 1 1000 1000 v_v v_t v_p v_px v_py v_pz file output.txt
 fix 2 all npt temp 900 900 0.1 x 0.0 0.0 1.0 y 0.0 0.0 1.0
 run 5000000  # 0.5 ns
 unfix 2
-
-
-# Initial minimization to relax the system before dynamics
-minimize 1.0e-4 1.0e-6 100 1000
