@@ -88,6 +88,10 @@ class PairIANN : public Pair {
   // Loaded TorchScript model
   std::shared_ptr<torch::jit::Module> model;
   
+  // GPU support
+  bool use_gpu;          // Whether to use GPU
+  torch::Device device;  // Device to run model on (CPU or CUDA)
+  
   void build_edges(int inum, int *ilist, int *numneigh, int **firstneigh);
   
   bool debug;  // Debug flag

@@ -11,6 +11,8 @@
 #include <vector>
 #include <memory>
 #include <iostream>
+#include <fstream>
+#include <unistd.h>
 
 // LibTorch headers
 #include <torch/torch.h>
@@ -93,7 +95,9 @@ int get_atomic_number(double mass) {
 
 /* ---------------------------------------------------------------------- */
 
-PairIANN::PairIANN(LAMMPS *lmp) : Pair(lmp) 
+PairIANN::PairIANN(LAMMPS *lmp) : Pair(lmp),
+  use_gpu(false),  // Initialize to false by default
+  device(torch::Device(torch::kCPU))  // Initialize to CPU by default
 {
   restartinfo = 0;
   manybody_flag = 1;
@@ -118,6 +122,71 @@ PairIANN::PairIANN(LAMMPS *lmp) : Pair(lmp)
   global_properties = new double[n_global_properties];
   for (int i = 0; i < n_global_properties; i++) {
     global_properties[i] = 0.0;
+  }
+
+  // Check CUDA environment
+  const char* cuda_path = getenv("CUDA_HOME");
+  const char* ld_path = getenv("LD_LIBRARY_PATH");
+  
+  if (comm->me == 0) {
+    if (!cuda_path) {
+      error->warning(FLERR, "[PAIR_IANN] CUDA_HOME environment variable not set");
+    } else {
+      // Check CUDA version
+      std::string cuda_version;
+      std::ifstream version_file(std::string(cuda_path) + "/version.txt");
+      if (version_file.is_open()) {
+        std::getline(version_file, cuda_version);
+        error->message(FLERR, ("[PAIR_IANN] Found CUDA version: " + cuda_version).c_str());
+      }
+    }
+    if (!ld_path) {
+      error->warning(FLERR, "[PAIR_IANN] LD_LIBRARY_PATH environment variable not set");
+    }
+  }
+
+  // Try to initialize CUDA with a small test case
+  try {
+    if (torch::cuda::is_available()) {
+      // Create a small test case with 20 atoms
+      int ntest = 20;
+      torch::Tensor test_positions = torch::zeros({ntest, 3}, torch::kFloat32);
+      torch::Tensor test_types = torch::ones({ntest}, torch::kInt64) * 6; // Carbon atoms
+      
+      // Try to move tensors to GPU
+      test_positions = test_positions.cuda();
+      test_types = test_types.cuda();
+      
+      // Perform a simple operation on GPU
+      test_positions = test_positions + 1.0;
+      
+      // Move back to CPU and verify
+      test_positions = test_positions.cpu();
+      if (test_positions[0][0].item<float>() == 1.0) {
+        use_gpu = true;
+        device = torch::Device(torch::kCUDA);
+        if (comm->me == 0) {
+          error->message(FLERR, "[PAIR_IANN] GPU available");
+        }
+      }
+    }
+  } catch (const c10::Error& e) {
+    use_gpu = false;
+    device = torch::Device(torch::kCPU);
+    if (comm->me == 0) {
+      std::string msg = "[PAIR_IANN] GPU test failed: ";
+      msg += e.what();
+      msg += "\n  Falling back to CPU mode.";
+      msg += "\n  Please ensure CUDA libraries are in your LD_LIBRARY_PATH.";
+      msg += "\n  You may need to set:";
+      msg += "\n  export CUDA_HOME=/path/to/cuda";
+      msg += "\n  export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH";
+      error->warning(FLERR, msg.c_str());
+    }
+  }
+
+  if (!use_gpu && comm->me == 0) {
+    error->message(FLERR, "[PAIR_IANN] Using CPU mode");
   }
 }
 
@@ -209,6 +278,17 @@ void PairIANN::compute(int eflag, int vflag)
   // Build edges based on neighborlist
   build_edges(list->inum, list->ilist, list->numneigh, list->firstneigh);
 
+  // Move tensors to GPU if available
+  if (use_gpu) {
+    num_atoms_tensor = num_atoms_tensor.to(device);
+    atomic_numbers_tensor = atomic_numbers_tensor.to(device);
+    positions_tensor = positions_tensor.to(device);
+    cell_tensor = cell_tensor.to(device);
+    edge_indices_tensor = edge_indices_tensor.to(device);
+    edge_vectors_tensor = edge_vectors_tensor.to(device);
+    num_edges_tensor = num_edges_tensor.to(device);
+  }
+
   // Debug: print input tensor sizes for sanity
   if (debug && comm->me == 0) {
     std::cout << "[PAIR_IANN] total_atoms=" << num_atoms_tensor << std::endl;
@@ -236,6 +316,12 @@ void PairIANN::compute(int eflag, int vflag)
     auto energy = output.at("energy").toTensor();
     auto forces = output.at("forces").toTensor();
     
+    // Move tensors back to CPU if using GPU
+    if (use_gpu) {
+      energy = energy.to(torch::kCPU);
+      forces = forces.to(torch::kCPU);
+    }
+    
     // Extract variances if they exist (ensemble model)
     torch::Tensor energy_var, forces_var, atomic_energy_var;
     bool has_variances = false;
@@ -246,18 +332,25 @@ void PairIANN::compute(int eflag, int vflag)
         energy_var = output.at("energy_variance").toTensor();
         forces_var = output.at("forces_variance").toTensor();
         atomic_energy_var = output.at("atomic_energy_variance").toTensor();
+        
+        // Move variance tensors back to CPU if using GPU
+        if (use_gpu) {
+          energy_var = energy_var.to(torch::kCPU);
+          forces_var = forces_var.to(torch::kCPU);
+          atomic_energy_var = atomic_energy_var.to(torch::kCPU);
+        }
     }
     
     // Debug: print energy value and forces tensor shape
     if (debug && comm->me == 0) {
         double e_val = energy.item<double>();
         auto f_sizes = forces.sizes();
-        std::cout << "[PAIR_IANN] returned energy = " << e_val << std::endl;
-        std::cout << "[PAIR_IANN] forces shape = [" << f_sizes[0] << ", " << f_sizes[1] << "]" << std::endl;
+        std::cout << "[PAIR_IANN_DEBUG] returned energy = " << e_val << std::endl;
+        std::cout << "[PAIR_IANN_DEBUG] forces shape = [" << f_sizes[0] << ", " << f_sizes[1] << "]" << std::endl;
         if (has_variances) {
-            std::cout << "[PAIR_IANN] energy variance = " << energy_var.item<double>() << std::endl;
-            std::cout << "[PAIR_IANN] forces variance shape = [" << forces_var.size(0) << ", " << forces_var.size(1) << "]" << std::endl;
-            std::cout << "[PAIR_IANN] atomic energy variance shape = [" << atomic_energy_var.size(0) << "]" << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] energy variance = " << energy_var.item<double>() << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] forces variance shape = [" << forces_var.size(0) << ", " << forces_var.size(1) << "]" << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] atomic energy variance shape = [" << atomic_energy_var.size(0) << "]" << std::endl;
         }
     }
     
@@ -308,10 +401,10 @@ void PairIANN::compute(int eflag, int vflag)
             
             // Print variance statistics
             if (debug && comm->me == 0) {
-              std::cout << "[PAIR_IANN] Energy variance: " << energy_variance << std::endl;
-              std::cout << "[PAIR_IANN] Force variance: " << force_variance << std::endl;
-              std::cout << "[PAIR_IANN] Maximum energy variance: " << max_energy_variance << std::endl;
-              std::cout << "[PAIR_IANN] Maximum force variance: " << max_force_variance << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Energy variance: " << energy_variance << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Force variance: " << force_variance << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Maximum energy variance: " << max_energy_variance << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Maximum force variance: " << max_force_variance << std::endl;
             }
         }
     }
@@ -320,6 +413,9 @@ void PairIANN::compute(int eflag, int vflag)
     if (eflag_atom) {
         if (output.find("atomic_energy") != output.end()) {
             auto atom_energies = output.at("atomic_energy").toTensor();
+            if (use_gpu) {
+              atom_energies = atom_energies.to(torch::kCPU);
+            }
             auto energies_accessor = atom_energies.accessor<float, 1>();
             for (int i = 0; i < nlocal; i++) {
                 eatom[i] = energies_accessor[i];
@@ -330,17 +426,17 @@ void PairIANN::compute(int eflag, int vflag)
     if (vflag_fdotr) virial_fdotr_compute();
 
     if (atomic_numbers_tensor.size(0) != nlocal || positions_tensor.size(0) != nlocal) {
-      error->all(FLERR, "Tensor shape mismatch with nlocal atoms");
+      error->all(FLERR, "[PAIR_IANN] Tensor shape mismatch with nlocal atoms");
     }
     if (torch::any(torch::isnan(forces)).item<bool>()) {
-      error->all(FLERR, "[IANN] NaNs in predicted forces.");
+      error->all(FLERR, "[PAIR_IANN] NaNs in predicted forces.");
     }
     if (forces.abs().max().item<float>() > 1e4) {
-      error->all(FLERR, "[IANN] Unphysically large force detected.");
+      error->all(FLERR, "[PAIR_IANN] Unphysically large force detected.");
     }
   }
   catch (const c10::Error& e) {
-    error->all(FLERR, "Error running ML model: " + std::string(e.what()));
+    error->all(FLERR, "[PAIR_IANN] Error running ML model: " + std::string(e.what()));
   }
 }
 
@@ -364,7 +460,7 @@ void PairIANN::allocate()
 
 void PairIANN::settings(int narg, char **arg) 
 {
-  if (narg < 3) error->all(FLERR, "Illegal pair_style command: need model type and model path");
+  if (narg < 3) error->all(FLERR, "[PAIR_IANN] Illegal pair_style command: need model type and model path");
   
   int iarg = 0;
   
@@ -382,17 +478,117 @@ void PairIANN::settings(int narg, char **arg)
     if (strcmp(arg[i], "debug") == 0) {
       debug = true;
       if (comm->me == 0)
-        error->message(FLERR, "PAIR_IANN: Debug mode enabled");
+        error->message(FLERR, "[PAIR_IANN] Debug mode enabled");
     }
   }
   
   // Load the model
   try {
+    // First try loading on CPU
     model = std::make_shared<torch::jit::Module>(torch::jit::load(model_path));
     model->eval();  // Set to inference mode
+    
+    // Move model to GPU if available
+    if (use_gpu) {
+      try {
+        // Verify CUDA is still available
+        if (!torch::cuda::is_available()) {
+          throw std::runtime_error("[PAIR_IANN] CUDA is no longer available");
+        }
+
+        // Move model to GPU
+        model->to(device);
+        
+        // Test the model on GPU with a small system
+        if (comm->me == 0) {
+          // Create test data for 20 atoms
+          int ntest = 20;
+          torch::Tensor test_positions = torch::zeros({ntest, 3}, torch::kFloat32);
+          torch::Tensor test_types = torch::ones({ntest}, torch::kInt64) * 6; // Carbon atoms
+          torch::Tensor test_cell = torch::eye(3, torch::kFloat32) * 10.0; // 10Å cubic cell
+          
+          // Create test edges (neighbor list)
+          std::vector<std::array<int64_t, 2>> test_edges;
+          for (int i = 0; i < ntest; i++) {
+            for (int j = i + 1; j < ntest; j++) {
+              test_edges.push_back({i, j});
+            }
+          }
+          torch::Tensor test_edge_indices = torch::zeros({(int64_t)test_edges.size(), 2}, torch::kInt64);
+          torch::Tensor test_edge_vectors = torch::zeros({(int64_t)test_edges.size(), 3}, torch::kFloat32);
+          
+          // Fill edge data
+          for (size_t i = 0; i < test_edges.size(); i++) {
+            test_edge_indices[i][0] = test_edges[i][0];
+            test_edge_indices[i][1] = test_edges[i][1];
+            test_edge_vectors[i][0] = 1.0; // Example edge vector
+            test_edge_vectors[i][1] = 0.0;
+            test_edge_vectors[i][2] = 0.0;
+          }
+          
+          torch::Tensor test_num_edges = torch::tensor((int64_t)test_edges.size(), torch::kInt64);
+          
+          // Print test tensor shapes
+          if (debug && comm->me == 0) {
+            std::cout << "[PAIR_IANN_DEBUG] Test tensor shapes:" << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] Positions: " << test_positions.sizes() << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] Types: " << test_types.sizes() << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] Cell: " << test_cell.sizes() << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] Edge indices: " << test_edge_indices.sizes() << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] Edge vectors: " << test_edge_vectors.sizes() << std::endl;
+            std::cout << "[PAIR_IANN_DEBUG] Number of edges: " << test_num_edges.item<int64_t>() << std::endl;
+          }
+          
+          // Move test data to GPU
+          test_positions = test_positions.to(device);
+          test_types = test_types.to(device);
+          test_cell = test_cell.to(device);
+          test_edge_indices = test_edge_indices.to(device);
+          test_edge_vectors = test_edge_vectors.to(device);
+          test_num_edges = test_num_edges.to(device);
+          
+          // Try running the model
+          auto output = model->forward({
+              torch::tensor({ntest}, torch::kInt64).to(device),
+              test_types,
+              test_positions,
+              test_cell,
+              test_edge_indices,
+              test_edge_vectors,
+              test_num_edges
+          }).toGenericDict();
+          
+          // Move results back to CPU and verify
+          auto energy = output.at("energy").toTensor().cpu();
+          auto forces = output.at("forces").toTensor().cpu();
+          
+          if (!torch::any(torch::isnan(energy)).item<bool>() && 
+              !torch::any(torch::isnan(forces)).item<bool>()) {
+            error->message(FLERR, "[PAIR_IANN] GPU model test successful");
+          } else {
+            throw std::runtime_error("[PAIR_IANN] Model produced NaN values");
+          }
+        }
+        
+        if (comm->me == 0) {
+          error->message(FLERR, "[PAIR_IANN] Using GPU acceleration");
+        }
+      } catch (const c10::Error& e) {
+        // If GPU model loading or test fails, fall back to CPU
+        use_gpu = false;
+        device = torch::Device(torch::kCPU);
+        model->to(device);
+        if (comm->me == 0) {
+          std::string msg = "[PAIR_IANN] Failed to run model on GPU: ";
+          msg += e.what();
+          msg += "\n[PAIR_IANN] Falling back to CPU mode.";
+          error->warning(FLERR, msg.c_str());
+        }
+      }
+    }
   }
   catch (const c10::Error& e) {
-    error->all(FLERR, "Error loading ML model: " + std::string(e.what()));
+    error->all(FLERR, "[PAIR_IANN] Error loading ML model: " + std::string(e.what()));
   }
 }
 
@@ -415,7 +611,7 @@ void PairIANN::coeff(int narg, char **arg)
     }
   }
   
-  if (count == 0) error->all(FLERR, "Incorrect args for pair coefficients");
+  if (count == 0) error->all(FLERR, "[PAIR_IANN] Incorrect args for pair coefficients");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -438,7 +634,7 @@ void PairIANN::init_style()
 double PairIANN::init_one(int i, int j) 
 {
   if (setflag[i][j] == 0) {
-    error->all(FLERR, "All pair coeffs must be set for ML potentials");
+    error->all(FLERR, "[PAIR_IANN] All pair coeffs must be set for ML potentials");
   }
   
   return cutoff;
