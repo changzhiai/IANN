@@ -13,7 +13,7 @@ boundary p p p
 read_data initial.data
 
 # Define the IANN pair style
-pair_style iann painni export_ensemble_painn.pth  5.5
+pair_style iann painn export_ensemble_painn.pth  5.5
 pair_coeff * *
 
 mass 1 1.0079999997406976 # H
@@ -43,6 +43,7 @@ run 2000
 log log.lammps
 units metal
 atom_style atomic
+dimension  3
 boundary p p p
 newton on
 
@@ -59,16 +60,21 @@ velocity all create 900 126342 dist gaussian rot yes mom yes
 
 timestep 0.0001 # 0.1 fs
 
-compute variance all iann/variance
-thermo 100
-thermo_style custom step pe ke etotal temp press c_variance[1] c_variance[2] c_variance[3] c_variance[4]
-thermo_modify colname c_variance[1] energy_variance
-thermo_modify colname c_variance[2] force_variance
-thermo_modify colname c_variance[3] max_energy_variance
-thermo_modify colname c_variance[4] max_force_variance
-thermo_modify flush yes
+#compute variance all iann/variance
+#thermo_style custom step pe ke etotal temp press c_variance[1] c_variance[2] c_variance[3] c_variance[4]
+#thermo_modify colname c_variance[1] energy_var
+#thermo_modify colname c_variance[2] force_var
+#thermo_modify colname c_variance[3] max_energy_var
+#thermo_modify colname c_variance[4] max_force_var
+#thermo_modify flush yes
 
-dump 1 all custom 100 dump.xyz type x y z
+thermo_style custom step temp vol pe cella cellb cellc cellalpha cellbeta cellgamma pxx pyy pzz press
+thermo 100
+
+compute coord all coord/atom cutoff 1.0 2
+dump 1 all custom 10000 dump.xyz id type x y z fx fy fz vx vy vz c_coord
+# dump 1 all custom 10 dump.xyz id type x y z
+dump_modify 1 sort id
 
 info computes
 variable v equal vol
@@ -78,10 +84,18 @@ variable px equal pxx
 variable py equal pyy
 variable pz equal pzz
 
+fix ave all ave/time 1 1000 1000 v_v v_t v_p v_px v_py v_pz file output.txt
+fix integrator all nvt temp 900 900 0.1
+
 # record rolling average of volume, temperature, and pressure
-fix 1 all ave/time 1 1000 1000 v_v v_t v_p v_px v_py v_pz file output.txt
+#fix 1 all ave/time 1 1000 1000 v_v v_t v_p v_px v_py v_pz file output.txt
 
 # equilibrate with box height frozen
-fix 2 all npt temp 900 900 0.1 x 0.0 0.0 1.0 y 0.0 0.0 1.0
+#fix 2 all npt temp 900 900 0.1 x 0.0 0.0 1.0 y 0.0 0.0 1.0
 run 5000000  # 0.5 ns
-unfix 2
+#unfix 2
+
+# Cleanup
+unfix           integrator
+unfix           ave
+
