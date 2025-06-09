@@ -19,6 +19,11 @@ python export_model.py path/to/best_model.pth painn --output painn_lammps.pt
 
 Replace `painn` with your model type (`nequip`, `mace`, or `equiformer2`).
 
+Note: load environments on NERSC
+```bash
+module purge; module load PrgEnv-nvidia; module load openmpi; export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN:$PYTHONPATH; module load cudatoolkit/11.7
+```
+
 ### 2. Build LAMMPS with LibTorch and the IANN package
 
 1. Download and install LibTorch from https://pytorch.org/get-started/locally/
