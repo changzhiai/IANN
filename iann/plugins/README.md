@@ -49,7 +49,7 @@ mkdir -p ~/lammps/build && cd ~/lammps/build
 
 # Configure with LibTorch (update LIBTORCH_PATH)
 
-
+# CPU install:
 cmake ../cmake   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares/libtorch \
   -DCMAKE_CXX_FLAGS="-I/global/homes/c/changzhi/changzhi/softwares/libtorch/include/torch/csrc/api/include -I/global/homes/c/changzhi/changzhi/softwares/libtorch/include"   \
   -DTorch_DIR=/global/homes/c/changzhi/changzhi/softwares/libtorch/share/cmake/Torch \
@@ -57,7 +57,7 @@ cmake ../cmake   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares
   -DCMAKE_EXE_LINKER_FLAGS="-L/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -Wl,-rpath,/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -ltorch \
   -ltorch_cpu -lc10" ; make -j 8
 
-GPU install:
+# GPU install:
 cmake ../cmake   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares/libtorch \
   -DCMAKE_CXX_FLAGS="-I/global/homes/c/changzhi/changzhi/softwares/libtorch/include/torch/csrc/api/include -I/global/homes/c/changzhi/changzhi/softwares/libtorch/include"   \
   -DTorch_DIR=/global/homes/c/changzhi/changzhi/softwares/libtorch/share/cmake/Torch \
