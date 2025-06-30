@@ -493,6 +493,9 @@ class Trainer:
         # Setup early stopping
         self.early_stop = EarlyStopping(patience=self.config["stop_patience"])
         
+        # Initialize steps
+        self.init_steps = 0
+        
         # Load model if needed
         if self.config["load_model"]:
             self._load_model()
@@ -512,6 +515,9 @@ class Trainer:
                 self.model.module.load_state_dict(state_dict["model"])
             else:
                 self.model.load_state_dict(state_dict["model"])
+
+            if state_dict["step"] > 0:
+                self.init_steps = state_dict["step"]
                 
             self.scheduler.load_state_dict(state_dict["scheduler"])
         else:
@@ -750,10 +756,6 @@ class Trainer:
             
             for batch_idx, batch in enumerate(self.train_loader):
                 train_start = time.time()
-                # Move batch to device
-                # device_batch = {
-                #     k: v.to(self.device) for k, v in batch.items()
-                # }
                 
                 device_batch = batch.to(self.device)
                 
@@ -777,6 +779,11 @@ class Trainer:
                 running_loss += total_loss.item() * batch.energy.shape[0]
                 running_loss_count += batch.energy.shape[0]
                 training_time += time.time() - train_start
+
+                if self.distributed:
+                    total_steps = local_steps * self.world_size + self.rank + self.init_steps
+                else:
+                    total_steps = local_steps + self.init_steps
 
                 # Log training progress
                 if (total_steps % self.config["log_interval"] == 0) or ((total_steps + 1) == self.config["max_steps"]):
@@ -820,10 +827,6 @@ class Trainer:
                 
                 # Count steps
                 local_steps += 1
-                if self.distributed:
-                    total_steps = local_steps * self.world_size + self.rank
-                else:
-                    total_steps = local_steps
                 
                 if not self.config["plateau_scheduler"]:
                     self.scheduler.step()
