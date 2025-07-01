@@ -116,9 +116,9 @@ class MLCalculator(Calculator):
         model_results = self.model(model_inputs)
 
         results = {}
-        results["energy"] = model_results.energy
+        results["energy"] = model_results.energy[0].detach().cpu().numpy().item()
         if self.compute_forces:
-            results["forces"] = model_results.forces
+            results["forces"] = model_results.forces.detach().cpu().numpy() * self.forces_scale
 
         # Convert outputs to calculator format
         # if self.compute_forces:
