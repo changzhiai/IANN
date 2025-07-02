@@ -109,9 +109,6 @@ class MLCalculator(Calculator):
             self.atoms = atoms.copy()       
 
         model_inputs = self.ase_data_reader(self.atoms)
-        # model_inputs = {
-        #     k: v.to(self.model_device) for (k, v) in model_inputs.items()
-        # }
 
         model_results = self.model(model_inputs)
 
@@ -119,19 +116,6 @@ class MLCalculator(Calculator):
         results["energy"] = model_results.energy[0].detach().cpu().numpy().item()
         if self.compute_forces:
             results["forces"] = model_results.forces.detach().cpu().numpy() * self.forces_scale
-
-        # Convert outputs to calculator format
-        # if self.compute_forces:
-        #     results["forces"] = (
-        #         model_results["forces"].detach().cpu().numpy() * self.forces_scale
-        #     )
-        # results["energy"] = (
-        #     model_results["energy"][0].detach().cpu().numpy().item()
-        #     * self.energy_scale
-        # )
-
-        # if model_results.get("fps"):
-        #     atoms.info["fps"] = model_results["fps"].detach().cpu().numpy()
     
         self.results = results
 
