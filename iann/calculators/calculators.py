@@ -15,6 +15,7 @@ class MLCalculator(Calculator):
         energy_scale=1.0,
         forces_scale=1.0,
         device=None,
+        verbose=False,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -23,6 +24,9 @@ class MLCalculator(Calculator):
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         else:
             self.device = device
+
+        if verbose:
+            print(f"Using device: {self.device}")
 
         if model is not None:
             self.model = model
@@ -34,12 +38,18 @@ class MLCalculator(Calculator):
         if config is not None:
             self.config = config
 
-        self.model_device = next(self.model.parameters()).device
         self.cutoff = self.model.cutoff
         self.compute_forces = self.model.compute_forces
         self.ase_data_reader = AseDataReader(self.cutoff, self.compute_forces)
         self.energy_scale = energy_scale
         self.forces_scale = forces_scale
+
+        if verbose:
+            print(f"Model: {self.model}")
+            print(f"Cutoff: {self.cutoff}")
+            print(f"Compute forces: {self.compute_forces}")
+            print(f"Energy scale: {self.energy_scale}")
+            print(f"Forces scale: {self.forces_scale}")
         
 
     def _load_model(self, model_path):
@@ -60,7 +70,7 @@ class MLCalculator(Calculator):
             elif "transformer" in state_dict:
                 model_type = "equiformerV2"
             else:
-                raise ValueError("Could not determine model type from state dict")
+                raise ValueError("Could not determine model type from state dict!")
 
         # Create appropriate model
         if model_type == "painn":
@@ -84,9 +94,9 @@ class MLCalculator(Calculator):
             model = MACE(
                 num_interactions=state_dict["num_layer"],
                 num_features=state_dict["node_size"],
+                cutoff=state_dict["cutoff"],
                 correlation = 3,
                 species = None,
-                cutoff=state_dict["cutoff"],
                 compute_forces=True,
             )
         elif model_type == "equiformerV2":
