@@ -14,9 +14,15 @@ class MLCalculator(Calculator):
         config=None,
         energy_scale=1.0,
         forces_scale=1.0,
+        device=None,
         **kwargs
     ):
         super().__init__(**kwargs)
+
+        if device is None:
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        else:
+            self.device = device
 
         if model is not None:
             self.model = model
@@ -38,7 +44,7 @@ class MLCalculator(Calculator):
 
     def _load_model(self, model_path):
         """Load model from path and determine its type."""
-        state_dict = torch.load(model_path)
+        state_dict = torch.load(model_path, map_location=self.device)
         
         # Determine model type from state dict
         if "model_type" in state_dict:
@@ -92,8 +98,9 @@ class MLCalculator(Calculator):
                 compute_forces=True
             )
         else:
-            raise ValueError(f"Unknown model type: {model_type}")
-
+            raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, and equiformerV2!")
+        
+        model.to(self.device)
         # Load state dict
         model.load_state_dict(state_dict["model"])
         return model
