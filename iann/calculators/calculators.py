@@ -116,6 +116,9 @@ class MLCalculator(Calculator):
             self.atoms = atoms.copy()       
 
         model_inputs = self.ase_data_reader(self.atoms)
+        
+        if self.device == 'cuda':
+            model_inputs = model_inputs.to(self.device)
 
         model_results = self.model(model_inputs)
 
