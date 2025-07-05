@@ -39,7 +39,10 @@ class MLCalculator(Calculator):
             self.config = config
 
         self.cutoff = self.model.cutoff
-        self.compute_forces = self.model.compute_forces
+        if "compute_forces" in self.config:
+            self.compute_forces = self.config["compute_forces"]
+        else:
+            self.compute_forces = self.model.compute_forces
         self.ase_data_reader = AseDataReader(self.cutoff, self.compute_forces)
         self.energy_scale = energy_scale
         self.forces_scale = forces_scale
@@ -79,7 +82,7 @@ class MLCalculator(Calculator):
                 num_interactions=state_dict["num_layer"],
                 hidden_state_size=state_dict["node_size"],
                 cutoff=state_dict["cutoff"],
-                compute_forces=True
+                compute_forces=self.compute_forces
             )
         elif model_type == "nequip":
             from iann.models.nequip import NequIP
@@ -87,7 +90,7 @@ class MLCalculator(Calculator):
                 num_interactions=state_dict["num_layer"],
                 num_features=state_dict["node_size"],
                 cutoff=state_dict["cutoff"],
-                compute_forces=True
+                compute_forces=self.compute_forces
             )
         elif model_type == "mace":
             from iann.models.mace import MACE
@@ -97,7 +100,7 @@ class MLCalculator(Calculator):
                 cutoff=state_dict["cutoff"],
                 correlation = 3,
                 species = None,
-                compute_forces=True,
+                compute_forces=self.compute_forces,
             )
         elif model_type == "equiformerV2":
             from iann.models.equiformerV2 import EquiformerV2
@@ -105,7 +108,7 @@ class MLCalculator(Calculator):
                 num_interactions=state_dict["num_layer"],
                 num_features=state_dict["node_size"],
                 cutoff=state_dict["cutoff"],
-                compute_forces=True
+                compute_forces=self.compute_forces,
             )
         else:
             raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, and equiformerV2!")
