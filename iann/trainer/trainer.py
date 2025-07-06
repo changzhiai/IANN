@@ -495,7 +495,7 @@ class Trainer:
         
         # Initialize steps
         self.init_steps = 0
-        
+
         # Load model if needed
         if self.config["load_model"]:
             self._load_model()
@@ -529,6 +529,7 @@ class Trainer:
         
         torch.save(
             {
+                "model_type": self.model_type,
                 "model": model_state,
                 "optimizer": self.optimizer.state_dict(),
                 "scheduler": self.scheduler.state_dict(),
@@ -537,7 +538,7 @@ class Trainer:
                 "node_size": self.config["node_size"],
                 "num_layer": self.config["num_interactions"],
                 "cutoff": self.config["cutoff"],
-                "model_type": self.model_type,
+                "compute_forces": self.config["forces_weight"],
             },
             os.path.join(self.config["output_dir"], filename),
         )
