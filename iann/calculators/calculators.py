@@ -233,9 +233,9 @@ class EnsembleCalculator(Calculator):
         predictions = {'energy': [], 'forces': [],}
         for model in self.models:
             model_results = model(model_inputs)
-            predictions['energy'].append(model_results["energy"][0].detach().cpu().numpy().item() * self.energy_scale)
+            predictions['energy'].append(model_results.energy[0].detach().cpu().numpy().item() * self.energy_scale)
             if self.compute_forces:
-                predictions['forces'].append(model_results["forces"].detach().cpu().numpy() * self.forces_scale)
+                predictions['forces'].append(model_results.forces.detach().cpu().numpy() * self.forces_scale)
         
         results = {"energy": np.mean(predictions['energy'])}
         ensemble = {
@@ -333,10 +333,10 @@ class AtomicEnsembleCalculator(Calculator):
         predictions = {'energy': [], 'forces': [], 'atomic_energy': []}
         for model in self.models:
             model_results = model(model_inputs)
-            predictions['energy'].append(model_results["energy"][0].detach().cpu().numpy().item() * self.energy_scale)
-            predictions['atomic_energy'].append(model_results["atomic_energy"].detach().cpu().numpy() * self.energy_scale)
+            predictions['energy'].append(model_results.energy[0].detach().cpu().numpy().item() * self.energy_scale)
+            predictions['atomic_energy'].append(model_results.atomic_energy.detach().cpu().numpy() * self.energy_scale)
             if self.compute_forces:
-                predictions['forces'].append(model_results["forces"].detach().cpu().numpy() * self.forces_scale)
+                predictions['forces'].append(model_results.forces.detach().cpu().numpy() * self.forces_scale)
         
         results = {"energy": np.mean(predictions['energy'])}
         ensemble = {
