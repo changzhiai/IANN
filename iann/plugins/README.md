@@ -67,7 +67,7 @@ cmake ../cmake   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares
   -ltorch_cpu -lc10" ; make -j 8
 
 
-Note: always use same cuda version when export, compile and run, for example: module load cudatoolkit/11.7
+# Note: always use same cuda version when export, compile and run, for example: module load cudatoolkit/11.7
 ```
 
 ## Usage
