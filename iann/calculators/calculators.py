@@ -175,7 +175,10 @@ class EnsembleCalculator(Calculator):
         if "compute_forces" in self.config:
             self.compute_forces = self.config["compute_forces"]
         else:
-            self.compute_forces = None
+            if "compute_forces" in kwargs:
+                self.compute_forces = kwargs["compute_forces"]
+            else:
+                self.compute_forces = None
 
         if device is None:
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -272,7 +275,10 @@ class AtomicEnsembleCalculator(Calculator):
         if "compute_forces" in self.config:
             self.compute_forces = self.config["compute_forces"]
         else:
-            self.compute_forces = None
+            if "compute_forces" in kwargs:
+                self.compute_forces = kwargs["compute_forces"]
+            else:
+                self.compute_forces = None
 
         if device is None:
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
