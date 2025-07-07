@@ -100,7 +100,10 @@ class MLCalculator(Calculator):
         if "compute_forces" in self.config:
             self.compute_forces = self.config["compute_forces"]
         else:
-            self.compute_forces = None
+            if "compute_forces" in kwargs:
+                self.compute_forces = kwargs["compute_forces"]
+            else:
+                self.compute_forces = None
 
         if model is not None:
             self.model = model
