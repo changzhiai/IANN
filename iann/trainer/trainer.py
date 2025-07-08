@@ -34,6 +34,7 @@ DEFAULT_CONFIG = {
     "load_model": False,
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "device": None,      # override device, e.g. 'cpu' or 'cuda:1'
+    "timeout": 900,
 }
 
 # Logging filter to inject rank into log records
@@ -306,7 +307,7 @@ class Trainer:
             backend,
             rank=self.rank,
             world_size=self.world_size,
-            timeout=timedelta(seconds=300)  # Increased timeout to 5 minutes
+            timeout=timedelta(seconds=self.config["timeout"])
         )
 
         # Wait for all ranks to finish logging
@@ -692,7 +693,7 @@ class Trainer:
                 node_name = "unknown"
             self.device = torch.device("cuda:0" if torch.cuda.is_available() and self.device.type == 'cuda' else "cpu")
             logging.info(f"PyTorch version: {torch.__version__}") 
-            logging.info(f"Running in single-{'GPU' if torch.cuda.is_available() and self.device.type == 'cuda' else 'CPU'} on Node {node_name}")
+            logging.info(f"Running in single-{'GPU' if torch.cuda.is_available() and self.device.type == 'cuda' else 'CPU'} Node {node_name}")
             if torch.cuda.is_available():
                 logging.info(f"Hardware architecture: {torch.cuda.get_device_name()}")
             else:
