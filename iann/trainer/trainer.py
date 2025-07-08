@@ -286,7 +286,7 @@ class Trainer:
         time.sleep(self.rank * 0.1 + 0.1) 
 
         # Set device and self.device
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and self.device.type == 'cuda':
             if 'SLURM_LOCALID' in os.environ:
                 local_rank = int(os.environ['SLURM_LOCALID'])
             else:
@@ -686,11 +686,19 @@ class Trainer:
             self._setup_distributed()
         else:
             # Single-GPU or CPU mode
-            self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-            logging.info(f"Running in single-{'GPU' if torch.cuda.is_available() else 'CPU'}.")
-            import cpuinfo
-            info = cpuinfo.get_cpu_info()
-            logging.info(f"Hardware architecture: {torch.cuda.get_device_name() if torch.cuda.is_available() else info['brand_raw']}")
+            try:
+                node_name = __import__('platform').node()
+            except:
+                node_name = "unknown"
+            self.device = torch.device("cuda:0" if torch.cuda.is_available() and self.device.type == 'cuda' else "cpu")
+            logging.info(f"PyTorch version: {torch.__version__}") 
+            logging.info(f"Running in single-{'GPU' if torch.cuda.is_available() and self.device.type == 'cuda' else 'CPU'} on Node {node_name}")
+            if torch.cuda.is_available():
+                logging.info(f"Hardware architecture: {torch.cuda.get_device_name()}")
+            else:
+                import cpuinfo
+                info = cpuinfo.get_cpu_info()
+                logging.info(f"Hardware architecture: {info['brand_raw']}")
         
         # Setup dataset and dataloaders
         self._setup_data(dataset_path)
