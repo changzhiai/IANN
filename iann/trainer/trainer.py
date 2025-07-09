@@ -34,7 +34,7 @@ DEFAULT_CONFIG = {
     "load_model": False,
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "device": None,      # override device, e.g. 'cpu' or 'cuda:1'
-    "timeout": 900, # 15 minutes
+    "timeout": 1800,     # 30 minutes timeout for distributed operations
     "master_port": 12356,
 }
 
@@ -299,6 +299,21 @@ class Trainer:
         
         # Choose backend based on device: NCCL for GPUs, Gloo for CPU
         backend = "nccl" if self.device is not None and self.device.type.startswith("cuda") else "gloo"
+        
+        # Set NCCL timeout and other configurations for better stability
+        if backend == "nccl":
+            os.environ['NCCL_TIMEOUT'] = '1800'  # 30 minutes timeout
+            os.environ['NCCL_ASYNC_ERROR_HANDLING'] = '1'
+            os.environ['NCCL_IB_DISABLE'] = '1'  # Disable InfiniBand if causing issues
+            os.environ['NCCL_P2P_DISABLE'] = '1'  # Disable P2P if causing issues
+            os.environ['NCCL_SOCKET_IFNAME'] = '^docker0,lo'  # Avoid loopback interfaces
+            os.environ['NCCL_DEBUG'] = 'INFO'  # Enable NCCL debug info
+            os.environ['NCCL_BLOCKING_WAIT'] = '1'  # Use blocking wait for better error handling
+            os.environ['NCCL_TREE_THRESHOLD'] = '0'  # Disable tree algorithm
+            os.environ['NCCL_RING_THRESHOLD'] = '0'  # Disable ring algorithm
+            os.environ['NCCL_COLLNET_ENABLE'] = '0'  # Disable CollNet
+            os.environ['NCCL_NET_GDR_LEVEL'] = '0'  # Disable GPU Direct RDMA
+        
         dist.init_process_group(
             backend,
             rank=self.rank,
@@ -309,6 +324,15 @@ class Trainer:
         # Ensure all processes are synchronized after initialization
         if self.distributed:
             torch.distributed.barrier()
+            
+            # Log NCCL configuration for debugging
+            if self.rank == 0 and backend == "nccl":
+                logging.info("NCCL Configuration:")
+                logging.info(f"  NCCL_TIMEOUT: {os.environ.get('NCCL_TIMEOUT', 'Not set')}")
+                logging.info(f"  NCCL_DEBUG: {os.environ.get('NCCL_DEBUG', 'Not set')}")
+                logging.info(f"  NCCL_BLOCKING_WAIT: {os.environ.get('NCCL_BLOCKING_WAIT', 'Not set')}")
+                logging.info(f"  NCCL_IB_DISABLE: {os.environ.get('NCCL_IB_DISABLE', 'Not set')}")
+                logging.info(f"  NCCL_P2P_DISABLE: {os.environ.get('NCCL_P2P_DISABLE', 'Not set')}")
 
         # Wait for all ranks to finish logging
         time.sleep((self.world_size - self.rank) * 0.1 + 0.1)  # Each rank waits for others
@@ -318,6 +342,7 @@ class Trainer:
     def _cleanup_distributed(self):
         """Clean up distributed environment"""
         if self.distributed:
+            torch.distributed.barrier()
             dist.destroy_process_group()
     
     def _setup_data(self, dataset_path):
@@ -823,10 +848,6 @@ class Trainer:
                     # Evaluate model
                     eval_dict = self.eval_model()
                     
-                    # Ensure all processes have completed evaluation
-                    if self.distributed:
-                        torch.distributed.barrier()
-                    
                     eval_formatted = ", ".join(
                         ["{}={:.3f}".format(k, v) for (k, v) in eval_dict.items()]
                     )
@@ -844,6 +865,11 @@ class Trainer:
                             f"eval time={eval_time:.3f} min"
                         )
                         logging.info(log_msg)
+                    
+                    # Ensure all processes have completed evaluation
+                    if self.distributed:
+                        torch.distributed.barrier()
+
                     training_time = 0
                     
                     if self.config["plateau_scheduler"]:
