@@ -28,21 +28,6 @@ class Transform(torch.nn.Module, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def forward(self):
         raise NotImplementedError
-    
-class UnitTransform(Transform):
-    def __init__(
-        self,
-        unit_dict: Dict[str, float]
-    ) -> None:
-        super().__init__()
-        
-        self.unit_dict = unit_dict
-    
-    def forward(self, data):
-        for k, v in self.unit_dict.items():
-            setattr(data, k, getattr(data, k) * v)
-        
-        return data   
 
 class TypeMapper(Transform):
     def __init__(
@@ -94,7 +79,7 @@ class TypeMapper(Transform):
     def untransform(self, types: torch.Tensor) -> torch.Tensor:
         return self.index_to_Z[types]
 
-@compile_mode("script")
+#@compile_mode("script")
 class OneHotAtomEncoding(torch.nn.Module):
     """Copmute a one-hot floating point encoding of atoms' discrete atom types.
 
@@ -171,7 +156,7 @@ class AtomwiseLinear(torch.nn.Module):
         data = replace_properties(data, node_feat=node_feat)
         return data
 
-@compile_mode("script") 
+#@compile_mode("script") 
 class AtomwiseNonLinear(torch.nn.Module):
     def __init__(
         self,
@@ -247,7 +232,7 @@ class BesselBasis(RadialBasis):
 
         return self.prefactor * (numerator / x.unsqueeze(-1))
 
-@torch.jit.script
+#@torch.jit.script
 def _poly_cutoff(x: torch.Tensor, factor: float, p: float = 6.0) -> torch.Tensor:
     x = x * factor
 
@@ -291,8 +276,8 @@ class PolynomialCutoff(CutoffFunction):
         x: torch.Tensor, input distance
         """
         return _poly_cutoff(x, self._factor, p=self.p)
-
-@compile_mode("script")
+    
+#@compile_mode("script")
 class RadialBasisEdgeEncoding(torch.nn.Module):
     out_field: str
 
@@ -374,7 +359,7 @@ def tp_out_irreps_with_instructions(
 
     return irreps_out, instructions
 
-@compile_mode("script")
+#@compile_mode("script")
 class reshape_irreps(torch.nn.Module):
     def __init__(self, irreps: o3.Irreps) -> None:
         super().__init__()
@@ -397,7 +382,7 @@ class reshape_irreps(torch.nn.Module):
             out.append(field)
         return torch.cat(out, dim=-1)
 
-@torch.jit.script
+#@torch.jit.script
 def scatter_add(
     x: torch.Tensor, index: torch.Tensor, dim_size: int, dim: int = 0
 ) -> torch.Tensor:
@@ -407,7 +392,7 @@ def scatter_add(
     y = tmp.index_add(dim, index, x)
     return y
 
-@compile_mode("script")
+#@compile_mode("script")
 class RealAgnosticResidualInteractionBlock(torch.nn.Module):
     def __init__(
         self,
@@ -620,7 +605,6 @@ def U_matrix_real(
 BATCH_EXAMPLE = 10
 ALPHABET = ["w", "x", "v", "n", "z", "r", "t", "y", "u", "o", "p", "s"]
 
-@compile_mode("script")
 class Contraction(torch.nn.Module):
     def __init__(
         self,
@@ -769,7 +753,6 @@ class Contraction(torch.nn.Module):
     def U_tensors(self, nu: int):
         return dict(self.named_buffers())[f"U_matrix_{nu}"]
 
-@compile_mode("script")
 class SymmetricContraction(CodeGenMixin, torch.nn.Module):
     def __init__(
         self,
@@ -832,7 +815,6 @@ class SymmetricContraction(CodeGenMixin, torch.nn.Module):
         return torch.cat(outs, dim=-1)
 
 
-@compile_mode("script")
 class EquivariantProductBasisBlock(torch.nn.Module):
     def __init__(
         self,
@@ -1130,7 +1112,7 @@ class GradientOutput(torch.nn.Module):
         self.update_callback = update_callback
         self.model_outputs = model_outputs
 
-    @torch.jit.ignore
+    #@torch.jit.ignore
     def update_model_outputs(self, outputs: Union[List[str], str]):
         if isinstance(outputs, str):
             self.model_outputs.append(outputs)
