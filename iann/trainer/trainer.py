@@ -34,8 +34,9 @@ DEFAULT_CONFIG = {
     "load_model": False,
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "device": None,      # override device, e.g. 'cpu' or 'cuda:1'
-    "timeout": 1800,     # 30 minutes timeout for distributed operations
+    "timeout": 600,     # 30 minutes timeout for distributed operations
     "master_port": 12356,
+    "debug": False,
 }
 
 # Logging filter to inject rank into log records
@@ -300,20 +301,6 @@ class Trainer:
         # Choose backend based on device: NCCL for GPUs, Gloo for CPU
         backend = "nccl" if self.device is not None and self.device.type.startswith("cuda") else "gloo"
         
-        # Set NCCL timeout and other configurations for better stability
-        if backend == "nccl":
-            os.environ['NCCL_TIMEOUT'] = '1800'  # 30 minutes timeout
-            os.environ['NCCL_ASYNC_ERROR_HANDLING'] = '1'
-            os.environ['NCCL_IB_DISABLE'] = '1'  # Disable InfiniBand if causing issues
-            os.environ['NCCL_P2P_DISABLE'] = '1'  # Disable P2P if causing issues
-            os.environ['NCCL_SOCKET_IFNAME'] = '^docker0,lo'  # Avoid loopback interfaces
-            os.environ['NCCL_DEBUG'] = 'INFO'  # Enable NCCL debug info
-            os.environ['NCCL_BLOCKING_WAIT'] = '1'  # Use blocking wait for better error handling
-            os.environ['NCCL_TREE_THRESHOLD'] = '0'  # Disable tree algorithm
-            os.environ['NCCL_RING_THRESHOLD'] = '0'  # Disable ring algorithm
-            os.environ['NCCL_COLLNET_ENABLE'] = '0'  # Disable CollNet
-            os.environ['NCCL_NET_GDR_LEVEL'] = '0'  # Disable GPU Direct RDMA
-        
         dist.init_process_group(
             backend,
             rank=self.rank,
@@ -326,7 +313,7 @@ class Trainer:
             torch.distributed.barrier()
             
             # Log NCCL configuration for debugging
-            if self.rank == 0 and backend == "nccl":
+            if self.rank == 0 and backend == "nccl" and self.config["debug"]:
                 logging.info("NCCL Configuration:")
                 logging.info(f"  NCCL_TIMEOUT: {os.environ.get('NCCL_TIMEOUT', 'Not set')}")
                 logging.info(f"  NCCL_DEBUG: {os.environ.get('NCCL_DEBUG', 'Not set')}")
