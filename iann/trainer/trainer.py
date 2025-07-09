@@ -806,6 +806,10 @@ class Trainer:
 
                 # Log training progress
                 if (total_steps % self.config["log_interval"] == 0) or ((total_steps + 1) == self.config["max_steps"]):
+                    # CRITICAL: Synchronize all ranks before evaluation to prevent DDP issues
+                    if self.distributed:
+                        torch.distributed.barrier()
+                    
                     eval_start = time.time()
                     
                     train_loss = running_loss / running_loss_count
@@ -814,6 +818,10 @@ class Trainer:
                     
                     # Evaluate model
                     eval_dict = self.eval_model()
+                    
+                    # Synchronize after evaluation
+                    if self.distributed:
+                        torch.distributed.barrier()
                     
                     eval_formatted = ", ".join(
                         ["{}={:.3f}".format(k, v) for (k, v) in eval_dict.items()]
