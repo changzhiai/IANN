@@ -34,7 +34,8 @@ DEFAULT_CONFIG = {
     "load_model": False,
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "device": None,      # override device, e.g. 'cpu' or 'cuda:1'
-    "timeout": 900,
+    "timeout": 900, # 15 minutes
+    "master_port": 12356,
 }
 
 # Logging filter to inject rank into log records
@@ -77,11 +78,6 @@ def get_arguments(arg_list=None):
     )
     
     return parser.parse_args(arg_list)
-
-def update_namespace(ns, d):
-    for k, v in d.items():
-        if not ns.__dict__.get(k):
-            ns.__dict__[k] = v
 
 def forces_criterion(predicted, target, reduction="mean"):
     # predicted, target are (bs, max_nodes, 3) tensors
@@ -269,7 +265,7 @@ class Trainer:
             master_addr = os.environ.get('MASTER_ADDR', 'localhost')
             current_node = master_addr
         # Use fixed port for simplicity
-        master_port = '12356'
+        master_port = self.config["master_port"]
         self.master_addr = master_addr
         self.master_port = master_port
         os.environ['MASTER_ADDR'] = master_addr
@@ -562,17 +558,14 @@ class Trainer:
         forces_count = 0
         
         for batch in self.val_loader:
-            # device_batch = {
-            #     k: v.to(device=self.device, non_blocking=True) for k, v in batch.items()
-            # }
             device_batch = batch.to(self.device)
             out = model(device_batch)
             count += device_batch.energy.shape[0]
-            energy_loss = self.criterion(out.energy, device_batch.energy).item()
+            energy_loss = self.criterion(out.energy, device_batch.energy).detach().cpu().numpy()
 
             if bool(self.config["forces_weight"]):
                 forces_count += device_batch.forces.shape[0]
-                forces_loss = forces_criterion(out.forces, device_batch.forces).item()
+                forces_loss = forces_criterion(out.forces, device_batch.forces).detach().cpu().numpy()
             else:
                 forces_loss = 0.0
 
@@ -786,7 +779,7 @@ class Trainer:
                 self.optimizer.step()
 
                 # Update running loss
-                running_loss += total_loss.item() * batch.energy.shape[0]
+                running_loss += total_loss.detach().cpu().numpy() * batch.energy.shape[0]
                 running_loss_count += batch.energy.shape[0]
                 training_time += time.time() - train_start
 
@@ -799,7 +792,8 @@ class Trainer:
                 if (total_steps % self.config["log_interval"] == 0) or ((total_steps + 1) == self.config["max_steps"]):
                     eval_start = time.time()
                     train_loss = running_loss / running_loss_count
-                    running_loss = running_loss_count = 0
+                    running_loss = 0.0
+                    running_loss_count = 0
                     
                     # Evaluate model
                     eval_dict = self.eval_model()
