@@ -269,7 +269,7 @@ class Trainer:
         self.master_addr = master_addr
         self.master_port = master_port
         os.environ['MASTER_ADDR'] = master_addr
-        os.environ['MASTER_PORT'] = master_port
+        os.environ['MASTER_PORT'] = str(master_port)
         if self.rank == 0:
             logging.info(f"PyTorch version: {torch.__version__}") 
             logging.info(f"Node List: {os.environ.get('SLURM_JOB_NODELIST', 'N/A')}")
