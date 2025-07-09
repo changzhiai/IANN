@@ -307,19 +307,15 @@ class Trainer:
             world_size=self.world_size,
             timeout=timedelta(seconds=self.config["timeout"])
         )
-
-        # Ensure all processes are synchronized after initialization
-        if self.distributed:
-            torch.distributed.barrier()
             
-            # Log NCCL configuration for debugging
-            if self.rank == 0 and backend == "nccl" and self.config["debug"]:
-                logging.info("NCCL Configuration:")
-                logging.info(f"  NCCL_TIMEOUT: {os.environ.get('NCCL_TIMEOUT', 'Not set')}")
-                logging.info(f"  NCCL_DEBUG: {os.environ.get('NCCL_DEBUG', 'Not set')}")
-                logging.info(f"  NCCL_BLOCKING_WAIT: {os.environ.get('NCCL_BLOCKING_WAIT', 'Not set')}")
-                logging.info(f"  NCCL_IB_DISABLE: {os.environ.get('NCCL_IB_DISABLE', 'Not set')}")
-                logging.info(f"  NCCL_P2P_DISABLE: {os.environ.get('NCCL_P2P_DISABLE', 'Not set')}")
+        # Log NCCL configuration for debugging
+        if self.rank == 0 and backend == "nccl" and self.config["debug"]:
+            logging.info("NCCL Configuration:")
+            logging.info(f"  NCCL_TIMEOUT: {os.environ.get('NCCL_TIMEOUT', 'Not set')}")
+            logging.info(f"  NCCL_DEBUG: {os.environ.get('NCCL_DEBUG', 'Not set')}")
+            logging.info(f"  NCCL_BLOCKING_WAIT: {os.environ.get('NCCL_BLOCKING_WAIT', 'Not set')}")
+            logging.info(f"  NCCL_IB_DISABLE: {os.environ.get('NCCL_IB_DISABLE', 'Not set')}")
+            logging.info(f"  NCCL_P2P_DISABLE: {os.environ.get('NCCL_P2P_DISABLE', 'Not set')}")
 
         # Wait for all ranks to finish logging
         time.sleep((self.world_size - self.rank) * 0.1 + 0.1)  # Each rank waits for others
@@ -329,7 +325,6 @@ class Trainer:
     def _cleanup_distributed(self):
         """Clean up distributed environment"""
         if self.distributed:
-            torch.distributed.barrier()
             dist.destroy_process_group()
     
     def _setup_data(self, dataset_path):
@@ -517,9 +512,6 @@ class Trainer:
         if self.config["load_model"]:
             self._load_model()
         
-        # Ensure all processes have completed model setup
-        if self.distributed:
-            torch.distributed.barrier()
     
     def _load_model(self):
         """Load model from checkpoint"""
@@ -724,10 +716,6 @@ class Trainer:
         # Setup model, optimizer, and scheduler
         self._setup_model()
         
-        # Ensure all processes are ready to start training
-        if self.distributed:
-            torch.distributed.barrier()
-        
         # Log detailed model configuration and setup
         if self.rank == 0:
             logging.info("--------------------------------")
@@ -779,10 +767,6 @@ class Trainer:
                     self._cleanup_distributed()
                 return
             
-            # Ensure all processes start the epoch at the same time
-            if self.distributed:
-                torch.distributed.barrier()
-                
             if hasattr(self.train_sampler, "set_epoch"):
                 # For distributed sampler, set epoch for shuffling
                 self.train_sampler.set_epoch(epoch)
@@ -824,10 +808,6 @@ class Trainer:
                 if (total_steps % self.config["log_interval"] == 0) or ((total_steps + 1) == self.config["max_steps"]):
                     eval_start = time.time()
                     
-                    # Ensure all processes are synchronized before evaluation
-                    if self.distributed:
-                        torch.distributed.barrier()
-                    
                     train_loss = running_loss / running_loss_count
                     running_loss = 0.0
                     running_loss_count = 0
@@ -852,10 +832,6 @@ class Trainer:
                             f"eval time={eval_time:.3f} min"
                         )
                         logging.info(log_msg)
-                    
-                    # Ensure all processes have completed evaluation
-                    if self.distributed:
-                        torch.distributed.barrier()
 
                     training_time = 0
                     
@@ -866,17 +842,9 @@ class Trainer:
                     if not self.early_stop(math.sqrt(smooth_loss), best_val_loss):
                         best_val_loss = math.sqrt(smooth_loss)
                         
-                        # Ensure all processes are synchronized before saving
-                        if self.distributed:
-                            torch.distributed.barrier()
-                        
                         self._save_model("best_model.pth", total_steps, best_val_loss)
                     else:
                         logging.info(f"Early stopping, training complete")
-                        
-                        # Ensure all processes are synchronized before cleanup
-                        if self.distributed:
-                            torch.distributed.barrier()
                         
                         if self.distributed:
                             self._cleanup_distributed()
@@ -891,18 +859,10 @@ class Trainer:
                 if bool(self.config["max_steps"]) and total_steps >= self.config["max_steps"]:
                     logging.info(f"Maximum steps {self.config['max_steps']} reached, training complete")
                     
-                    # Ensure all processes are synchronized before saving exit model
-                    if self.distributed:
-                        torch.distributed.barrier()
-                    
                     self._save_model("exit_model.pth", total_steps, best_val_loss)
                     if self.distributed:
                         self._cleanup_distributed()
                     return
-        
-        # Save final model
-        if self.distributed:
-            torch.distributed.barrier()
         
         self._save_model("final_model.pth", total_steps, best_val_loss)
         
