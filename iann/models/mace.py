@@ -12,6 +12,8 @@ from e3nn.nn import FullyConnectedNet
 from e3nn.util.codegen import CodeGenMixin
 import opt_einsum_fx, collections
 from iann.data.data import AtomsData, replace_properties
+import warnings
+warnings.filterwarnings("ignore", message="The TorchScript type system doesn't support instance-level annotations")
 
 activation_fn = {
     "silu": torch.nn.SiLU(),
@@ -1110,13 +1112,9 @@ class GradientOutput(torch.nn.Module):
             assert energy is not None
             
             if 'forces' in self.model_outputs:
-                # edge_vectors.requires_grad_()
-                # outputs_list = torch.jit.annotate(List[torch.Tensor], [energy])
-                # inputs_list = torch.jit.annotate(List[torch.Tensor], [edge_vectors])
-                # grad_outputs_list = torch.jit.annotate(Optional[List[Optional[torch.Tensor]]], [torch.ones_like(energy)])
-                outputs_list = [energy]
-                inputs_list = [edge_vectors]
-                grad_outputs_list = [torch.ones_like(energy)]
+                outputs_list = torch.jit.annotate(List[torch.Tensor], [energy])
+                inputs_list = torch.jit.annotate(List[torch.Tensor], [edge_vectors])
+                grad_outputs_list = torch.jit.annotate(Optional[List[Optional[torch.Tensor]]], [torch.ones_like(energy)])
                 dE_ddiff = torch.autograd.grad(
                     outputs=outputs_list,
                     inputs=inputs_list,
