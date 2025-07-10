@@ -34,7 +34,7 @@ DEFAULT_CONFIG = {
     "load_model": False,
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "device": None,      # override device, e.g. 'cpu' or 'cuda:1'
-    "timeout": 600,     # 30 minutes timeout for distributed operations
+    "dist_timeout": 600,     # 30 minutes timeout for distributed operations
     "master_port": 12356,
     "debug": False,
 }
@@ -305,7 +305,7 @@ class Trainer:
             backend,
             rank=self.rank,
             world_size=self.world_size,
-            timeout=timedelta(seconds=self.config["timeout"])
+            timeout=timedelta(seconds=self.config["dist_timeout"])
         )
             
         # Log NCCL configuration for debugging
@@ -723,8 +723,8 @@ class Trainer:
         
         # Log detailed model configuration and setup
         if self.rank == 0:
-            logging.info("--------------------------------")
-            logging.info("Configuration settings:")
+            logging.info("------------- Configuration Settings -------------------")
+            # logging.info("Configuration settings:")
             logging.info(f"Model Type (model): {self.model_type}")
             logging.info(f"Node Size (node_size): {self.config['node_size']}")
             logging.info(f"Number of Interactions (num_interactions): {self.config['num_interactions']}")
@@ -738,17 +738,16 @@ class Trainer:
             logging.info(f"Max Epochs (max_epochs): {self.config['max_epochs']}")
             logging.info(f"Early Stopping Patience (stop_patience): {self.config['stop_patience']}")
             logging.info(f"Plateau Scheduler (plateau_scheduler): {self.config['plateau_scheduler']}")
-            logging.info(f"Device (device): {self.device}")
-            logging.info(f"Distributed Training (distributed): {self.distributed}")
-            if self.distributed:
-                logging.info(f"World Size (world_size): {self.world_size}")
-                logging.info(f"Rank (rank): {self.rank}")
             logging.info(f"Validation Ratio (val_ratio): {self.config['val_ratio']}")
             logging.info(f"Split File (split_file): {self.config['split_file']}")
             if self.config['normalization']:
                 logging.info(f"Target Mean (target_mean): {self.target_mean}")
                 logging.info(f"Target Stddev (target_stddev): {self.target_stddev}")
-            logging.info("--------------------------------")
+            logging.info(f"Distributed Training (distributed): {self.distributed}")
+            if self.distributed:
+                logging.info(f"Master Port (master_port): {self.config['master_port']}")
+                logging.info(f"Distributed Timeout (dist_timeout): {self.config['dist_timeout']}")
+            logging.info("--------------------------------------------------------")
         
         # Initialize counters
         local_steps = 0
