@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 from e3nn import o3
-from e3nn.util.jit import compile_mode
 from e3nn.o3 import Linear
 import abc, math
 from ase.data import atomic_numbers
@@ -11,6 +10,8 @@ from e3nn.nn import FullyConnectedNet
 from e3nn.nn import Gate, NormActivation
 from typing import Dict, List, Optional, Union, Callable
 from iann.data.data import AtomsData, replace_properties
+import warnings
+warnings.filterwarnings("ignore", message="The TorchScript type system doesn't support instance-level annotations")
 
 class Transform(torch.nn.Module, metaclass=abc.ABCMeta):
     def __init__(self) -> None:
@@ -19,21 +20,7 @@ class Transform(torch.nn.Module, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def forward(self):
         raise NotImplementedError
-    
-class UnitTransform(Transform):
-    def __init__(
-        self,
-        unit_dict: Dict[str, float]
-    ) -> None:
-        super().__init__()
-        
-        self.unit_dict = unit_dict
-    
-    def forward(self, data):
-        for k, v in self.unit_dict:
-            data[k] *= v
-        
-        return data   
+
 
 class TypeMapper(Transform):
     def __init__(
@@ -93,8 +80,6 @@ class OneHotAtomEncoding(torch.nn.Module):
     Args:
         set_features: If ``True`` (default), ``node_features`` will be set in addition to ``node_attrs``.
     """
-
-    num_elements: int
 
     def __init__(
         self,
@@ -169,9 +154,6 @@ class RadialBasis(torch.nn.Module, metaclass=abc.ABCMeta):
         pass
 
 class BesselBasis(RadialBasis):
-    cutoff: float
-    prefactor: float
-
     def __init__(self, cutoff: float, num_basis: int=8, trainable: bool=True):
         r"""Radial Bessel Basis, as proposed in DimeNet: https://arxiv.org/abs/2003.03123
 
@@ -223,7 +205,6 @@ class CutoffFunction(torch.nn.Module, metaclass=abc.ABCMeta):
     def forward(self):
         pass
 
-@torch.jit.script
 def _poly_cutoff(x: torch.Tensor, factor: float, p: float = 6.0) -> torch.Tensor:
     x = x * factor
 
@@ -235,9 +216,6 @@ def _poly_cutoff(x: torch.Tensor, factor: float, p: float = 6.0) -> torch.Tensor
     return out * (x < 1.0)
 
 class PolynomialCutoff(CutoffFunction):
-    _factor: float
-    p: float
-
     def __init__(self, cutoff: float, power: float = 6):
         r"""Polynomial cutoff, as proposed in DimeNet: https://arxiv.org/abs/2003.03123
 
@@ -263,10 +241,7 @@ class PolynomialCutoff(CutoffFunction):
         """
         return _poly_cutoff(x, self._factor, p=self.p)
     
-@compile_mode("script")
 class RadialBasisEdgeEncoding(torch.nn.Module):
-    out_field: str
-
     def __init__(
         self,
         basis: RadialBasis,
@@ -286,7 +261,7 @@ class RadialBasisEdgeEncoding(torch.nn.Module):
             self.basis(edge_dist) * self.cutoff_fn(edge_dist)[:, None]
         )
         data = replace_properties(data, edge_dist_embedding=edge_dist_embedding)
-        
+
         return data
 
 class SphericalHarmonicEdgeAttrs(torch.nn.Module):
@@ -312,7 +287,6 @@ class SphericalHarmonicEdgeAttrs(torch.nn.Module):
         data = replace_properties(data, edge_diff_embedding=edge_diff_embedding)
         return data
 
-@torch.jit.script
 def scatter_add(
     x: torch.Tensor, index: torch.Tensor, dim_size: int, dim: int = 0
 ) -> torch.Tensor:
@@ -334,8 +308,6 @@ def tp_path_exists(irreps_in1, irreps_in2, ir_out):
     return False
 
 class ConvNetLayer(torch.nn.Module):
-    use_sc: bool
-
     def __init__(
         self,
         irreps_in,
@@ -504,9 +476,8 @@ class ConvNetLayer(torch.nn.Module):
                 self.avg_num_neighbors = torch.tensor([avg_num_neigh])
 
 
-@torch.jit.script
 def ShiftedSoftPlus(x):
-    return torch.nn.functional.softplus(x) - math.log(2.0)
+    return torch.nn.functional.softplus(x) - torch.log(torch.tensor(2.0))
 
 def tp_path_exists(irreps_in1, irreps_in2, ir_out):
     irreps_in1 = o3.Irreps(irreps_in1).simplify()
@@ -531,8 +502,6 @@ class InteractionLayer(torch.nn.Module):
     Args:
 
     """
-
-    resnet: bool
 
     def __init__(
         self,
@@ -876,7 +845,6 @@ class GradientOutput(torch.nn.Module):
         self.update_callback = update_callback
         self.model_outputs = model_outputs
 
-    @torch.jit.ignore
     def update_model_outputs(self, outputs: Union[List[str], str]):
         if isinstance(outputs, str):
             self.model_outputs.append(outputs)
