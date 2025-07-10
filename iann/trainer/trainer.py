@@ -763,6 +763,9 @@ class Trainer:
         # Training loop
         else:
             max_epochs = int(self.config["max_steps"])
+        
+        if self.rank == 0:
+            logging.info("---------------------- Training ------------------------")
         for epoch in range(max_epochs):
             if epoch == max_epochs - 1:
                 logging.info(f"Reached maximum epochs ({max_epochs}), stopping training")
@@ -775,7 +778,6 @@ class Trainer:
                 self.train_sampler.set_epoch(epoch)
                 
             self.model.train()
-            logging.info("-------------------- Training --------------------------")
             for batch_idx, batch in enumerate(self.train_loader):
                 train_start = time.time()
                 
