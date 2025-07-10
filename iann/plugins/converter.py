@@ -11,7 +11,9 @@ import argparse
 import torch
 from pathlib import Path
 from iann.data.data import AseDataReader, AtomsData
-from typing import Dict, Optional
+from typing import Dict
+import warnings
+warnings.filterwarnings("ignore", message=".*weights_only=False.*", category=FutureWarning)
 
 class LAMMPSModelWrapper(torch.nn.Module):
     def __init__(self, model, compute_forces=True):
