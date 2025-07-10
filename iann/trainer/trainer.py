@@ -723,7 +723,7 @@ class Trainer:
         
         # Log detailed model configuration and setup
         if self.rank == 0:
-            logging.info("------------- Configuration Settings -------------------")
+            logging.info("---------------- Configuration Settings ----------------")
             # logging.info("Configuration settings:")
             logging.info(f"Model Type (model): {self.model_type}")
             logging.info(f"Node Size (node_size): {self.config['node_size']}")
