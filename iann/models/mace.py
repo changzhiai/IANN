@@ -1103,7 +1103,6 @@ class GradientOutput(torch.nn.Module):
         self.update_callback = update_callback
         self.model_outputs = model_outputs
 
-    #@torch.jit.ignore
     def update_model_outputs(self, outputs: Union[List[str], str]):
         if isinstance(outputs, str):
             self.model_outputs.append(outputs)
@@ -1122,9 +1121,12 @@ class GradientOutput(torch.nn.Module):
             
             if 'forces' in self.model_outputs:
                 # edge_vectors.requires_grad_()
-                outputs_list = torch.jit.annotate(List[torch.Tensor], [energy])
-                inputs_list = torch.jit.annotate(List[torch.Tensor], [edge_vectors])
-                grad_outputs_list = torch.jit.annotate(Optional[List[Optional[torch.Tensor]]], [torch.ones_like(energy)])
+                # outputs_list = torch.jit.annotate(List[torch.Tensor], [energy])
+                # inputs_list = torch.jit.annotate(List[torch.Tensor], [edge_vectors])
+                # grad_outputs_list = torch.jit.annotate(Optional[List[Optional[torch.Tensor]]], [torch.ones_like(energy)])
+                outputs_list = [energy]
+                inputs_list = [edge_vectors]
+                grad_outputs_list = [torch.ones_like(energy)]
                 dE_ddiff = torch.autograd.grad(
                     outputs=outputs_list,
                     inputs=inputs_list,
