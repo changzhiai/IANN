@@ -4,7 +4,6 @@ from typing import List, Optional, NamedTuple, Dict, Any, Union
 import asap3
 import numpy as np
 from scipy.spatial import distance_matrix
-from e3nn import o3
 
 class AtomsData(NamedTuple):
     num_atoms: torch.Tensor
