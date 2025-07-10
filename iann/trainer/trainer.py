@@ -475,11 +475,10 @@ class Trainer:
                 if 'SLURM_LOCALID' in os.environ:
                     local_rank = int(os.environ['SLURM_LOCALID'])
                     # MACE-specific DDP settings
-                    if self.model_type == "mace":
+                    if self.model_type == "mace" or self.model_type == "nequip":
                         self.model = DDP(
                             self.model, 
                             device_ids=[local_rank],
-                            find_unused_parameters=True,  # Critical for MACE
                             gradient_as_bucket_view=True,  # Memory efficiency
                             broadcast_buffers=False,       # MACE compatibility
                             static_graph=False            # Dynamic graph for MACE
