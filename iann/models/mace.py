@@ -2,7 +2,6 @@ import torch
 from torch import nn
 from e3nn import o3
 from e3nn.nn import Activation
-from e3nn.util.jit import compile_mode
 import abc,warnings
 from ase.data import atomic_numbers
 from e3nn.o3 import Linear
@@ -79,7 +78,6 @@ class TypeMapper(Transform):
     def untransform(self, types: torch.Tensor) -> torch.Tensor:
         return self.index_to_Z[types]
 
-#@compile_mode("script")
 class OneHotAtomEncoding(torch.nn.Module):
     """Copmute a one-hot floating point encoding of atoms' discrete atom types.
 
@@ -156,7 +154,6 @@ class AtomwiseLinear(torch.nn.Module):
         data = replace_properties(data, node_feat=node_feat)
         return data
 
-#@compile_mode("script") 
 class AtomwiseNonLinear(torch.nn.Module):
     def __init__(
         self,
@@ -232,7 +229,6 @@ class BesselBasis(RadialBasis):
 
         return self.prefactor * (numerator / x.unsqueeze(-1))
 
-#@torch.jit.script
 def _poly_cutoff(x: torch.Tensor, factor: float, p: float = 6.0) -> torch.Tensor:
     x = x * factor
 
@@ -277,7 +273,6 @@ class PolynomialCutoff(CutoffFunction):
         """
         return _poly_cutoff(x, self._factor, p=self.p)
     
-#@compile_mode("script")
 class RadialBasisEdgeEncoding(torch.nn.Module):
     out_field: str
 
@@ -359,7 +354,6 @@ def tp_out_irreps_with_instructions(
 
     return irreps_out, instructions
 
-#@compile_mode("script")
 class reshape_irreps(torch.nn.Module):
     def __init__(self, irreps: o3.Irreps) -> None:
         super().__init__()
@@ -382,7 +376,6 @@ class reshape_irreps(torch.nn.Module):
             out.append(field)
         return torch.cat(out, dim=-1)
 
-#@torch.jit.script
 def scatter_add(
     x: torch.Tensor, index: torch.Tensor, dim_size: int, dim: int = 0
 ) -> torch.Tensor:
@@ -392,7 +385,6 @@ def scatter_add(
     y = tmp.index_add(dim, index, x)
     return y
 
-#@compile_mode("script")
 class RealAgnosticResidualInteractionBlock(torch.nn.Module):
     def __init__(
         self,
@@ -853,7 +845,6 @@ class EquivariantProductBasisBlock(torch.nn.Module):
 
         return self.linear(node_feats)
 
-# @compile_mode('script')
 class MACE(nn.Module):
     def __init__(
         self,
