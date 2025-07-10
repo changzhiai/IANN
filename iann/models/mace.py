@@ -85,8 +85,6 @@ class OneHotAtomEncoding(torch.nn.Module):
         set_features: If ``True`` (default), ``node_features`` will be set in addition to ``node_attrs``.
     """
 
-    num_elements: int
-
     def __init__(
         self,
         num_elements: Optional[int] = None,
@@ -180,9 +178,6 @@ class RadialBasis(torch.nn.Module, metaclass=abc.ABCMeta):
         pass
 
 class BesselBasis(RadialBasis):
-    cutoff: float
-    prefactor: float
-
     def __init__(self, cutoff: float, num_basis: int=8, trainable: bool=True):
         r"""Radial Bessel Basis, as proposed in DimeNet: https://arxiv.org/abs/2003.03123
 
@@ -245,9 +240,6 @@ class CutoffFunction(torch.nn.Module, metaclass=abc.ABCMeta):
         pass
 
 class PolynomialCutoff(CutoffFunction):
-    _factor: float
-    p: float
-
     def __init__(self, cutoff: float, power: float = 6):
         r"""Polynomial cutoff, as proposed in DimeNet: https://arxiv.org/abs/2003.03123
 
@@ -274,8 +266,6 @@ class PolynomialCutoff(CutoffFunction):
         return _poly_cutoff(x, self._factor, p=self.p)
     
 class RadialBasisEdgeEncoding(torch.nn.Module):
-    out_field: str
-
     def __init__(
         self,
         basis: RadialBasis,
