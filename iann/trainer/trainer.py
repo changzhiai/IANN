@@ -474,17 +474,14 @@ class Trainer:
             else:
                 if 'SLURM_LOCALID' in os.environ:
                     local_rank = int(os.environ['SLURM_LOCALID'])
-                    # MACE-specific DDP settings
-                    if self.model_type == "mace" or self.model_type == "nequip":
-                        self.model = DDP(
-                            self.model, 
-                            device_ids=[local_rank],
-                            gradient_as_bucket_view=True,  # Memory efficiency
-                            broadcast_buffers=False,       # MACE compatibility
-                            static_graph=False            # Dynamic graph for MACE
-                        )
-                    else:
-                        self.model = DDP(self.model, device_ids=[local_rank])
+                    self.model = DDP(
+                        self.model, 
+                        device_ids=[local_rank],
+                        gradient_as_bucket_view=True,  # Memory efficiency
+                        broadcast_buffers=False,       # Broadcast buffers may cause stuck for MACE or NequiIP
+                        static_graph=False            # Dynamic graph is False by default
+                    )
+                    # self.model = DDP(self.model, device_ids=[local_rank])
                 else:
                     self.model = DDP(self.model, device_ids=[self.rank])
         
