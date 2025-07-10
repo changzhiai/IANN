@@ -747,7 +747,6 @@ class Trainer:
             if self.distributed:
                 logging.info(f"Master Port (master_port): {self.config['master_port']}")
                 logging.info(f"Distributed Timeout (dist_timeout): {self.config['dist_timeout']}")
-            logging.info("--------------------------------------------------------")
         
         # Initialize counters
         local_steps = 0
@@ -776,7 +775,7 @@ class Trainer:
                 self.train_sampler.set_epoch(epoch)
                 
             self.model.train()
-            
+            logging.info("-------------------- Training --------------------------")
             for batch_idx, batch in enumerate(self.train_loader):
                 train_start = time.time()
                 
