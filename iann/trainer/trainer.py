@@ -746,7 +746,7 @@ class Trainer:
             logging.info(f"Distributed Training (distributed): {self.distributed}")
             if self.distributed:
                 logging.info(f"Master Port (master_port): {self.config['master_port']}")
-                logging.info(f"Distributed Timeout (dist_timeout): {self.config['dist_timeout']}")
+                logging.info(f"Distributed Timeout (dist_timeout) (s): {self.config['dist_timeout']}")
         
         # Initialize counters
         local_steps = 0
