@@ -1,6 +1,6 @@
 import numpy as np
 import math, time
-import json, os, toml
+import json, os, toml, sys
 import argparse
 import logging
 import torch
@@ -326,6 +326,7 @@ class Trainer:
         """Clean up distributed environment"""
         if self.distributed:
             dist.destroy_process_group()
+            sys.exit(0)  # Clean and Pythonic exit
     
     def _setup_data(self, dataset_path):
         """Setup dataset and dataloaders"""
@@ -724,29 +725,29 @@ class Trainer:
         if self.rank == 0:
             logging.info("--------------------------------")
             logging.info("Configuration settings:")
-            logging.info(f"Model Type: {self.model_type}")
-            logging.info(f"Node Size: {self.config['node_size']}")
-            logging.info(f"Number of Interactions: {self.config['num_interactions']}")
-            logging.info(f"Cutoff Radius: {self.config['cutoff']}")
-            logging.info(f"Forces Weight: {self.config['forces_weight']}")
-            logging.info(f"Normalization: {self.config['normalization']}")
-            logging.info(f"Atomwise Normalization: {self.config['atomwise_normalization']}")
-            logging.info(f"Batch Size: {self.config['batch_size']}")
-            logging.info(f"Initial Learning Rate: {self.config['initial_lr']}")
-            logging.info(f"Max Steps: {self.config['max_steps']}")
-            logging.info(f"Max Epochs: {self.config['max_epochs']}")
-            logging.info(f"Early Stopping Patience: {self.config['stop_patience']}")
-            logging.info(f"Plateau Scheduler: {self.config['plateau_scheduler']}")
-            logging.info(f"Device: {self.device}")
-            logging.info(f"Distributed Training: {self.distributed}")
+            logging.info(f"Model Type (model): {self.model_type}")
+            logging.info(f"Node Size (node_size): {self.config['node_size']}")
+            logging.info(f"Number of Interactions (num_interactions): {self.config['num_interactions']}")
+            logging.info(f"Cutoff Radius (cutoff): {self.config['cutoff']}")
+            logging.info(f"Forces Weight (forces_weight): {self.config['forces_weight']}")
+            logging.info(f"Normalization (normalization): {self.config['normalization']}")
+            logging.info(f"Atomwise Normalization (atomwise_normalization): {self.config['atomwise_normalization']}")
+            logging.info(f"Batch Size (batch_size): {self.config['batch_size']}")
+            logging.info(f"Initial Learning Rate (initial_lr): {self.config['initial_lr']}")
+            logging.info(f"Max Steps (max_steps): {self.config['max_steps']}")
+            logging.info(f"Max Epochs (max_epochs): {self.config['max_epochs']}")
+            logging.info(f"Early Stopping Patience (stop_patience): {self.config['stop_patience']}")
+            logging.info(f"Plateau Scheduler (plateau_scheduler): {self.config['plateau_scheduler']}")
+            logging.info(f"Device (device): {self.device}")
+            logging.info(f"Distributed Training (distributed): {self.distributed}")
             if self.distributed:
-                logging.info(f"World Size: {self.world_size}")
-                logging.info(f"Rank: {self.rank}")
-            logging.info(f"Validation Ratio: {self.config['val_ratio']}")
-            logging.info(f"Split File: {self.config['split_file']}")
+                logging.info(f"World Size (world_size): {self.world_size}")
+                logging.info(f"Rank (rank): {self.rank}")
+            logging.info(f"Validation Ratio (val_ratio): {self.config['val_ratio']}")
+            logging.info(f"Split File (split_file): {self.config['split_file']}")
             if self.config['normalization']:
-                logging.info(f"Target Mean: {self.target_mean}")
-                logging.info(f"Target Stddev: {self.target_stddev}")
+                logging.info(f"Target Mean (target_mean): {self.target_mean}")
+                logging.info(f"Target Stddev (target_stddev): {self.target_stddev}")
             logging.info("--------------------------------")
         
         # Initialize counters
@@ -905,7 +906,6 @@ def main():
             # Set device based on local rank
             if torch.cuda.is_available():
                 torch.cuda.set_device(local_rank)
-        # Distribution status logging is now handled inside Trainer.train
         
         # Create trainer with distributed settings
         trainer = Trainer(
