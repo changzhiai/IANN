@@ -400,9 +400,6 @@ class Trainer:
             self.target_mean = torch.tensor([0.0])
             self.target_stddev = torch.tensor([1.0])
         
-        # Ensure all processes have completed data setup
-        if self.distributed:
-            torch.distributed.barrier()
     
     def _create_model(self):
         """Create model based on model_type"""
@@ -477,7 +474,18 @@ class Trainer:
             else:
                 if 'SLURM_LOCALID' in os.environ:
                     local_rank = int(os.environ['SLURM_LOCALID'])
-                    self.model = DDP(self.model, device_ids=[local_rank])
+                    # MACE-specific DDP settings
+                    if self.model_type == "mace":
+                        self.model = DDP(
+                            self.model, 
+                            device_ids=[local_rank],
+                            find_unused_parameters=True,  # Critical for MACE
+                            gradient_as_bucket_view=True,  # Memory efficiency
+                            broadcast_buffers=False,       # MACE compatibility
+                            static_graph=False            # Dynamic graph for MACE
+                        )
+                    else:
+                        self.model = DDP(self.model, device_ids=[local_rank])
                 else:
                     self.model = DDP(self.model, device_ids=[self.rank])
         
@@ -806,9 +814,6 @@ class Trainer:
 
                 # Log training progress
                 if (total_steps % self.config["log_interval"] == 0) or ((total_steps + 1) == self.config["max_steps"]):
-                    # CRITICAL: Synchronize all ranks before evaluation to prevent DDP issues
-                    if self.distributed:
-                        torch.distributed.barrier()
                     
                     eval_start = time.time()
                     
@@ -818,10 +823,6 @@ class Trainer:
                     
                     # Evaluate model
                     eval_dict = self.eval_model()
-                    
-                    # Synchronize after evaluation
-                    if self.distributed:
-                        torch.distributed.barrier()
                     
                     eval_formatted = ", ".join(
                         ["{}={:.3f}".format(k, v) for (k, v) in eval_dict.items()]
