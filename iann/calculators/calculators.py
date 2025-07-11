@@ -9,7 +9,7 @@ def _load_model(model_path, device, compute_forces):
     
     # Determine model type from state dict
     if "model_type" in state_dict:
-        model_type = state_dict["model_type"]
+        model_type = state_dict["model_type"].lower()
     else:
         # Try to determine from model architecture
         if "num_layer" in state_dict:
@@ -19,7 +19,7 @@ def _load_model(model_path, device, compute_forces):
         elif "correlation" in state_dict:
             model_type = "mace"
         elif "transformer" in state_dict:
-            model_type = "equiformerV2"
+            model_type = "equiformerv2"
         else:
             raise ValueError("Could not determine model type from state dict!")
 
@@ -51,9 +51,17 @@ def _load_model(model_path, device, compute_forces):
             species=state_dict.get("species", None),
             compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces
         )
-    elif model_type == "equiformerV2":
+    elif model_type == "equiformerv2":
         from iann.models.equiformerV2 import EquiformerV2
         model = EquiformerV2(
+            num_interactions=state_dict["num_layer"],
+            num_features=state_dict["node_size"],
+            cutoff=state_dict["cutoff"],
+            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
+        )
+    elif model_type == "equiformerV2_optimized":
+        from iann.models.equiformerV2_optimized import EquiformerV2 as EquiformerV2Optimized
+        model = EquiformerV2Optimized(
             num_interactions=state_dict["num_layer"],
             num_features=state_dict["node_size"],
             cutoff=state_dict["cutoff"],
