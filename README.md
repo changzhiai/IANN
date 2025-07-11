@@ -175,6 +175,32 @@ module load pytorch
 srun python run.py
 ```
 
+### Example on NERSC
+```bash
+#!/bin/bash
+#SBATCH -N 2                   # Number of nodes
+#SBATCH -C gpu                 # Use GPU nodes
+#SBATCH -q debug               # Use regular/debug queue
+#SBATCH -t 00:20:00            # Time limit
+#SBATCH -A m2997               # Your account
+#SBATCH --gpus-per-node=4       # GPUs per node
+#SBATCH --ntasks-per-node=4
+#SBATCH --cpus-per-task=1
+
+export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN/:$PYTHONPATH
+module purge
+module load PrgEnv-nvidia; module load openmpi;
+
+export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+export NNODES=$SLURM_NNODES
+export FI_CXI_RDZV_GET_MIN=0 # vender bugs fixed on nersc for multiple nodes
+export FI_CXI_SAFE_DEVMEM_COPY_THRESHOLD=16777216 # vender bugs fixed on nersc
+
+srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
+     python train.py
+
+```
+
 Note: the parallelization parameters are automatically obtained from the SLURM environment variables.
 
 ### Performance Considerations
