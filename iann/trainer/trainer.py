@@ -38,6 +38,7 @@ DEFAULT_CONFIG = {
     "dist_timeout": 600,     # 30 minutes timeout for distributed operations
     "master_port": 12356,
     "debug": False,
+    "optimizer_type": "adam",
 }
 
 # Logging filter to inject rank into log records
@@ -226,6 +227,8 @@ class Trainer:
         self.val_sampler = None
         self.target_mean = None
         self.target_stddev = None
+
+        self.optimizer_type = self.config["optimizer_type"]
         
         # Create output directory
         os.makedirs(self.config["output_dir"], exist_ok=True)
@@ -496,7 +499,14 @@ class Trainer:
             logging.info(f"Total memory: {total_memory / 1024**2:.2f} MB")
         
         # Setup optimizer
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config["initial_lr"])
+        if self.optimizer_type == "adam":
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config["initial_lr"])
+        elif self.optimizer_type == "adamw":
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config["initial_lr"], weight_decay=self.config.get("weight_decay", 1e-2))
+        elif self.optimizer_type == "sgd":
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config["initial_lr"], momentum=self.config.get("momentum", 0.9))
+        else:
+            raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
         self.criterion = torch.nn.MSELoss()
         
         # Setup scheduler
