@@ -9,6 +9,48 @@ This package provides a LAMMPS interface for using trained interatomic neural ne
 
 ## Installation
 
+TorchScript installation  from official website: https://pytorch.org/get-started/locally/
+
+Here is an example that selects Stable, Linux, LibTorch, C++/Java, and CUDA 11.8. Then downloading as follows: 
+```bash
+INSTALL_PATH=~/changzhi/softwares
+cd $INSTALL_PATH
+wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu118.zip
+unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu118.zip
+cd libtorch
+```
+
+Lammps installation intergrated with libtorch
+```
+cd $INSTALL_PATH
+git clone https://github.com/lammps/lammps.git
+cd lammps/src
+cp $INSTALL_PATH/IANN/iann/plugins/*.h $INSTALL_PATH/IANN/iann/plugins/*.cpp .
+cd .. && mkdir build && cd build
+
+#CPU version
+module load GCC/11.3.0 CMake/3.23.1-GCCcore-11.3.0 OpenMPI  # Load required modules on S3DF. It requires GCC≥ 7.1, CMake≥ 3.18, OpenMP
+cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
+  -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include" \
+  -DTorch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
+  -DPKG_USER-MISC=ON -DBUILD_MPI=ON -DBUILD_OMP=ON \
+  -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
+  -ltorch_cpu -lc10" ; make -j 8
+
+# GPU version
+module load PrgEnv-nvidia gcc cmake openmpi cudatoolkit # Load required modules on NERSC. It may be different on different servers
+GPU_ARCH=`nvidia-smi --query-gpu=name --format=csv,noheader`
+cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
+  -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include"   \
+  -DTorch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
+  -DCMAKE_BUILD_TYPE=Release -DPKG_GPU=yes  -DGPU_API=cuda -DGPU_ARCH=$GPU_ARCH \
+  -DPKG_USER-MISC=ON -DBUILD_MPI=ON   -DBUILD_OMP=ON   \
+  -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
+  -ltorch_cpu -lc10" ; make -j 8
+```
+
+
+
 ### 1. Export your trained model
 
 First, export your trained model to TorchScript format:

@@ -2,6 +2,23 @@
    Inherits from LAMMPS Pair class
    Uses LibTorch C++ API to interface with trained models
    Handles neighbor list construction, energy/force calculations
+
+Due to LAMMPS version, the code is slightly different from the original one.
+If you have the following errors:
+
+1. message error
+replace all 'message' with 'all', for example:
+```
+//error->message(FLERR, "[PAIR_IANN] GPU available");
+all(FLERR, "[PAIR_IANN] GPU available");
+```
+
+2. minimum_image error
+replace domain->minimum_image(dx, dy, dz) with domain->minimum_image(std::string(__FILE__), __LINE__, dx, dy, dz) as follows:
+```
+//domain->minimum_image(dx, dy, dz);
+domain->minimum_image(std::string(__FILE__), __LINE__, dx, dy, dz);
+```
 ------------------------------------------------------------------------- */
 
 #include "pair_iann.h"

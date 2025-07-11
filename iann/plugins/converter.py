@@ -119,7 +119,7 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
         results = {'energy': avg_energy, 'forces': avg_forces, 'energy_variance': energy_var, 'forces_variance': forces_var, 'atomic_energy_variance': atomic_energy_var}
         return results
 
-def convert_model_for_lammps(model_path, model_type, output_path=None, compute_forces=True):
+def convert_model_for_lammps(model_path, model_type, output_path=None, compute_forces=True, debug=False, atoms=None):
     """Wrap a trained model in a TorchScript-compatible wrapper for LAMMPS.
     
     Args:
@@ -198,17 +198,33 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
             raw_model.load_state_dict(state_dict["model"])
         except ImportError:
             raise ImportError("EquiformerV2 is not available")
+    elif model_type.lower() == "equiformerv2_optimized":
+        try:
+            from iann.models.equiformerV2_optimized import EquiformerV2 as EquiformerV2Optimized
+            num_interactions = state_dict.get("num_layer", 3)
+            node_size = state_dict.get("node_size", 128)
+            cutoff = state_dict.get("cutoff", 5.5)
+            raw_model = EquiformerV2Optimized(
+                num_interactions=num_interactions,
+                num_features=node_size,
+                cutoff=cutoff,
+                compute_forces=True
+            )
+            raw_model.load_state_dict(state_dict["model"])
+        except ImportError:
+            raise ImportError("EquiformerV2Optimized is not available")
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
     wrapped_model = LAMMPSModelWrapper(raw_model, compute_forces=compute_forces)
     wrapped_model.eval()
     # Example test: verify the wrapper with dummy ASE atoms
-    example = True
-    if example:
-        from ase.build import fcc100
-        test_atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
-        model_inputs = AseDataReader(cutoff, compute_forces=compute_forces)(test_atoms)
+    if debug:
+        print(f"Debug mode enabled. Running example test...")
+        if not atoms:
+            from ase.build import fcc100
+            atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
+        model_inputs = AseDataReader(cutoff, compute_forces=compute_forces)(atoms)
         example_out = wrapped_model(
             model_inputs.num_atoms,
             model_inputs.atomic_numbers,
@@ -228,7 +244,7 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
     print(f"Model exported to {output_path}")
     return output_path
 
-def convert_models_for_lammps(model_paths, model_type, output_path=None, compute_forces=True):
+def convert_models_for_lammps(model_paths, model_type, output_path=None, compute_forces=True, debug=False, atoms=None):
     """Convert multiple models to a single TorchScript model for LAMMPS with ensemble statistics.
     
     Args:
@@ -298,6 +314,17 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, compute
                 cutoff=cutoff,
                 compute_forces=True
             )
+        elif model_type.lower() == "equiformerv2_optimized":
+            from iann.models.equiformerV2_optimized import EquiformerV2 as EquiformerV2Optimized
+            num_interactions = state_dict.get("num_layer", 3)
+            node_size = state_dict.get("node_size", 128)
+            cutoff = state_dict.get("cutoff", 5.5)
+            raw_model = EquiformerV2Optimized(
+                num_interactions=num_interactions,
+                num_features=node_size,
+                cutoff=cutoff,
+                compute_forces=True
+            )
         else:
             raise ValueError(f"Unknown model type: {model_type}")
             
@@ -310,9 +337,24 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, compute
     wrapped_model.eval()
 
     # Test the wrapper with dummy ASE atoms
-    from ase.build import fcc100
-    test_atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
-    model_inputs = AseDataReader(models[0].cutoff, compute_forces=compute_forces)(test_atoms)
+    if debug:
+        print(f"Debug mode enabled. Running example test...")
+        if not atoms:
+            from ase.build import fcc100
+            atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
+        model_inputs = AseDataReader(models[0].cutoff, compute_forces=compute_forces)(atoms)
+        example_out = wrapped_model(
+            model_inputs.num_atoms,
+            model_inputs.atomic_numbers,
+            model_inputs.positions,
+            model_inputs.cell,
+            model_inputs.edge_indices,
+            model_inputs.edge_vectors,
+            model_inputs.num_edges,
+        )
+        print(f"Example test passed: Energy={example_out['energy']}, Forces shape={example_out['forces'].shape},\
+            Energy variance={example_out['energy_variance']}, Forces variance={example_out['forces_variance']},\
+            Atomic energy variance={example_out['atomic_energy_variance']}")
 
     # Script the model
     scripted_model = torch.jit.script(wrapped_model)
