@@ -185,7 +185,7 @@ class Trainer:
             self.config.update(config)
             
         # Set model type
-        self.model_type = model
+        self.model_type = model.lower()
         
         # Auto-detect SLURM to avoid spawning when SLURM is already managing processes
         self._under_slurm = 'SLURM_JOB_ID' in os.environ
@@ -444,7 +444,7 @@ class Trainer:
                 species=None,  # Auto-determine from dataset
                 **common_params
             )
-        elif self.model_type == "equiformerV2":
+        elif self.model_type == "equiformerv2":
             try:
                 from iann.models.equiformerV2 import EquiformerV2
             except ImportError:
@@ -524,7 +524,15 @@ class Trainer:
         if os.path.exists(best_model):
             logging.info(f"Loading model from {best_model}")
             if self.distributed:
-                map_location = {'cuda:%d' % 0: 'cuda:%d' % self.rank}
+                if torch.cuda.is_available() and self.device.type == 'cuda':
+                    if 'SLURM_LOCALID' in os.environ:
+                        local_rank = int(os.environ['SLURM_LOCALID'])
+                    else:
+                        local_rank = self.rank % torch.cuda.device_count()
+                    map_location = torch.device(f"cuda:{local_rank}")
+                else: # CPU
+                    local_rank = self.rank
+                    map_location = torch.device("cpu")
                 state_dict = torch.load(best_model, map_location=map_location)
             else:
                 state_dict = torch.load(best_model, map_location=self.device)
