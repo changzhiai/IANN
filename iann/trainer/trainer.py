@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
     "master_port": 12356,
     "debug": False,
     "optimizer_type": "adam",
+    'output_log': 'print_out.log',
 }
 
 # Logging filter to inject rank into log records
@@ -59,32 +60,28 @@ def setup_seed(seed):
 
 def get_arguments(arg_list=None):
     parser = argparse.ArgumentParser(
-        description="Train graph convolution network", fromfile_prefix_chars="+"
+        description="IANN arguments", fromfile_prefix_chars="+"
     )     
     parser.add_argument(
         "--cfg",
         type=str,
-        # default=f'{path}/arguments.toml',
-        help="Path to config file. e.g. 'arguments.toml'"
+        help="Path to a toml config file'"
     )
     parser.add_argument(
         "--model_type",
         type=str,
-        default="painn",
         choices=["painn", "nequip", "mace", "equiformer2"],
         help="Type of model to use"
     )
     parser.add_argument(
         "--dataset",
         type=str,
-        help="Path to dataset file"
+        help="Path to a dataset file"
     )
     
     return parser.parse_args(arg_list)
 
 def forces_criterion(predicted, target, reduction="mean"):
-    # predicted, target are (bs, max_nodes, 3) tensors
-    # node_count is (bs) tensor
     diff = predicted - target
     total_squared_norm = torch.linalg.norm(diff, dim=1)  # bs
     if reduction == "mean":
@@ -96,14 +93,11 @@ def forces_criterion(predicted, target, reduction="mean"):
     return scalar
 
 def get_normalization(dataset, per_atom=True):
-    # Use double precision to avoid overflows
     x_sum = torch.zeros(1, dtype=torch.double)
     x_2 = torch.zeros(1, dtype=torch.double)
     num_objects = 0
     for i, sample in enumerate(dataset):
         if i == 0:
-            # Estimate "bias" from 1 sample
-            # to avoid overflows for large valued datasets
             if per_atom:
                 bias = sample["energy"] / sample["num_atoms"]
             else:
@@ -115,11 +109,9 @@ def get_normalization(dataset, per_atom=True):
         x_sum += x
         x_2 += x ** 2.0
         num_objects += 1
-    # Var(X) = E[X^2] - E[X]^2
     x_mean = x_sum / num_objects
     x_var = x_2 / num_objects - x_mean ** 2.0
     x_mean = x_mean + bias
-
     default_type = torch.get_default_dtype()
 
     return x_mean.type(default_type), torch.sqrt(x_var).type(default_type)
@@ -152,12 +144,12 @@ def split_data(dataset, config):
             "train": indices[num_validation:].tolist(),
             "validation": indices[:num_validation].tolist(),
         }
-
     # Save split file
-    output_dir = config["output_dir"]
-    os.makedirs(output_dir, exist_ok=True)
-    with open(os.path.join(output_dir, "datasplits.json"), "w") as f:
-        json.dump(splits, f)
+    if config["debug"]:
+        output_dir = config["output_dir"]
+        os.makedirs(output_dir, exist_ok=True)
+        with open(os.path.join(output_dir, "DataSplitsLog.json"), "w") as f:
+            json.dump(splits, f)
 
     # Split the dataset
     datasplits = {}
@@ -583,7 +575,6 @@ class Trainer:
     def eval_model(self):
         """Evaluate model on validation set"""
         model = self.model
-        # Store original training state to restore it later
         was_training = model.training
         
         # Set model to evaluation mode
@@ -614,7 +605,6 @@ class Trainer:
             running_loss += total_loss * device_batch.energy.shape[0]
             
             # energy errors
-            # outputs = {key: val.detach().cpu().numpy() for key, val in out.items()}
             energy_targets = device_batch.energy.detach().cpu().numpy()
             energy_outputs = out.energy.detach().cpu().numpy()
             energy_running_ae += np.sum(np.abs(energy_targets - energy_outputs), axis=0)
@@ -674,7 +664,7 @@ class Trainer:
         formatter = logging.Formatter(fmt)
         
         # Create and configure file handler
-        log_file = os.path.join(self.config["output_dir"], "printlog.txt")
+        log_file = os.path.join(self.config["output_dir"], self.config["output_log"])
         file_handler = logging.FileHandler(log_file, mode="a")
         file_handler.setFormatter(formatter)
         file_handler.addFilter(RankFilter(self.rank))
@@ -970,69 +960,71 @@ def process_function(rank, world_size, model_type, config, dataset_path):
 
 if __name__ == "__main__":
     main()
+
+    """
     # Example usage:
-    # # CPU mode:
-    # # 1) create a new run.py file and copy the following code into it
-    # from iann.train.train import Trainer
-    # trainer = Trainer(
-    #     model="painn",
-    #     config={"device": "cpu"},
-    #     distributed=False
-    # )
-    # trainer.train("path/to/data.traj")
+    # CPU mode:
+    # 1) create a new run.py file and copy the following code into it
+    from iann.train.train import Trainer
+    trainer = Trainer(
+        model="painn",
+        config={"device": "cpu"},
+        distributed=False
+    )
+    trainer.train("path/to/data.traj")
 
-    # # 2) create a new run.sh file and copy the following code into it
-    # # Single-CPU mode:
-    # #SBATCH --nodes=1 --ntasks-per-node=1
-    # module load pytorch
-    # srun python run.py
-    # And then submit the job to SLURM:
-    # sbatch run.sh
+    # 2) create a new run.sh file and copy the following code into it
+    # Single-CPU mode:
+    #SBATCH --nodes=1 --ntasks-per-node=1
+    module load pytorch
+    srun python run.py
+    And then submit the job to SLURM:
+    sbatch run.sh
 
-    # # Multi-CPU mode:
-    # #SBATCH --nodes=2 --ntasks-per-node=4
-    # module load pytorch
-    # srun python run.py
-    # And then submit the job to SLURM:
-    # sbatch run.sh
+    # Multi-CPU mode:
+    #SBATCH --nodes=2 --ntasks-per-node=4
+    module load pytorch
+    srun python run.py
+    And then submit the job to SLURM:
+    sbatch run.sh
 
-    # # GPU mode:
-    # # 1) create a new run.py file and copy the following code into it
-    # from iann.train.train import Trainer
-    # trainer = Trainer(
-    #     model="painn",
-    #     distributed=False
-    # )
-    # trainer.train("path/to/data.traj")
-    #
-    # # 2) create a new run.sh file and copy the following code into it
-    # # Single-GPU mode:
-    # #SBATCH --nodes=1 --gpus-per-node=1
-    # module load pytorch
-    # srun python run.py
-    # And then submit the job to SLURM:
-    # sbatch run.sh 
+    # GPU mode:
+    # 1) create a new run.py file and copy the following code into it
+    from iann.train.train import Trainer
+    trainer = Trainer(
+        model="painn",
+        distributed=False
+    )
+    trainer.train("path/to/data.traj")
+    
+    # 2) create a new run.sh file and copy the following code into it
+    # Single-GPU mode:
+    #SBATCH --nodes=1 --gpus-per-node=1
+    module load pytorch
+    srun python run.py
+    And then submit the job to SLURM:
+    sbatch run.sh 
 
-    # # Multi-GPU mode:
-    # #SBATCH --nodes=2 --gpus-per-node=4
-    # module load pytorch
-    # srun python run.py
-    # And then submit the job to SLURM:
-    # sbatch run.sh 
+    # Multi-GPU mode:
+    #SBATCH --nodes=2 --gpus-per-node=4
+    module load pytorch
+    srun python run.py
+    And then submit the job to SLURM:
+    sbatch run.sh 
 
 
     # python mode:
-    # python train.py \
-    #     --model_type painn \
-    #     --dataset path/to/data.traj \
-    #     --cfg path/to/arguments.toml
+    python train.py \
+        --model_type painn \
+        --dataset path/to/data.traj \
+        --cfg path/to/arguments.toml
     
     
     # torchrun mode (no SLURM):
-    # torchrun --nproc_per_node=4 train.py \
-    #     --model_type painn \
-    #     --dataset path/to/data.traj \
-    #     --cfg path/to/arguments.toml
+    torchrun --nproc_per_node=4 train.py \
+        --model_type painn \
+        --dataset path/to/data.traj \
+        --cfg path/to/arguments.toml
     # Here, nproc_per_node defines the number of local CPU or GPU workers.
     # Device selection:
     # - By default, Trainer auto-uses GPUs if torch.cuda.is_available().
@@ -1045,3 +1037,5 @@ if __name__ == "__main__":
 
     # Note:for multi-GPUs/multi-CPUs mode, Trainer.train() will call mp.spawn() to launch `world_size` workers using the process_function.
     # The parallelization parameters are automatically obtained from the SLURM environment variables.
+
+    """
