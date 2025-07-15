@@ -40,6 +40,7 @@ DEFAULT_CONFIG = {
     "debug": False,
     "optimizer_type": "adam",
     'output_log': 'print_out.log',
+    "max_grad_norm": 1.0,    # Gradient clipping norm
 }
 
 # Logging filter to inject rank into log records
@@ -99,12 +100,12 @@ def get_normalization(dataset, per_atom=True):
     for i, sample in enumerate(dataset):
         if i == 0:
             if per_atom:
-                bias = sample["energy"] / sample["num_atoms"]
+                bias = sample.energy / sample.num_atoms
             else:
-                bias = sample["energy"]
-        x = sample["energy"]
+                bias = sample.energy
+        x = sample.energy
         if per_atom:
-            x = x / sample["num_atoms"]
+            x = x / sample.num_atoms
         x -= bias
         x_sum += x
         x_2 += x ** 2.0
@@ -501,6 +502,9 @@ class Trainer:
             raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
         self.criterion = torch.nn.MSELoss()
         
+        # Add gradient clipping for stability
+        self.max_grad_norm = self.config.get("max_grad_norm", 1.0)
+        
         # Setup scheduler
         if self.config["plateau_scheduler"]:
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -806,6 +810,11 @@ class Trainer:
                 # Total loss
                 total_loss = self.config["forces_weight"] * forces_loss + (1 - self.config["forces_weight"]) * energy_loss
                 total_loss.backward()
+                
+                # Apply gradient clipping
+                if self.max_grad_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+
                 self.optimizer.step()
 
                 # Update running loss
