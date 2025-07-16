@@ -83,13 +83,13 @@ class SO3_Grid(torch.nn.Module):
     # Compute matrices to transform irreps to grid
     @torch.jit.export
     def get_to_grid_mat(self, device: torch.device):
-        return self.to_grid_mat
+        return self.to_grid_mat.to(device)
 
 
     # Compute matrices to transform grid to irreps
     @torch.jit.export
     def get_from_grid_mat(self, device: torch.device):
-        return self.from_grid_mat
+        return self.from_grid_mat.to(device)
 
 
     # Compute grid from irreps representation
