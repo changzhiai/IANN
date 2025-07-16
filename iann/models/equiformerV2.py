@@ -95,7 +95,10 @@ class SO3_Grid(torch.nn.Module):
     # Compute grid from irreps representation
     @torch.jit.export
     def to_grid(self, embedding: torch.Tensor, lmax: int, mmax: int):
-        to_grid_mat = self.to_grid_mat[:, :, self.mapping.coefficient_idx(lmax, mmax)]
+        indices = self.mapping.coefficient_idx(lmax, mmax)
+        # Ensure indices are on the same device as the tensor being indexed
+        indices = indices.to(self.to_grid_mat.device)
+        to_grid_mat = self.to_grid_mat[:, :, indices]
         grid = torch.einsum("bai, zic -> zbac", to_grid_mat, embedding)
         return grid
 
@@ -103,7 +106,10 @@ class SO3_Grid(torch.nn.Module):
     # Compute irreps from grid representation
     @torch.jit.export
     def from_grid(self, grid: torch.Tensor, lmax: int, mmax: int):
-        from_grid_mat = self.from_grid_mat[:, :, self.mapping.coefficient_idx(lmax, mmax)]
+        indices = self.mapping.coefficient_idx(lmax, mmax)
+        # Ensure indices are on the same device as the tensor being indexed
+        indices = indices.to(self.from_grid_mat.device)
+        from_grid_mat = self.from_grid_mat[:, :, indices]
         embedding = torch.einsum("bai, zbac -> zic", from_grid_mat, grid)
         return embedding
 
