@@ -1298,7 +1298,6 @@ class SO2_Convolution(torch.nn.Module):
 
         # Store output features as a constant integer
         self.fc_m0_out_features: int = m0_output_channels
-        # print(f"num_channels_m0: {num_channels_m0}, m0_output_channels: {m0_output_channels}")
         if isinstance(num_channels_m0, torch.Tensor):
             num_channels_m0 = num_channels_m0.item()
         if isinstance(m0_output_channels, torch.Tensor):
@@ -2278,26 +2277,46 @@ class ModuleListInfo(torch.nn.ModuleList):
 class EquiformerV2(nn.Module):
     def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3, compute_forces=False, **kwargs):
         super().__init__()
-        # Statistics of IS2RE 100K 
+        # Initialize the basic parameters
         self._AVG_NUM_NODES  = 1 #77.81317
         self._AVG_DEGREE     = 1 #23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
+        self.lmax_list = kwargs.get('lmax_list', [4]) # [6]
+        self.mmax_list = kwargs.get('mmax_list', [2])
+        self.grid_resolution = kwargs.get('grid_resolution', None) #Initialize the transformations between spherical and grid representations
+        print('self.grid_resolution:', self.grid_resolution)
 
         self.device = torch.device(device)
         self.dtype = torch.float32 
         self.compute_forces = compute_forces
         self.cutoff = cutoff
-        
-        lmax_list = kwargs.get('lmax_list', [4]) # [6]
-        mmax_list = kwargs.get('mmax_list', [2])
+        self.num_resolutions = len(self.lmax_list)
 
-        self.num_resolutions = len(lmax_list)
-        self.lmax_list = lmax_list
         self.atom_channels=num_features
-        self.mmax_list = mmax_list
-
         self.max_num_elements = 119
         self.atom_channels_all = self.num_resolutions * self.atom_channels
         self.atom_embedding = nn.Embedding(self.max_num_elements, self.atom_channels_all)
+
+        # Initialize the blocks for each layer of EquiformerV2
+        self.num_layers = num_interactions # 12
+        self.attn_hidden_channels = num_features
+        self.num_heads = 8
+        self.attn_alpha_channels = num_features
+        self.attn_value_channels = 16
+        self.ffn_hidden_channels = num_features*2 #4
+        self.use_m_share_rad = False
+        self.distance_function = 'gaussian'
+        self.num_distance_basis = num_features*2 #4
+        self.attn_activation = 'scaled_silu'
+        self.use_s2_act_attn = False
+        self.use_attn_renorm = True
+        self.ffn_activation = 'scaled_silu'
+        self.use_gate_act = False
+        self.use_grid_mlp = False
+        self.use_sep_s2_act = True
+        self.alpha_drop = 0.05 #0.1
+        self.drop_path_rate = 0.02 #0.05
+        self.proj_drop = 0.0
+        self.norm_type = 'rms_norm_sh'
 
         self.weight_init = 'normal'
         assert self.weight_init in ['normal', 'uniform']
@@ -2342,9 +2361,6 @@ class EquiformerV2(nn.Module):
         # Initialize conversion between degree l and order m layouts
         self.mappingReduced = CoefficientMappingModule(self.lmax_list, self.mmax_list, self.device)
 
-        # Initialize the transformations between spherical and grid representations
-        self.grid_resolution = None
-
         max_l = max(self.lmax_list)
         self.SO3_grid = nn.ModuleList()
         for l in range(max_l + 1):
@@ -2371,31 +2387,8 @@ class EquiformerV2(nn.Module):
             self.block_use_atom_edge_embedding,
             rescale_factor=self._AVG_DEGREE
         )
-
-        # Initialize the blocks for each layer of EquiformerV2
-        self.num_layers = num_interactions # 12
-        self.attn_hidden_channels = num_features
-        self.num_heads = 8
-        self.attn_alpha_channels = num_features
-        self.attn_value_channels = 16
-        self.ffn_hidden_channels = num_features*2 #4
-        self.use_m_share_rad = False
-        self.distance_function = 'gaussian'
-        self.num_distance_basis = num_features*2 #4
-
-        self.attn_activation = 'scaled_silu'
-        self.use_s2_act_attn = False
-        self.use_attn_renorm = True
-        self.ffn_activation = 'scaled_silu'
-        self.use_gate_act = False
-        self.use_grid_mlp = False
-        self.use_sep_s2_act = True
         
-        self.alpha_drop = 0.05 #0.1
-        self.drop_path_rate = 0.02 #0.05
-        self.proj_drop = 0.0
-        self.norm_type = 'rms_norm_sh'
-        
+        # Seperable layer norm, and equivariant graph attention
         self.blocks = nn.ModuleList()
         for i in range(self.num_layers):
             block = TransBlockV2(
@@ -2493,21 +2486,13 @@ class EquiformerV2(nn.Module):
             dict: A dictionary with keys 'energy' and 'forces'
         """
 
-        atomic_numbers = data.atomic_numbers
-        edge_index = data.edge_indices
+        atomic_numbers = data.atomic_numbers.long()
+        edge_index = data.edge_indices.T
         edge_vectors = data.edge_vectors
-
-        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
-        edge_index = edge_index.T
-
-        # Get dtype and device
         positions = data.positions
-        self.dtype = positions.dtype
-        self.device = positions.device
-
-        atomic_numbers = atomic_numbers.long()
-        num_atoms = len(atomic_numbers)
         image_indices = data.image_indices
+        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
+        num_atoms = len(atomic_numbers)
 
         ###############################################################
         # Embeddings
@@ -2519,7 +2504,7 @@ class EquiformerV2(nn.Module):
             self.x.num_coefficients,
             self.atom_channels,
             device=self.device,
-            dtype=self.dtype,
+            dtype=positions.dtype,
         ))
         self.x.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
 
@@ -2538,7 +2523,7 @@ class EquiformerV2(nn.Module):
             offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
 
         # Edge encoding (distance and atom edge)
-        edge_dist = self.distance_expansion(torch.linalg.norm(edge_vectors, dim=1))
+        edge_dist = self.distance_expansion(edge_dist)
         if self.share_atom_edge_embedding and self.use_atom_edge_embedding and hasattr(self, 'source_embedding') and hasattr(self, 'target_embedding'):
             source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
             target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
@@ -2582,6 +2567,7 @@ class EquiformerV2(nn.Module):
         energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
         energy.index_add_(0, image_indices, node_energy.view(-1))
         # energy = energy / self._AVG_NUM_NODES
+        data = replace_properties(data, energy=energy)
         
         atomic_energy = node_energy.view(-1)
         data = replace_properties(data, atomic_energy=atomic_energy)
@@ -2596,13 +2582,6 @@ class EquiformerV2(nn.Module):
                 edge_rot_mat)
             forces = forces.embedding.narrow(1, 1, 3)
             forces = forces.view(-1, 3)
-        else:
-            forces = None
-        
-        data = replace_properties(data, energy=energy)
-
-        if self.compute_forces:
-
             data = replace_properties(data, forces=forces)
 
         return data

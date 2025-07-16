@@ -40,7 +40,7 @@ DEFAULT_CONFIG = {
     "debug": False,
     "optimizer_type": "adam",
     'output_log': 'print_out.log',
-    "max_grad_norm": 1.0,    # Gradient clipping norm
+    "max_grad_norm": None,    # Gradient clipping norm
 }
 
 # Logging filter to inject rank into log records
@@ -406,7 +406,16 @@ class Trainer:
             "cutoff": self.config["cutoff"],
             "compute_forces": bool(self.config["forces_weight"]),
         }
+        # update all params in common_params
+        common_params.update(self.config) # To do: update all params in log
+        if self.config["debug"]:
+            logging.info(f"All parameters: {common_params}")
+        common_params.pop("num_interactions")
+        common_params.pop("node_size")
+        common_params.pop("normalization")
+        common_params.pop("device")
         
+        # To do: set the default value for each model via self.config.get("xxx", x)
         if self.model_type == "painn":
             from iann.models.painn import PaiNN
             model = PaiNN(
@@ -423,10 +432,11 @@ class Trainer:
                 from iann.models.nequip import NequIP
             except ImportError:
                 raise ImportError("NequIP is not available")
+            
             model = NequIP(
                 num_interactions=self.config["num_interactions"],
                 num_features=self.config["node_size"],
-                lmax=2,  # Default lmax
+                lmax=self.config.get("lmax", 2),  # Default lmax
                 **common_params
             )
         elif self.model_type == "mace":
@@ -437,8 +447,8 @@ class Trainer:
             model = MACE(
                 num_interactions=self.config["num_interactions"],
                 num_features=self.config["node_size"],
-                correlation=3,  # Default correlation
-                species=None,  # Auto-determine from dataset
+                correlation=self.config.get("correlation", 3),  # Default correlation
+                species=self.config.get("species", None),  # Auto-determine from dataset
                 **common_params
             )
         elif self.model_type == "equiformerv2":
@@ -503,7 +513,8 @@ class Trainer:
         self.criterion = torch.nn.MSELoss()
         
         # Add gradient clipping for stability
-        self.max_grad_norm = self.config.get("max_grad_norm", 1.0)
+        if self.config.get("max_grad_norm") is not None:
+            self.max_grad_norm = self.config.get("max_grad_norm")
         
         # Setup scheduler
         if self.config["plateau_scheduler"]:
@@ -812,7 +823,7 @@ class Trainer:
                 total_loss.backward()
                 
                 # Apply gradient clipping
-                if self.max_grad_norm > 0:
+                if self.max_grad_norm is not None:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 
                 self.optimizer.step()
