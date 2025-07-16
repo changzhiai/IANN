@@ -565,7 +565,10 @@ class SO3_Embedding(nn.Module):
                 x_res = self.embedding
             else:
                 x_res = self.embedding[:, offset : offset + num_coefficients].contiguous()
-            to_grid_mat = to_grid_mat_lmax[:, :, grid_mapping.coefficient_idx(self.lmax_list[i], self.lmax_list[i])]
+            indices = grid_mapping.coefficient_idx(self.lmax_list[i], self.lmax_list[i])
+            # Ensure indices are on the same device as the tensor being indexed
+            indices = indices.to(to_grid_mat_lmax.device)
+            to_grid_mat = to_grid_mat_lmax[:, :, indices]
             x_grid = torch.cat([x_grid, torch.einsum("bai, zic -> zbac", to_grid_mat, x_res)], dim=3)
             offset = offset + num_coefficients
 
@@ -586,7 +589,10 @@ class SO3_Embedding(nn.Module):
         offset = 0
         offset_channel = 0
         for i in range(self.num_resolutions):
-            from_grid_mat = from_grid_mat_lmax[:, :, grid_mapping.coefficient_idx(self.lmax_list[i], self.lmax_list[i])]
+            indices = grid_mapping.coefficient_idx(self.lmax_list[i], self.lmax_list[i])
+            # Ensure indices are on the same device as the tensor being indexed
+            indices = indices.to(from_grid_mat_lmax.device)
+            from_grid_mat = from_grid_mat_lmax[:, :, indices]
             if self.num_resolutions == 1:
                 temp = x_grid
             else:
