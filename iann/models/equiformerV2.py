@@ -99,6 +99,8 @@ class SO3_Grid(torch.nn.Module):
         # Ensure indices are on the same device as the tensor being indexed
         indices = indices.to(self.to_grid_mat.device)
         to_grid_mat = self.to_grid_mat[:, :, indices]
+        # Ensure both tensors are on the same device before einsum
+        to_grid_mat = to_grid_mat.to(embedding.device)
         grid = torch.einsum("bai, zic -> zbac", to_grid_mat, embedding)
         return grid
 
@@ -110,6 +112,8 @@ class SO3_Grid(torch.nn.Module):
         # Ensure indices are on the same device as the tensor being indexed
         indices = indices.to(self.from_grid_mat.device)
         from_grid_mat = self.from_grid_mat[:, :, indices]
+        # Ensure both tensors are on the same device before einsum
+        from_grid_mat = from_grid_mat.to(grid.device)
         embedding = torch.einsum("bai, zbac -> zic", from_grid_mat, grid)
         return embedding
 
@@ -569,6 +573,8 @@ class SO3_Embedding(nn.Module):
             # Ensure indices are on the same device as the tensor being indexed
             indices = indices.to(to_grid_mat_lmax.device)
             to_grid_mat = to_grid_mat_lmax[:, :, indices]
+            # Ensure both tensors are on the same device before einsum
+            to_grid_mat = to_grid_mat.to(x_res.device)
             x_grid = torch.cat([x_grid, torch.einsum("bai, zic -> zbac", to_grid_mat, x_res)], dim=3)
             offset = offset + num_coefficients
 
@@ -597,6 +603,8 @@ class SO3_Embedding(nn.Module):
                 temp = x_grid
             else:
                 temp = x_grid[:, :, :, offset_channel : offset_channel + self.num_channels]
+            # Ensure both tensors are on the same device before einsum
+            from_grid_mat = from_grid_mat.to(temp.device)
             x_res = torch.einsum("bai, zbac -> zic", from_grid_mat, temp)
             num_coefficients = int((self.lmax_list[i] + 1) ** 2)
             
