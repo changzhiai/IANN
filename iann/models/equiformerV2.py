@@ -2278,16 +2278,20 @@ class ModuleListInfo(torch.nn.ModuleList):
 class EquiformerV2(nn.Module):
     def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3, compute_forces=False, **kwargs):
         super().__init__()
-        
+        # Statistics of IS2RE 100K 
+        self._AVG_NUM_NODES  = 1 #77.81317
+        self._AVG_DEGREE     = 1 #23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
+
         self.device = torch.device(device)
         self.dtype = torch.float32 
         self.compute_forces = compute_forces
         self.cutoff = cutoff
+        
+        lmax_list = kwargs.get('lmax_list', [4]) # [6]
+        mmax_list = kwargs.get('mmax_list', [2])
 
-        lmax_list = [4] #[6]
         self.num_resolutions = len(lmax_list)
         self.lmax_list = lmax_list
-        mmax_list=[2]
         self.atom_channels=num_features
         self.mmax_list = mmax_list
 
@@ -2330,10 +2334,6 @@ class EquiformerV2(nn.Module):
             self.target_embedding = nn.Embedding(self.max_num_elements, self.edge_channels_list[-1])
             self.edge_channels_list[0] = self.edge_channels_list[0] + 2 * self.edge_channels_list[-1]
 
-        # Statistics of IS2RE 100K 
-        _AVG_NUM_NODES  = 77.81317
-        _AVG_DEGREE     = 23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
-
         # Initialize the module that compute WignerD matrices and other values for spherical harmonic calculations
         self.SO3_rotation = nn.ModuleList()
         for i in range(self.num_resolutions):
@@ -2369,7 +2369,7 @@ class EquiformerV2(nn.Module):
             self.max_num_elements,
             self.edge_channels_list,
             self.block_use_atom_edge_embedding,
-            rescale_factor=_AVG_DEGREE
+            rescale_factor=self._AVG_DEGREE
         )
 
         # Initialize the blocks for each layer of EquiformerV2
@@ -2499,8 +2499,6 @@ class EquiformerV2(nn.Module):
 
         edge_dist = torch.linalg.norm(edge_vectors, dim=1)
         edge_index = edge_index.T
-        edge_index = edge_index.flip(0)
-
 
         # Get dtype and device
         positions = data.positions
@@ -2508,16 +2506,8 @@ class EquiformerV2(nn.Module):
         self.device = positions.device
 
         atomic_numbers = atomic_numbers.long()
-        # num_atoms = data.num_atoms
         num_atoms = len(atomic_numbers)
         image_indices = data.image_indices
-
-        ###############################################################
-        # Initialize data structures
-        ###############################################################
-
-        # Compute 3x3 rotation matrix per edge
-        edge_rot_mat = init_edge_rot_mat(edge_vectors)
 
         ###############################################################
         # Embeddings
@@ -2557,6 +2547,7 @@ class EquiformerV2(nn.Module):
             edge_dist = torch.cat((edge_dist, source_embedding, target_embedding), dim=1)
 
         # Edge-degree embedding
+        edge_rot_mat = init_edge_rot_mat(edge_vectors) # Compute 3x3 rotation matrix per edge
         edge_degree = self.edge_degree_embedding( # torchscript error
             atomic_numbers,
             edge_dist,
@@ -2570,7 +2561,7 @@ class EquiformerV2(nn.Module):
         if image_indices is None:
             image_indices = torch.zeros_like(atomic_numbers, dtype=torch.long)
         assert image_indices is not None
-        for idx, block in enumerate(self.blocks):
+        for _, block in enumerate(self.blocks):
             self.x = block(
                 self.x,
                 atomic_numbers,
@@ -2583,10 +2574,6 @@ class EquiformerV2(nn.Module):
         # Final layer norm
         self.x.embedding = self.norm(self.x.embedding)
 
-        # Statistics of IS2RE 100K 
-        _AVG_NUM_NODES  = 77.81317
-        _AVG_DEGREE     = 23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
-
         ###############################################################
         # Energy estimation
         ###############################################################
@@ -2594,7 +2581,7 @@ class EquiformerV2(nn.Module):
         node_energy = node_energy.embedding.narrow(1, 0, 1)
         energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
         energy.index_add_(0, image_indices, node_energy.view(-1))
-        # energy = energy / _AVG_NUM_NODES
+        # energy = energy / self._AVG_NUM_NODES
         
         atomic_energy = node_energy.view(-1)
         data = replace_properties(data, atomic_energy=atomic_energy)
