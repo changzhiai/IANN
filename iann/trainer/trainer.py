@@ -823,8 +823,8 @@ class Trainer:
                 total_loss.backward()
                 
                 # Apply gradient clipping
-                if self.max_grad_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                if self.config.get("max_grad_norm") is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.get("max_grad_norm"))
 
                 self.optimizer.step()
 

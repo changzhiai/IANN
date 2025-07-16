@@ -2311,7 +2311,7 @@ class EquiformerV2(nn.Module):
         self.use_attn_renorm = True
         self.ffn_activation = 'scaled_silu'
         self.use_gate_act = False
-        self.use_grid_mlp = False
+        self.use_grid_mlp = True # False
         self.use_sep_s2_act = True
         self.alpha_drop = 0.05 #0.1
         self.drop_path_rate = 0.02 #0.05
