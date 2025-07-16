@@ -201,14 +201,14 @@ class CoefficientMappingModule(torch.nn.Module):
         if lmax == -1:
             lmax = max(self.lmax_list)
 
-        indices = torch.arange(len(l_harmonic), device=self.device)
+        indices = torch.arange(len(l_harmonic), device=l_harmonic.device)
         # Real part
         mask_r = torch.bitwise_and(
             l_harmonic.le(lmax), m_complex.eq(m)
         )
         mask_idx_r = torch.masked_select(indices, mask_r)
 
-        mask_idx_i = torch.tensor([], device=self.device).long()
+        mask_idx_i = torch.tensor([], device=l_harmonic.device).long()
         # Imaginary part
         if m != 0:
             mask_i = torch.bitwise_and(
@@ -232,8 +232,8 @@ class CoefficientMappingModule(torch.nn.Module):
         mask = torch.bitwise_and(
             self.l_harmonic.le(lmax), self.m_harmonic.le(mmax)
         )
-        # self.device = mask.device
-        indices = torch.arange(len(mask), device=self.device)
+        # Use the device of the existing tensors instead of self.device
+        indices = torch.arange(len(mask), device=mask.device)
         mask_indices = torch.masked_select(indices, mask)
         self.lmax_cache, self.mmax_cache = lmax, mmax
         self.mask_indices_cache = mask_indices
@@ -255,7 +255,8 @@ class CoefficientMappingModule(torch.nn.Module):
             self.coefficient_idx(lmax, mmax)
         
         size = int((lmax + 1) ** 2)
-        rotate_inv_rescale = torch.ones((1, size, size), device=self.device)
+        # Use the device of the existing tensors instead of self.device
+        rotate_inv_rescale = torch.ones((1, size, size), device=self.mask_indices_cache.device)
         for l in range(lmax + 1):
             if l <= mmax:
                 continue
