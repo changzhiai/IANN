@@ -138,8 +138,6 @@ class CoefficientMappingModule(torch.nn.Module):
         self.lmax_list = lmax_list
         self.mmax_list = mmax_list
         self.num_resolutions = len(lmax_list)
-
-        # Temporarily use `cpu` as device and this will be overwritten.
         self.device = device
         
         # Compute the degree (l) and order (m) for each entry of the embedding
@@ -248,7 +246,7 @@ class CoefficientMappingModule(torch.nn.Module):
         self.lmax_cache, self.mmax_cache = lmax, mmax
         self.mask_indices_cache = mask_indices
         return self.mask_indices_cache
-    
+
 
     def get_rotate_inv_rescale(self, lmax: int, mmax: int):
         """
@@ -277,10 +275,10 @@ class CoefficientMappingModule(torch.nn.Module):
         rotate_inv_rescale = rotate_inv_rescale[:, :, self.mask_indices_cache]        
         self.rotate_inv_rescale_cache = rotate_inv_rescale
         return self.rotate_inv_rescale_cache
-
     
     def __repr__(self):
         return f"{self.__class__.__name__}(lmax_list={self.lmax_list}, mmax_list={self.mmax_list})"
+
 
 def get_normalization_layer(norm_type, lmax, num_channels, eps=1e-5, affine=True, normalization='component'):
     assert norm_type in ['layer_norm', 'layer_norm_sh', 'rms_norm_sh']
@@ -318,7 +316,7 @@ class SO3_Rotation(torch.nn.Module):
         super().__init__()
         self.lmax = lmax
         self.mapping = CoefficientMappingModule([self.lmax], [self.lmax], device)
-        self.device = device
+        # self.device = device
         self._Jd = torch.load(
             os.path.join(iann.__path__[0], "data", "Jd.pt"),
             weights_only=True,
@@ -417,7 +415,7 @@ class SO3_Rotation(torch.nn.Module):
         gamma = torch.atan2(R[..., 0, 2], R[..., 0, 0])
 
         size = int((end_lmax + 1) ** 2 - (start_lmax) ** 2)
-        wigner = torch.zeros(int(len(alpha)), size, size, device=self.device)
+        wigner = torch.zeros(int(len(alpha)), size, size, device=edge_rot_mat.device)
         start = 0
         for lmax in range(start_lmax, end_lmax + 1):
             block = self.wigner_D(lmax, alpha, beta, gamma)
@@ -450,8 +448,8 @@ class SO3_Embedding(nn.Module):
     ):
         super().__init__()
         self.num_channels = num_channels
-        self.device = device
-        self.dtype = dtype
+        # self.device = device
+        # self.dtype = dtype
         self.num_resolutions = len(lmax_list)
 
         self.num_coefficients = 0
