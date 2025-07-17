@@ -2293,7 +2293,7 @@ class ModuleListInfo(torch.nn.ModuleList):
 
 class EquiformerV2(nn.Module):
     def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3, compute_forces=False, 
-                 normalization=False, atomwise_normalization=False, normalize_stddev=1.0, normalize_mean=0.0, **kwargs):
+                 normalization=False, atomwise_normalization=False, normalize_stddev=1.0, normalize_mean=0.0, species=None, **kwargs):
         super().__init__()
         # Initialize the basic parameters
         self._AVG_NUM_NODES  = 1 #77.81317
@@ -2310,7 +2310,14 @@ class EquiformerV2(nn.Module):
         self.num_resolutions = len(self.lmax_list)
 
         self.atom_channels=num_features
-        self.max_num_elements = 119
+        self.species = species
+        if species is None:
+            self.max_num_elements = 119
+        else:
+            from ase.data import atomic_numbers
+            self.max_num_elements = len(species)
+            Zs = [atomic_numbers[s] for s in species]
+            self.element_to_index = {Z: i for i, Z in enumerate(Zs)}
         self.atom_channels_all = self.num_resolutions * self.atom_channels
         self.atom_embedding = nn.Embedding(self.max_num_elements, self.atom_channels_all)
 
@@ -2509,8 +2516,10 @@ class EquiformerV2(nn.Module):
         Returns:
             dict: A dictionary with keys 'energy' and 'forces'
         """
-
-        atomic_numbers = data.atomic_numbers.long()
+        if self.species is None:
+            atomic_numbers = data.atomic_numbers.long()
+        else:
+            atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device)
         edge_index = data.edge_indices.T
         edge_vectors = data.edge_vectors
         positions = data.positions
@@ -2600,6 +2609,12 @@ class EquiformerV2(nn.Module):
             if self.atomwise_normalization:
                 mean_shift = len(edge_index) * mean_shift
             energy = energy + mean_shift
+
+        # NaN/Inf checks for energy
+        if torch.isnan(energy).any():
+            print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
+        if torch.isinf(energy).any():
+            print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
 
         data = replace_properties(data, energy=energy)
         
