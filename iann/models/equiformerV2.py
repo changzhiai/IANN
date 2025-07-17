@@ -330,7 +330,6 @@ class SO3_Rotation(torch.nn.Module):
         wigner_inv = torch.transpose(wigner, 1, 2).contiguous()
         wigner = wigner.detach()
         wigner_inv = wigner_inv.detach()
-        # print("setup wigner_inv: ", wigner_inv.shape)
         return wigner, wigner_inv
 
     @torch.jit.export
@@ -492,8 +491,8 @@ class SO3_Embedding(nn.Module):
             num_nodes,
             self.num_coefficients,
             self.num_channels,
-            device=self.embedding.device,
-            dtype=self.embedding.dtype,
+            device=self.dummy_buffer.device,
+            dtype=self.dummy_buffer.dtype,
         )
         new_embedding.index_add_(0, edge_idx, self.embedding)
         self.set_embedding(new_embedding)
@@ -571,11 +570,7 @@ class SO3_Embedding(nn.Module):
             else:
                 x_res = self.embedding[:, offset : offset + num_coefficients].contiguous()
             indices = grid_mapping.coefficient_idx(self.lmax_list[i], self.lmax_list[i])
-            # Ensure indices are on the same device as the tensor being indexed
-            indices = indices.to(self.dummy_buffer.device)
             to_grid_mat = to_grid_mat_lmax[:, :, indices]
-            # Ensure both tensors are on the same device before einsum
-            to_grid_mat = to_grid_mat.to(self.dummy_buffer.device)
             x_grid = torch.cat([x_grid, torch.einsum("bai, zic -> zbac", to_grid_mat, x_res)], dim=3)
             offset = offset + num_coefficients
 
@@ -2307,7 +2302,7 @@ class EquiformerV2(nn.Module):
         self.lmax_list = kwargs.get('lmax_list', [4]) # [6]
         self.mmax_list = kwargs.get('mmax_list', [2])
         self.grid_resolution = kwargs.get('grid_resolution', None) #Initialize the transformations between spherical and grid representations
-        print('self.grid_resolution:', self.grid_resolution)
+        # print('self.grid_resolution:', self.grid_resolution)
 
         self.device = torch.device(device)
         self.dtype = torch.float32 
