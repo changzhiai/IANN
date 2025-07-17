@@ -2292,7 +2292,8 @@ class ModuleListInfo(torch.nn.ModuleList):
     
 
 class EquiformerV2(nn.Module):
-    def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3, compute_forces=False, **kwargs):
+    def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3, compute_forces=False, 
+                 normalization=False, atomwise_normalization=False, normalize_stddev=1.0, normalize_mean=0.0, **kwargs):
         super().__init__()
         # Initialize the basic parameters
         self._AVG_NUM_NODES  = 1 #77.81317
@@ -2490,6 +2491,12 @@ class EquiformerV2(nn.Module):
             self.dtype,
         )
 
+        # Normalisation constants
+        self.normalization = torch.nn.Parameter(torch.tensor(normalization), requires_grad=False)
+        self.atomwise_normalization = torch.nn.Parameter(torch.tensor(atomwise_normalization), requires_grad=False)
+        self.normalize_stddev = torch.nn.Parameter(torch.tensor(normalize_stddev), requires_grad=False)
+        self.normalize_mean = torch.nn.Parameter(torch.tensor(normalize_mean), requires_grad=False)
+
     def _get_grid_index(self, l: int, m: int, max_l: int) -> int:
         return l * (max_l + 1) + m
 
@@ -2584,6 +2591,16 @@ class EquiformerV2(nn.Module):
         energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
         energy.index_add_(0, image_indices, node_energy.view(-1))
         # energy = energy / self._AVG_NUM_NODES
+
+        # Apply de-normalization
+        if self.normalization:
+            normalizer = self.normalize_stddev
+            energy = normalizer * energy
+            mean_shift = self.normalize_mean
+            if self.atomwise_normalization:
+                mean_shift = len(edge_index) * mean_shift
+            energy = energy + mean_shift
+
         data = replace_properties(data, energy=energy)
         
         atomic_energy = node_energy.view(-1)

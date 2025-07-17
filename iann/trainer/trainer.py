@@ -413,6 +413,7 @@ class Trainer:
         common_params.pop("num_interactions")
         common_params.pop("node_size")
         common_params.pop("normalization")
+        common_params.pop("atomwise_normalization")
         common_params.pop("device")
         
         # To do: set the default value for each model via self.config.get("xxx", x)
@@ -460,6 +461,10 @@ class Trainer:
                 num_interactions=self.config["num_interactions"],
                 num_features=self.config["node_size"],
                 device=self.device,
+                normalization=self.config["normalization"],
+                target_mean=self.target_mean.tolist() if self.config["normalization"] else [0.0],
+                target_stddev=self.target_stddev.tolist() if self.config["normalization"] else [1.0],
+                atomwise_normalization=self.config["atomwise_normalization"],
                 **common_params
             )
         else:
