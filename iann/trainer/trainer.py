@@ -393,7 +393,8 @@ class Trainer:
                 self.datasplits["train"], 
                 per_atom=self.config["atomwise_normalization"],
             )
-            logging.debug(f"target_mean={self.target_mean}, target_stddev={self.target_stddev}")
+            if self.config["debug"]:
+                logging.debug(f"target_mean={self.target_mean}, target_stddev={self.target_stddev}")
         else:
             self.target_mean = torch.tensor([0.0])
             self.target_stddev = torch.tensor([1.0])
@@ -438,6 +439,10 @@ class Trainer:
                 num_interactions=self.config["num_interactions"],
                 num_features=self.config["node_size"],
                 lmax=self.config.get("lmax", 2),  # Default lmax
+                normalization=self.config["normalization"],
+                target_mean=self.target_mean.tolist() if self.config["normalization"] else [0.0],
+                target_stddev=self.target_stddev.tolist() if self.config["normalization"] else [1.0],
+                atomwise_normalization=self.config["atomwise_normalization"],
                 **common_params
             )
         elif self.model_type == "mace":
@@ -450,6 +455,10 @@ class Trainer:
                 num_features=self.config["node_size"],
                 correlation=self.config.get("correlation", 3),  # Default correlation
                 species=self.config.get("species", None),  # Auto-determine from dataset
+                normalization=self.config["normalization"],
+                target_mean=self.target_mean.tolist() if self.config["normalization"] else [0.0],
+                target_stddev=self.target_stddev.tolist() if self.config["normalization"] else [1.0],
+                atomwise_normalization=self.config["atomwise_normalization"],
                 **common_params
             )
         elif self.model_type == "equiformerv2":
@@ -770,8 +779,8 @@ class Trainer:
             logging.info(f"Validation Ratio (val_ratio): {self.config['val_ratio']}")
             logging.info(f"Split File (split_file): {self.config['split_file']}")
             if self.config['normalization']:
-                logging.info(f"Target Mean (target_mean): {self.target_mean}")
-                logging.info(f"Target Stddev (target_stddev): {self.target_stddev}")
+                logging.info(f"Target Mean (target_mean): {self.target_mean.item():4f}")
+                logging.info(f"Target Stddev (target_stddev): {self.target_stddev.item():4f}")
             logging.info(f"Distributed Training (distributed): {self.distributed}")
             if self.distributed:
                 logging.info(f"Master Port (master_port): {self.config['master_port']}")
@@ -808,7 +817,7 @@ class Trainer:
                 
             self.model.train()
             for batch_idx, batch in enumerate(self.train_loader):
-                train_start = time.time()
+                train_start_time = time.time()
                 
                 device_batch = batch.to(self.device)
                 
@@ -836,7 +845,7 @@ class Trainer:
                 # Update running loss
                 running_loss += total_loss.detach().cpu().numpy() * batch.energy.shape[0]
                 running_loss_count += batch.energy.shape[0]
-                training_time += time.time() - train_start
+                training_time += time.time() - train_start_time
 
                 if self.distributed:
                     total_steps = local_steps * self.world_size + self.rank + self.init_steps
