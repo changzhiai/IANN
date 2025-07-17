@@ -513,7 +513,7 @@ class SO3_Embedding(nn.Module):
             embedding_rotate = SO3_rotation[0].rotate(self.embedding, lmax_list[0], mmax_list[0], wigner)
         else:
             offset = 0
-            embedding_rotate = torch.tensor([], device=self.device, dtype=self.dtype)
+            embedding_rotate = torch.tensor([], device=self.dummy_buffer.device, dtype=self.dummy_buffer.dtype)
             for i in range(self.num_resolutions):
                 num_coefficients = int((self.lmax_list[i] + 1) ** 2)
                 embedding_i = self.embedding[:, offset : offset + num_coefficients]
@@ -534,7 +534,7 @@ class SO3_Embedding(nn.Module):
             embedding_rotate = SO3_rotation[0].rotate_inv(self.embedding, self.lmax_list[0], self.mmax_list[0], wigner_inv)
         else:
             offset = 0
-            embedding_rotate = torch.tensor([], device=self.device, dtype=self.dtype)
+            embedding_rotate = torch.tensor([], device=self.dummy_buffer.device, dtype=self.dummy_buffer.dtype)
             for i in range(self.num_resolutions):
                 num_coefficients = mappingReduced.res_size[i]
                 embedding_i = self.embedding[:, offset : offset + num_coefficients]
@@ -557,12 +557,12 @@ class SO3_Embedding(nn.Module):
             lmax = max(self.lmax_list)
         SO3_grid = list(SO3_grid)
         idx = self._get_grid_index(lmax, lmax, lmax)
-        to_grid_mat_lmax = SO3_grid[idx].get_to_grid_mat(self.device)
+        to_grid_mat_lmax = SO3_grid[idx].get_to_grid_mat(self.dummy_buffer.device)
         grid_mapping     = SO3_grid[idx].mapping
 
         offset = 0
         # Initialize x_grid on the same device as the input tensors
-        x_grid = torch.tensor([], device=self.embedding.device)
+        x_grid = torch.tensor([], device=self.dummy_buffer.device)
 
         for i in range(self.num_resolutions):
             num_coefficients = int((self.lmax_list[i] + 1) ** 2)
@@ -572,10 +572,10 @@ class SO3_Embedding(nn.Module):
                 x_res = self.embedding[:, offset : offset + num_coefficients].contiguous()
             indices = grid_mapping.coefficient_idx(self.lmax_list[i], self.lmax_list[i])
             # Ensure indices are on the same device as the tensor being indexed
-            indices = indices.to(to_grid_mat_lmax.device)
+            indices = indices.to(self.dummy_buffer.device)
             to_grid_mat = to_grid_mat_lmax[:, :, indices]
             # Ensure both tensors are on the same device before einsum
-            to_grid_mat = to_grid_mat.to(x_res.device)
+            to_grid_mat = to_grid_mat.to(self.dummy_buffer.device)
             x_grid = torch.cat([x_grid, torch.einsum("bai, zic -> zbac", to_grid_mat, x_res)], dim=3)
             offset = offset + num_coefficients
 
@@ -586,27 +586,29 @@ class SO3_Embedding(nn.Module):
         return l * (max_l + 1) + m
 
     @torch.jit.export
-    def _from_grid(self, x_grid: torch.Tensor, SO3_grid: list[SO3_Grid], lmax: int = -1):
-        if lmax == -1:
+    def _from_grid(self, x_grid: torch.Tensor, SO3_grid: list[SO3_Grid], lmax: int =-1):
+        if lmax ==-1:
             lmax = max(self.lmax_list)
         
         idx = self._get_grid_index(lmax, lmax, lmax)
-        from_grid_mat_lmax = SO3_grid[idx].get_from_grid_mat(self.device)
+        from_grid_mat_lmax = SO3_grid[idx].get_from_grid_mat(self.dummy_buffer.device)
         grid_mapping       = SO3_grid[idx].mapping
         offset = 0
         offset_channel = 0
         for i in range(self.num_resolutions):
             indices = grid_mapping.coefficient_idx(self.lmax_list[i], self.lmax_list[i])
             # Ensure indices are on the same device as the tensor being indexed
-            indices = indices.to(from_grid_mat_lmax.device)
+            indices = indices.to(self.dummy_buffer.device)
             from_grid_mat = from_grid_mat_lmax[:, :, indices]
             if self.num_resolutions == 1:
                 temp = x_grid
             else:
                 temp = x_grid[:, :, :, offset_channel : offset_channel + self.num_channels]
             # Ensure both tensors are on the same device before einsum
-            from_grid_mat = from_grid_mat.to(temp.device)
+            from_grid_mat = from_grid_mat.to(self.dummy_buffer.device)
             x_res = torch.einsum("bai, zbac -> zic", from_grid_mat, temp)
+            # Ensure x_res is on the same device as self.embedding before assignment
+            x_res = x_res.to(self.dummy_buffer.device)
             num_coefficients = int((self.lmax_list[i] + 1) ** 2)
             
             if self.num_resolutions == 1:
