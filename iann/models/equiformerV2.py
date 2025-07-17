@@ -561,7 +561,8 @@ class SO3_Embedding(nn.Module):
         grid_mapping     = SO3_grid[idx].mapping
 
         offset = 0
-        x_grid = torch.tensor([], device=self.device)
+        # Initialize x_grid on the same device as the input tensors
+        x_grid = torch.tensor([], device=self.embedding.device)
 
         for i in range(self.num_resolutions):
             num_coefficients = int((self.lmax_list[i] + 1) ** 2)
