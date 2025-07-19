@@ -198,21 +198,6 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
             raw_model.load_state_dict(state_dict["model"])
         except ImportError:
             raise ImportError("EquiformerV2 is not available")
-    elif model_type.lower() == "equiformerv2_optimized":
-        try:
-            from iann.models.equiformerV2_optimized import EquiformerV2 as EquiformerV2Optimized
-            num_interactions = state_dict.get("num_layer", 3)
-            node_size = state_dict.get("node_size", 128)
-            cutoff = state_dict.get("cutoff", 5.5)
-            raw_model = EquiformerV2Optimized(
-                num_interactions=num_interactions,
-                num_features=node_size,
-                cutoff=cutoff,
-                compute_forces=True
-            )
-            raw_model.load_state_dict(state_dict["model"])
-        except ImportError:
-            raise ImportError("EquiformerV2Optimized is not available")
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
