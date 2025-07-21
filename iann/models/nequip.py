@@ -645,6 +645,10 @@ class NequIP(torch.nn.Module):
         nonlinearity_scalars: Dict[int, Callable] = {"e": "ssp", "o": "tanh"},
         nonlinearity_gates: Dict[int, Callable] = {"e": "ssp", "o": "abs"},
         convolution_kwargs: dict = {},
+        normalization: bool = False,
+        atomwise_normalization: bool = False,
+        normalize_stddev: float = 1.0,
+        normalize_mean: float = 0.0,
         **kwargs,
     ) -> None:
         """
@@ -758,6 +762,13 @@ class NequIP(torch.nn.Module):
                 irreps_out=o3.Irreps('1x0e'),
             ),
         )
+
+        # Normalisation constants
+        self.normalization = torch.nn.Parameter(torch.tensor(normalization), requires_grad=False)
+        self.atomwise_normalization = torch.nn.Parameter(torch.tensor(atomwise_normalization), requires_grad=False)
+        self.normalize_stddev = torch.nn.Parameter(torch.tensor(normalize_stddev), requires_grad=False)
+        self.normalize_mean = torch.nn.Parameter(torch.tensor(normalize_mean), requires_grad=False)
+        
         self.atomwise_reduce = AtomwiseReduce(output_key='energy')
         
         self.compute_forces = False
@@ -780,6 +791,16 @@ class NequIP(torch.nn.Module):
         assert atomic_energy is not None
         data = replace_properties(data, atomic_energy=atomic_energy)
         data = self.atomwise_reduce(data)
+
+        # de-normalization
+        if self.normalization:
+            normalizer = self.normalize_stddev
+            energy = normalizer * data.energy
+            mean_shift = self.normalize_mean
+            if self.atomwise_normalization:
+                mean_shift = len(data.edge_indices) * mean_shift
+            energy = energy + mean_shift
+            data = replace_properties(data, energy=energy)
 
         if self.compute_forces:
             data = self.gradient_output(data)
