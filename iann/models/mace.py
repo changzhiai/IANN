@@ -855,6 +855,10 @@ class MACE(nn.Module):
         num_basis: int = 8,
         power: int = 6,
         gate: Union[str, Callable] = 'silu',
+        normalization: bool = False,
+        atomwise_normalization: bool = False,
+        normalize_stddev: float = 1.0,
+        normalize_mean: float = 0.0,
         **kwargs,
     ) -> None:
         """
@@ -986,7 +990,13 @@ class MACE(nn.Module):
             self.readouts.append(readout)
 
             self.atomwise_reduce = AtomwiseReduce(output_key='energy')
-
+        
+        # Normalisation constants
+        self.normalization = torch.nn.Parameter(torch.tensor(normalization), requires_grad=False)
+        self.atomwise_normalization = torch.nn.Parameter(torch.tensor(atomwise_normalization), requires_grad=False)
+        self.normalize_stddev = torch.nn.Parameter(torch.tensor(normalize_stddev), requires_grad=False)
+        self.normalize_mean = torch.nn.Parameter(torch.tensor(normalize_mean), requires_grad=False)
+        
         self.compute_forces = False
         if 'compute_forces' in kwargs.keys():
             if kwargs['compute_forces']:
@@ -1037,6 +1047,15 @@ class MACE(nn.Module):
         data = replace_properties(data, atomic_energy=node_es)
 
         data = self.atomwise_reduce(data)
+
+        # de-normalization
+        if self.normalization:
+            normalizer = self.normalize_stddev
+            energy = normalizer * data.energy
+            mean_shift = self.normalize_mean
+            if self.atomwise_normalization:
+                mean_shift = len(data.edge_indices) * mean_shift
+            data.energy = energy + mean_shift
         
         if self.compute_forces:
             data = self.gradient_output(data)
