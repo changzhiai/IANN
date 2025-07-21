@@ -386,18 +386,17 @@ class Trainer:
                 len(self.datasplits["validation"]),
             ))
         
-        # Compute normalization if needed
-        if self.config["normalization"]:
-            logging.info("Computing mean and variance")
-            self.target_mean, self.target_stddev = get_normalization(
-                self.datasplits["train"], 
-                per_atom=self.config["atomwise_normalization"],
-            )
-            if self.config["debug"]:
-                logging.debug(f"target_mean={self.target_mean}, target_stddev={self.target_stddev}")
-        else:
-            self.target_mean = torch.tensor([0.0])
-            self.target_stddev = torch.tensor([1.0])
+            # Compute normalization if needed
+            if self.config["normalization"]:
+                logging.info("Computing energy mean and variance of the dataset")
+                self.target_mean, self.target_stddev = get_normalization(
+                    self.datasplits["train"], 
+                    per_atom=self.config["atomwise_normalization"],
+                )
+                logging.debug(f"Mean of energy: {self.target_mean.item():.4f}, standard deviation of energy: {self.target_stddev.item():.4f}")
+            else:
+                self.target_mean = torch.tensor([0.0])
+                self.target_stddev = torch.tensor([1.0])
         
     
     def _create_model(self):
@@ -778,7 +777,7 @@ class Trainer:
             logging.info(f"Plateau Scheduler (plateau_scheduler): {self.config['plateau_scheduler']}")
             logging.info(f"Validation Ratio (val_ratio): {self.config['val_ratio']}")
             logging.info(f"Split File (split_file): {self.config['split_file']}")
-            if self.config['normalization']:
+            if self.config['debug']:
                 logging.info(f"Target Mean (target_mean): {self.target_mean.item():4f}")
                 logging.info(f"Target Stddev (target_stddev): {self.target_stddev.item():4f}")
             logging.info(f"Distributed Training (distributed): {self.distributed}")
