@@ -386,17 +386,19 @@ class Trainer:
                 len(self.datasplits["validation"]),
             ))
         
-            # Compute normalization if needed
-            if self.config["normalization"]:
+        # Compute normalization if needed
+        if self.config["normalization"]:
+            if self.rank == 0:
                 logging.info("Computing energy mean and variance of the dataset")
-                self.target_mean, self.target_stddev = get_normalization(
-                    self.datasplits["train"], 
-                    per_atom=self.config["atomwise_normalization"],
-                )
+            self.target_mean, self.target_stddev = get_normalization(
+                self.datasplits["train"], 
+                per_atom=self.config["atomwise_normalization"],
+            )
+            if self.rank == 0:
                 logging.debug(f"Mean of energy: {self.target_mean.item():.4f}, standard deviation of energy: {self.target_stddev.item():.4f}")
-            else:
-                self.target_mean = torch.tensor([0.0])
-                self.target_stddev = torch.tensor([1.0])
+        else:
+            self.target_mean = torch.tensor([0.0])
+            self.target_stddev = torch.tensor([1.0])
         
     
     def _create_model(self):
