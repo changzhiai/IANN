@@ -4,7 +4,7 @@ import copy, os
 from e3nn import o3
 import math
 import torch_geometric
-from typing import List, Optional
+from typing import List, Optional, Callable, Union
 from iann.data.data import AtomsData, replace_properties
 import iann
 
@@ -2296,12 +2296,11 @@ class EquiformerV2(nn.Module):
                  normalization=False, atomwise_normalization=False, normalize_stddev=1.0, normalize_mean=0.0, species=None, **kwargs):
         super().__init__()
         # Initialize the basic parameters
-        self._AVG_NUM_NODES  = 1 #77.81317
-        self._AVG_DEGREE     = 1 #23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
+        self._AVG_NUM_NODES  = kwargs.get('avg_num_nodes', 1) #77.81317
+        self._AVG_DEGREE     = kwargs.get('avg_degree', 1) #23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
         self.lmax_list = kwargs.get('lmax_list', [4]) # [6]
         self.mmax_list = kwargs.get('mmax_list', [2])
         self.grid_resolution = kwargs.get('grid_resolution', None) #Initialize the transformations between spherical and grid representations
-        # print('self.grid_resolution:', self.grid_resolution)
 
         self.device = torch.device(device)
         self.dtype = torch.float32 
@@ -2322,34 +2321,34 @@ class EquiformerV2(nn.Module):
         self.atom_embedding = nn.Embedding(self.max_num_elements, self.atom_channels_all)
 
         # Initialize the blocks for each layer of EquiformerV2
-        self.num_layers = num_interactions # 12
-        self.attn_hidden_channels = num_features
-        self.num_heads = 8
-        self.attn_alpha_channels = num_features
-        self.attn_value_channels = 16
-        self.ffn_hidden_channels = num_features*2 #4
-        self.use_m_share_rad = False
-        self.distance_function = 'gaussian'
-        self.num_distance_basis = num_features*2 #4
-        self.attn_activation = 'scaled_silu'
-        self.use_s2_act_attn = False
-        self.use_attn_renorm = True
-        self.ffn_activation = 'scaled_silu'
-        self.use_gate_act = False
-        self.use_grid_mlp = True # False
-        self.use_sep_s2_act = True
-        self.alpha_drop = 0.05 #0.1
-        self.drop_path_rate = 0.02 #0.05
-        self.proj_drop = 0.0
-        self.norm_type = 'rms_norm_sh'
+        self.num_layers = kwargs.get('num_layers', num_interactions) # 12
+        self.attn_hidden_channels = kwargs.get('attn_hidden_channels', num_features)
+        self.num_heads = kwargs.get('num_heads', 8)
+        self.attn_alpha_channels = kwargs.get('attn_alpha_channels', num_features)
+        self.attn_value_channels = kwargs.get('attn_value_channels', 16)
+        self.ffn_hidden_channels = kwargs.get('ffn_hidden_channels', num_features*2) #4
+        self.use_m_share_rad = kwargs.get('use_m_share_rad', False)
+        self.distance_function = kwargs.get('distance_function', 'gaussian')
+        self.num_distance_basis = kwargs.get('num_distance_basis', num_features*2) #4
+        self.attn_activation = kwargs.get('attn_activation', 'scaled_silu')
+        self.use_s2_act_attn = kwargs.get('use_s2_act_attn', False)
+        self.use_attn_renorm = kwargs.get('use_attn_renorm', True)
+        self.ffn_activation = kwargs.get('ffn_activation', 'scaled_silu')
+        self.use_gate_act = kwargs.get('use_gate_act', False)
+        self.use_grid_mlp = kwargs.get('use_grid_mlp', True) # False
+        self.use_sep_s2_act = kwargs.get('use_sep_s2_act', True)
+        self.alpha_drop = kwargs.get('alpha_drop', 0.05) #0.1
+        self.drop_path_rate = kwargs.get('drop_path_rate', 0.02) #0.05
+        self.proj_drop = kwargs.get('proj_drop', 0.0)
+        self.norm_type = kwargs.get('norm_type', 'rms_norm_sh')
 
-        self.weight_init = 'normal'
-        assert self.weight_init in ['normal', 'uniform']
+        self.weight_init = kwargs.get('weight_init', 'normal')
+        assert self.weight_init in ['normal', 'uniform'], f"weight_init must be 'normal' or 'uniform', but got {self.weight_init}"
 
-        self.distance_function = 'gaussian'
+        self.distance_function = kwargs.get('distance_function', 'gaussian')
         assert self.distance_function in [
             'gaussian',
-        ]
+        ], f"distance_function must be 'gaussian', but got {self.distance_function}"
         if self.distance_function == 'gaussian':
             self.distance_expansion = GaussianSmearing(
                 0.0,
@@ -2360,15 +2359,15 @@ class EquiformerV2(nn.Module):
         else:
             raise ValueError
         
-        self.share_atom_edge_embedding = False
-        self.use_atom_edge_embedding = True
+        self.share_atom_edge_embedding = kwargs.get('share_atom_edge_embedding', False)
+        self.use_atom_edge_embedding = kwargs.get('use_atom_edge_embedding', True)
         if self.share_atom_edge_embedding:
             assert self.use_atom_edge_embedding
             self.block_use_atom_edge_embedding = False
         else:
             self.block_use_atom_edge_embedding = self.use_atom_edge_embedding
 
-        self.edge_channels = num_features
+        self.edge_channels = kwargs.get('edge_channels', num_features)
         # Initialize the sizes of radial functions (input channels and 2 hidden channels)
         self.edge_channels_list = [int(self.distance_expansion.num_output)] + [self.edge_channels] * 2
 
@@ -2504,6 +2503,9 @@ class EquiformerV2(nn.Module):
         self.normalize_stddev = torch.nn.Parameter(torch.tensor(normalize_stddev), requires_grad=False)
         self.normalize_mean = torch.nn.Parameter(torch.tensor(normalize_mean), requires_grad=False)
 
+        if self.compute_forces:
+            self.gradient_output = GradientOutput(model_outputs=['forces'])
+
     def _get_grid_index(self, l: int, m: int, max_l: int) -> int:
         return l * (max_l + 1) + m
 
@@ -2623,15 +2625,18 @@ class EquiformerV2(nn.Module):
         ###############################################################
         # Force estimation
         ###############################################################
+        # if self.compute_forces:
+            # forces = self.force_block(self.x,
+            #     atomic_numbers,
+            #     edge_dist,
+            #     edge_index,
+            #     edge_rot_mat)
+            # forces = forces.embedding.narrow(1, 1, 3)
+            # forces = forces.view(-1, 3)
+            # data = replace_properties(data, forces=forces)
+
         if self.compute_forces:
-            forces = self.force_block(self.x,
-                atomic_numbers,
-                edge_dist,
-                edge_index,
-                edge_rot_mat)
-            forces = forces.embedding.narrow(1, 1, 3)
-            forces = forces.view(-1, 3)
-            data = replace_properties(data, forces=forces)
+            data = self.gradient_output(data)
 
         return data
 
@@ -2661,3 +2666,57 @@ class EquiformerV2(nn.Module):
                 torch.nn.init.constant_(m.bias, 0)
             std = 1 / math.sqrt(m.in_features)
             torch.nn.init.uniform_(m.weight, -std, std)
+
+class GradientOutput(torch.nn.Module):
+    def __init__(
+        self,
+        grad_on_edge_diff: bool = True,
+        grad_on_positions: bool = False,
+        model_outputs: List[str] = ['forces'],
+        update_callback: Optional[Callable] = None,  # Add a callback parameter
+    ) -> None:
+        super().__init__()
+        self.grad_on_edge_diff = grad_on_edge_diff
+        self.grad_on_positions = grad_on_positions
+        self.update_callback = update_callback
+        self.model_outputs = model_outputs
+
+    def update_model_outputs(self, outputs: Union[List[str], str]):
+        if isinstance(outputs, str):
+            self.model_outputs.append(outputs)
+        else:
+            self.model_outputs.extend(outputs)
+        if self.update_callback:
+            self.update_callback()
+
+    def forward(self, data: AtomsData, training: bool=True,)->AtomsData:
+        if self.grad_on_edge_diff:
+            energy = data.energy
+            edge_vectors = data.edge_vectors
+            positions = data.positions
+            edge_indices = data.edge_indices
+            assert energy is not None
+            
+            if 'forces' in self.model_outputs:
+                outputs_list = torch.jit.annotate(List[torch.Tensor], [energy])
+                inputs_list = torch.jit.annotate(List[torch.Tensor], [edge_vectors])
+                grad_outputs_list = torch.jit.annotate(Optional[List[Optional[torch.Tensor]]], [torch.ones_like(energy)])
+                dE_ddiff = torch.autograd.grad(
+                    outputs=outputs_list,
+                    inputs=inputs_list,
+                    grad_outputs=grad_outputs_list,
+                    retain_graph=training,
+                    create_graph=training,
+                )[0]
+
+                # Initialize forces with proper strides
+                assert dE_ddiff is not None
+                i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=positions.dtype)
+                j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=positions.dtype)
+                i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
+                j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
+                forces = i_forces + j_forces
+                
+                data = replace_properties(data, forces=forces)
+                    
+        return data
