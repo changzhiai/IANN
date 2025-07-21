@@ -502,7 +502,8 @@ class Trainer:
                         device_ids=[local_rank],
                         gradient_as_bucket_view=True,  # Memory efficiency
                         broadcast_buffers=False,       # Broadcast buffers may cause stuck for MACE or NequiIP
-                        static_graph=False            # Dynamic graph is False by default
+                        static_graph=False,            # Dynamic graph is False by default
+                        find_unused_parameters=True, 
                     )
                     # self.model = DDP(self.model, device_ids=[local_rank])
                 else:
