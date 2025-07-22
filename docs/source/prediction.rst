@@ -129,12 +129,72 @@ Performance Tips
    * Check cutoff radius matches training
    * Verify atomic numbers are correct
 
+
+Applications: Geometric structure optimization
+------------------------------------------
+
+The ASE optimizers ``BFGS`` like can be used to optimize the geometry of a structure:
+
+.. code-block:: python
+
+   from ase.optimize import BFGS
+   from iann.calculators.calculators import MLCalculator
+
+   atoms = read("atoms.traj") # load structure
+
+   # Create calculator
+   calc = MLCalculator("model.pth")
+   atoms.calc = calc
+
+   # Create optimizer
+   optimizer = BFGS(atoms, trajectory="opt.traj")
+
+   # Run optimization
+   optimizer.run(fmax=0.01)
+
+
+Applications: Molecular dynamics
+----------------------------
+
+The ASE thermostats like ``Langevin`` can be used to perform molecular dynamics:
+
+.. code-block:: python  
+
+   from ase.io import read, write, Trajectory
+   from ase.md.langevin import Langevin
+   from ase import units
+   from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
+   from ase.md import MDLogger
+
+   atoms = read("atoms.traj") # load structure
+
+   # Create calculator
+   calc = MLCalculator("model.pth")
+   atoms.calc = calc
+
+   temperature = 300
+   timestep = 0.1
+   MaxwellBoltzmannDistribution(atoms, temperature_K=temperature) # initialize velocities from Maxwell-Boltzmann distribution
+
+   # Create Langevin thermostat
+   dyn = Langevin(atoms, timestep=timestep * units.fs, temperature_K=temperature, friction=0.01 / units.fs)
+
+   # Log and save trajectory
+   dyn.attach(MDLogger(dyn, atoms, 'ase_md.log', header=True, stress=False, peratom=False, mode="a"), interval=1)
+   traj = Trajectory('ase_md.traj', 'a', atoms)
+   dyn.attach(traj.write, interval=10)
+
+   # Run dynamics
+   dyn.run(2000)
+
+
+
 Integration with Other Tools
 -------------------------
 
 IANN models can be used with various tools:
 
-* ASE for structure manipulation
+* ASE for other applications
 * LAMMPS for molecular dynamics (see :doc:`lammps`)
 * Custom scripts for specific applications
 
