@@ -18,13 +18,16 @@ Here's a simple example that demonstrates how to use IANN:
     trainer = Trainer(
         model="painn",
         config={"device": "cpu", 
-                'output_dir': 'output'},
+                'output_dir': 'output',
+                'output_model': 'model.pth'},
         distributed=False
         )
+    
+    # Prepare dataset and train model
     trainer.train("dataset.traj")
 
-    # Create calculator with model path
-    calc = MLCalculator("output/best_model.pth")
+    # Create calculator with trained model
+    calc = MLCalculator("output/model.pth")
 
     # Read structures
     atoms = read("test_structures.traj", ":")

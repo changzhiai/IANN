@@ -133,14 +133,15 @@ Performance Tips
 Applications: Geometric structure optimization
 ------------------------------------------
 
-The ASE optimizers ``BFGS`` like can be used to optimize the geometry of a structure:
+The ASE optimizers like ``BFGS`` can be used to optimize the geometry of a structure:
 
 .. code-block:: python
 
    from ase.optimize import BFGS
    from iann.calculators.calculators import MLCalculator
 
-   atoms = read("atoms.traj") # load structure
+   # load structure
+   atoms = read("atoms.traj") 
 
    # Create calculator
    calc = MLCalculator("model.pth")
@@ -166,15 +167,19 @@ The ASE thermostats like ``Langevin`` can be used to perform molecular dynamics:
    from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
    from ase.md import MDLogger
 
-   atoms = read("atoms.traj") # load structure
+   # load structure
+   atoms = read("atoms.traj") 
 
    # Create calculator
    calc = MLCalculator("model.pth")
    atoms.calc = calc
 
+   # Set temperature and timestep
    temperature = 300
    timestep = 0.1
-   MaxwellBoltzmannDistribution(atoms, temperature_K=temperature) # initialize velocities from Maxwell-Boltzmann distribution
+
+   # Initialize velocities from Maxwell-Boltzmann distribution
+   MaxwellBoltzmannDistribution(atoms, temperature_K=temperature) 
 
    # Create Langevin thermostat
    dyn = Langevin(atoms, timestep=timestep * units.fs, temperature_K=temperature, friction=0.01 / units.fs)

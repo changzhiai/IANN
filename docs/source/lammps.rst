@@ -134,6 +134,11 @@ To run the LAMMPS simulation, you can use the following script ``in.lmp``:
 
 Output would be log file ``lammps.log`` and structures file ``dump.xyz``. 
 
+.. note::
+
+   Recommended to run the LAMMPS simulation on GPU, which is much faster than CPU. But you need to use the GPU version of LAMMPS, which can be installed by the previous installation section.
+
+
 Key Components:
 
 1. **Units and Style**
