@@ -7,7 +7,7 @@ This guide explains how to use IANN models as interatomic potentials in LAMMPS m
 Installation
 ------------
 
-Prerequisites
+**Prerequisites**
 
 * LibTorch (PyTorch C++ API) v1.8.0 or later
 * LAMMPS (with C++11 support or later)
@@ -16,40 +16,34 @@ Prerequisites
 * OpenMPI
 
 
-1. Install LibTorch from official website: https://pytorch.org/get-started/locally/
+1. **Install LibTorch** from official website`<https://pytorch.org/get-started/locally/>`_: 
 
 Here is an example that selects Stable, Linux, LibTorch, C++/Java, and CUDA 11.8. Then downloading as follows: 
 
 .. code-block:: bash
 
-   INSTALL_PATH=~/changzhi/softwares
+   # Choose Stable, Linux, LibTorch, C++/Java, and CUDA 11.8
+   INSTALL_PATH=~/softwares # Change to your own directory
    cd $INSTALL_PATH
    wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu118.zip
    unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu118.zip
    cd libtorch
-```
 
-2. Install LAMMPS intergrated with libtorch
+
+2. **Install LAMMPS intergrated with libtorch**
+
+Install GPU version LAMMPS with LibTorch:
 
 .. code-block:: bash
 
+   # Clone LAMMPS to a local directory, and copy the IANN plugin files to the LAMMPS source code, and build the LAMMPS
    cd $INSTALL_PATH
    git clone https://github.com/lammps/lammps.git
    cd lammps/src
    cp $INSTALL_PATH/IANN/iann/plugins/*.h $INSTALL_PATH/IANN/iann/plugins/*.cpp .
    cd .. && mkdir build && cd build
 
-   # CPU version (Here an example on S3DF. It may be different on different servers)
-   module use /sdf/scratch/users/c/changzhi/softwares/easybuild/modules/all # use modules
-   module load GCC/11.3.0 CMake/3.23.1-GCCcore-11.3.0 OpenMPI  # Load required modules GCC, CMake, OpenMPIon on S3DF
-   cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
-   -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include" \
-   -DTorch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
-   -DPKG_USER-MISC=ON -DBUILD_MPI=ON -DBUILD_OMP=ON \
-   -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
-   -ltorch_cpu -lc10" ; make -j 8
-
-   # GPU version (Here an example on NERSC. It may be different on different servers)
+   # Make GPU version LAMMPS with LibTorch (Here an example on NERSC. It may be different on different servers)
    module load PrgEnv-nvidia gcc cmake openmpi cudatoolkit # Load required modules on NERSC
    GPU_ARCH=`nvidia-smi --query-gpu=name --format=csv,noheader`
    cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
@@ -60,14 +54,25 @@ Here is an example that selects Stable, Linux, LibTorch, C++/Java, and CUDA 11.8
    -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
    -ltorch_cpu -lc10" ; make -j 8
 
-Then you will get the lammps executable `lmp` in the build directory.
+If you want to make CPU version LAMMPS with LibTorch rather than GPU version, you can use the following command:
+
+.. code-block:: bash
+
+   cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
+   -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include"   \
+   -DTorch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
+   -DCMAKE_BUILD_TYPE=Release -DPKG_GPU=no  -DGPU_API=cuda -DGPU_ARCH=$GPU_ARCH \
+   -DPKG_USER-MISC=ON -DBUILD_MPI=ON   -DBUILD_OMP=ON   \
+   -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
+   -ltorch_cpu -lc10" ; make -j 8
+
 
 Usage of LAMMPS with IANN models
 -------------------------------
 
-1. To use an IANN model with LAMMPS, first export a trained model with torch format to the torchscript format:
+1. **To use an IANN model with LAMMPS**, first export a trained model with torch format to the torchscript format:
 
-First, you need to have a trained model with torch format, which can be obtained by running the training script. Then convert the model to the torchscript format as follows:
+First, you need to have a trained model with torch format, which can be obtained by running the training script. Then convert the model to the torchscript format as follows ``convert.py``:
 
 .. code-block:: python
 
@@ -77,7 +82,7 @@ First, you need to have a trained model with torch format, which can be obtained
                             model_type='painn', # if not specified, the model type will be inferred from the model file
                             output_path='model_lmp.pth')
 
-2. Use the exported model in LAMMPS:
+2. **Use the exported model in LAMMPS**:
 
 Here's a basic LAMMPS input script to use the exported model, the input file is structure file ``initial.data`` and model file ``model_lmp.pt``.
 
@@ -159,7 +164,7 @@ Key Components:
    * It supports running on GPU/CPU.
    * It will automatically detect the GPU/CPU. If there is no GPU, it will run on CPU.
 
-To convert xyz file to ase trajectory and visualize the structures, you can use the following script:
+To convert xyz file to ase trajectory and visualize the structures, you can use the following script ``view.py``:
 
 .. code-block:: python
 
@@ -197,7 +202,7 @@ An submission example script of running LAMMPS with IANN model on SLURM:
 Usage of LAMMPS with ensemble IANN models
 ----------------------------------------
 
-1. To use an ensemble IANN model with LAMMPS, first export trained models with torch format to a ensemble model with the torchscript format:
+1. **To use an ensemble IANN model with LAMMPS**, first export trained models with torch format to a ensemble model with the torchscript format:
 
 First, you need to have several trained models with torch format, which can be obtained by running several training scripts. Then convert the models to the torchscript format as follows:
 
@@ -212,7 +217,7 @@ First, you need to have several trained models with torch format, which can be o
        output_path="./model_ensemble_lmp.pth"
    )
 
-2. Use the exported ensemble model in LAMMPS:
+2. **Use the exported ensemble model in LAMMPS**:
 
 Here's a basic LAMMPS input script ``in.lmp`` to use the exported ensemble model:
 
@@ -256,11 +261,11 @@ Here's a basic LAMMPS input script ``in.lmp`` to use the exported ensemble model
 
     run 5000
 
-Output would be lammps.log and dump.xyz.
+Output would be ``lammps.log`` and ``dump.xyz``.
 
 Key Components:
 
-1. **Ensemble Model Setup*
+1. **Ensemble Model Setup**
 
    .. code-block:: lammps
 

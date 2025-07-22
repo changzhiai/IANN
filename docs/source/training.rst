@@ -24,7 +24,7 @@ Here is an simple example `train.py` of how to run training:
 
    trainer = Trainer(
       model="painn",
-      config={"device": "gpu", 
+      config={"device": "cuda", 
                'output_dir': 'output'},
       distributed=False
       )
@@ -37,7 +37,7 @@ Available models for `model`:
 * mace
 * equiformerV2
 
-Available configurations for `config`:
+Available configurations for ``config``:
 
 .. code-block:: python
 
@@ -74,7 +74,7 @@ Directly run the training script in command line:
 
 .. code-block:: bash
 
-   python3 train.py
+   python train.py
 
 
 It will generate a log file and a checkpoint file in the output directory. The log file will record the training progress. The checkpoint file will record the model parameters. 
@@ -200,7 +200,6 @@ Training progress is logged to the output directory. You can monitor:
 * Training and validation losses
 * Model checkpoints
 
-The best model is saved as ``best_model.pth`` in the output directory.
 
 Training Tips
 -------------

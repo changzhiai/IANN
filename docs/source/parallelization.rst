@@ -14,21 +14,23 @@ Here is the training script ``train.py``:
 
    trainer = Trainer(
       model="painn",
-      config={"device": "gpu", 
+      config={"device": "cuda", 
                'output_dir': 'output'},
       distributed=False
       )
    trainer.train("dataset.traj")
 
-You can run the script on command line:
+To run **training on a local machine** in serial, you can run the script on command line:
 
 .. code-block:: bash
 
+   # Run on a local machine
    python train.py
 
 or you can submit it to a `SLURM <https://slurm.schedmd.com/>`_ workload manager.
 
-To run training on a single GPU:
+To run **training on a single GPU**:
+
 .. code-block:: bash
 
    #!/bin/bash
@@ -45,7 +47,7 @@ To run training on a single GPU:
    
    python train.py
 
-To run training on single CPU:
+To run **training on a single CPU**:
 
 .. code-block:: bash
 
@@ -68,7 +70,7 @@ Parallel Training
 This guide covers how to use IANN with distributed training to parallelize the training process for speeding up the training. IANN supports distributed training using PyTorch's Distributed Data Parallel (DDP). This allows training on multiple GPUs efficiently.
 
 
-Multi-GPU Training: submit to multiple GPUs and multiple nodes (in SLURM Workload Manager)
+**Multi-GPU Training**: submit to multiple GPUs and multiple nodes (in SLURM Workload Manager)
 
 .. code-block:: bash
 
@@ -84,9 +86,12 @@ Multi-GPU Training: submit to multiple GPUs and multiple nodes (in SLURM Workloa
 
    module load your_modules
    
-   srun python train.py
+   export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+   export NNODES=$SLURM_NNODES
 
-Multi-CPU Training: submit to multiple CPUs and multiple nodes (in SLURM Workload Manager)
+   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
+
+**Multi-CPU Training**: submit to multiple CPUs and multiple nodes (in SLURM Workload Manager)
 
 .. code-block:: bash
 
@@ -101,11 +106,14 @@ Multi-CPU Training: submit to multiple CPUs and multiple nodes (in SLURM Workloa
 
    module load your_modules
 
-   srun python train.py
+   export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+   export NNODES=$SLURM_NNODES
+
+   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
 
-To directly run training on multiple GPUs/CPUs in a single node:
+To directly run **training on multiple GPUs/CPUs on a local machine**:
 
 .. code-block:: bash
 
@@ -119,7 +127,7 @@ To directly run training on multiple GPUs/CPUs in a single node:
 Examples of parallel training on NERSC and S3DF
 ----------------------------------------------
 
-Here is an example of how to run multi-GPU training on NERSC:
+Here is an example of how to run **multi-GPU training on NERSC**:
 
 .. code-block:: bash
 
@@ -142,11 +150,10 @@ Here is an example of how to run multi-GPU training on NERSC:
    export FI_CXI_RDZV_GET_MIN=0 # vender bugs fixed on nersc for multiple nodes
    export FI_CXI_SAFE_DEVMEM_COPY_THRESHOLD=16777216 # vender bugs fixed on nersc
 
-   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
-      python train.py
+   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
-Here is an example of how to run multi-GPU training on S3DF:
+Here is an example of how to run **multi-GPU training on S3DF**:
 
 .. code-block:: bash
 
@@ -166,8 +173,7 @@ Here is an example of how to run multi-GPU training on S3DF:
    export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
    export NNODES=$SLURM_NNODES
 
-   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
-      python train.py
+   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
 Configuration
