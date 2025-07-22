@@ -20,9 +20,9 @@ The code is available and actively maintained on `GitHub <https://github.com/cha
    training
    prediction
    parallelization
-   foundation_models
    lammps
    engine_models
+   foundation_models
    api
    troubleshooting
 

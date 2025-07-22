@@ -74,6 +74,7 @@ Directly run the training script in command line:
 
 .. code-block:: bash
 
+   # Run on a local machine
    python train.py
 
 

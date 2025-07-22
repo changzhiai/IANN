@@ -44,6 +44,7 @@ IANN comes with example scripts to help you get started:
 
 .. code-block:: bash
 
+   # Run on a local machine
    python examples/quickstart.py
 
 This script demonstrates:
@@ -57,7 +58,7 @@ Next Steps
 
 After running the quickstart example, you might want to:
 
-1. Check out the :doc:`training` guide for detailed training instructions
+1. Check out the :doc:`training` for detailed training instructions
 2. Learn about :doc:`prediction` for making predictions with trained models
 3. Explore :doc:`parallelization` for multi-GPU training
 4. Read about :doc:`lammps` for using IANN with LAMMPS
