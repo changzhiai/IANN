@@ -129,17 +129,22 @@ Model Selection
 When choosing a model, consider:
 
 1. **Accuracy Requirements**
+
    * MACE and EquiformerV2 for highest accuracy
    * PaiNN and MACE for balanced performance
 
 2. **Computational Resources**
+
    * PaiNN for fastest training/inference
    * EquiformerV2 for most complex systems
 
 3. **System Size**
+
    * PaiNN and MACE for large systems
    * NequIP for smaller, high-precision systems
 
-Note: the description may be not reliable and the reliable data will be provided in future.
+.. note::
+
+   The description may be not reliable and the reliable data will be provided in future.
 
 For detailed API documentation of each model, see the :doc:`api` reference. 

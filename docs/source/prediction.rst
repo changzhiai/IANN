@@ -15,7 +15,7 @@ The ``MLCalculator`` provides a convenient ASE calculator interface:
    from ase.io import read
 
    # Create calculator with model path
-   calc = MLCalculator("trained/best_model.pth")
+   calc = MLCalculator("model.pth")
    
    # Read structures
    images = read("test_structures.traj", ":")
@@ -34,8 +34,60 @@ The calculator automatically:
 * Use the model architecture
 * Do prediction
 
-Note: ``EnsembleCalculator`` and ``AtomicEnsembleCalculator`` are available to get uncertainty for each structure and each atom, respectively.
+The ``EnsembleCalculator`` provides a convenient ASE calculator interface with uncertainty for each structure:
 
+.. code-block:: python
+
+   from iann.calculators.calculators import EnsembleCalculator
+   from ase.io import read
+
+   # Create calculator with model path
+   model_paths = ['model_1.pth', 'model_2.pth']
+   calc = EnsembleCalculator(model_paths)
+
+   # Read structures
+   images = read("test_structures.traj", ":")
+
+   # Make predictions
+   for atoms in images:
+      atoms.calc = calc
+      energy = atoms.get_potential_energy()
+      forces = atoms.get_forces()
+      ensemble = atoms.calc.get_ensemble()
+      print(f"Energy: {energy} eV")
+      print(f"Forces: {forces} eV/Å")
+      print(f"Energy variance: {ensemble['energy_var']} eV")
+      print(f"Forces variance: {ensemble['forces_var']} eV/Å")
+
+The ``AtomicEnsembleCalculator`` provides a convenient ASE calculator interface with uncertainty for each structure and each atom:
+
+.. code-block:: python
+
+   from iann.calculators.calculators import AtomicEnsembleCalculator
+   from ase.io import read
+
+   # Create calculator with model path
+   model_paths = ['model_1.pth', 'model_2.pth']
+   calc = AtomicEnsembleCalculator(model_paths)
+
+   # Read structures
+   images = read("test_structures.traj", ":")
+
+   # Make predictions
+   for atoms in images:
+      atoms.calc = calc
+      energy = atoms.get_potential_energy()
+      forces = atoms.get_forces()
+      ensemble = atoms.calc.get_ensemble()
+      print(f"Energy: {energy} eV")
+      print(f"Forces: {forces} eV/Å")
+      print(f"Energy variance: {ensemble['energy_var']} eV")
+      print(f"Forces variance: {ensemble['forces_var']} eV/Å")
+      print(f"Atomic energy variance: {ensemble['atomic_energy_var']} eV")
+      print(f"Atomic forces variance: {ensemble['atomic_forces_var']} eV/Å")
+
+
+      
 Batch Prediction
 --------------
 
@@ -49,6 +101,8 @@ For efficient batch prediction:
    # Create dataset
    dataset = AseDataset("test_structures.traj")
    dataloader = DataLoader(dataset, batch_size=32)
+
+   model = torch.load("model.pth")
 
    # Make predictions
    model.eval()

@@ -16,67 +16,185 @@ IANN works with ASE database (.db) or trajectory (.traj) files. Your data should
 Running Training 
 ----------------
 
+Here is an simple example `train.py` of how to run training:
+
 .. code-block:: python
 
    from iann.trainer.trainer import Trainer
 
    trainer = Trainer(
       model="painn",
-      config={"device": "cpu", 
+      config={"device": "gpu", 
                'output_dir': 'output'},
       distributed=False
       )
    trainer.train("dataset.traj")
 
-Available models for model:
+Available models for `model`:
 
 * painn
 * nequip
 * mace
 * equiformerV2
 
-Available configurations for config:
+Available configurations for `config`:
 
 .. code-block:: python
 
    config = {
-      "max_steps": 50000,
       "node_size": 128,
       "num_interactions": 3,
-      "cutoff": 4.0,
+      "cutoff": 5.5,
       "val_ratio": 0.1,
       "output_dir": "output",
-      "dataset": "path/to/your/data.traj",
-      "batch_size": 32,
+      "max_steps": 1000000,
+      "batch_size": 12,
       "initial_lr": 0.0001,
       "forces_weight": 0.9,
       "log_interval": 2000,
-      "normalization": True,
-      "stop_patience": 50,
+      "normalization": False,
+      "atomwise_normalization": False,
+      "stop_patience": 200,
+      "plateau_scheduler": False,
       "random_seed": 666,
-      "load_model": None,
-      "device": "cpu",
+      "split_file": None,
+      "load_model": False,
+      "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
+      "device": None,      # override device, e.g. 'cpu' or 'cuda:1'
+      "dist_timeout": 600,     # 30 minutes timeout for distributed operations
+      "master_port": 12356,
+      "debug": False,
+      "optimizer_type": "adam",
+      'output_log': 'print_out.log',
+      "max_grad_norm": None,    # Gradient clipping norm
    }
 
 
-Multi-GPU Training
-------------------
+Directly run the training script in command line:
+
+.. code-block:: bash
+
+   python3 train.py
+
+
+It will generate a log file and a checkpoint file in the output directory. The log file will record the training progress. The checkpoint file will record the model parameters. 
+The example log file is shown below:
+
+.. code-block:: text
+
+   2025-07-21 12:52:09,282 [RANK0] [INFO ]  PyTorch version: 2.4.0
+   2025-07-21 12:52:09,284 [RANK0] [INFO ]  Node List: nid[008380-008381]
+   2025-07-21 12:52:09,284 [RANK0] [INFO ]  World Size (number of GPUs): 8
+   2025-07-21 12:52:09,284 [RANK0] [INFO ]  Master Address: nid008380
+   2025-07-21 12:52:09,284 [RANK0] [INFO ]  Master Port: 12356
+   2025-07-21 12:52:09,454 [RANK0] [INFO ]  Process 0 using device cuda:0 on nid008380. GPU architecture: NVIDIA A100-SXM4-80GB
+   2025-07-21 12:52:09,540 [RANK1] [INFO ]  Process 1 using device cuda:1 on nid008381. GPU architecture: NVIDIA A100-SXM4-80GB
+   2025-07-21 12:52:09,757 [RANK2] [INFO ]  Process 2 using device cuda:2 on nid008380. GPU architecture: NVIDIA A100-SXM4-80GB
+   2025-07-21 12:52:09,807 [RANK3] [INFO ]  Process 3 using device cuda:3 on nid008381. GPU architecture: NVIDIA A100-SXM4-80GB
+   2025-07-21 12:52:09,856 [RANK4] [INFO ]  Process 4 using device cuda:0 on nid008380. GPU architecture: NVIDIA A100-SXM4-80GB
+   2025-07-21 12:52:09,906 [RANK5] [INFO ]  Process 5 using device cuda:1 on nid008381. GPU architecture: NVIDIA A100-SXM4-80GB
+   2025-07-21 12:52:10,004 [RANK6] [INFO ]  Process 6 using device cuda:2 on nid008380. GPU architecture: NVIDIA A100-SXM4-80GB
+   2025-07-21 12:52:10,111 [RANK7] [INFO ]  Process 7 using device cuda:3 on nid008381. GPU architecture: NVIDIA A100-SXM4-80GB
+   2025-07-21 12:52:11,024 [RANK0] [INFO ]  Loading data from /pscratch/sd/c/changzhi/run_md/iter_14/train/dft_Pt_adss_r14_spc_undistor.traj
+   2025-07-21 12:52:11,028 [RANK0] [INFO ]  Dataset size: 12974, training set size: 11676, validation set size: 1298
+   2025-07-21 12:53:04,407 [RANK0] [INFO ]  Total trainable parameters: 821089
+   2025-07-21 12:53:04,408 [RANK0] [INFO ]  Total memory: 3.13 MB
+   2025-07-21 12:53:04,524 [RANK0] [INFO ]  ---------------- Configuration Settings ----------------
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Model Type (model): equiformerv2
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Node Size (node_size): 16
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Number of Interactions (num_interactions): 3
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Cutoff Radius (cutoff): 5.5
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Forces Weight (forces_weight): 0.0
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Normalization (normalization): True
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Atomwise Normalization (atomwise_normalization): False
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Batch Size (batch_size): 24
+   2025-07-21 12:53:04,527 [RANK0] [INFO ]  Initial Learning Rate (initial_lr): 0.0001
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Max Steps (max_steps): 1000000
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Max Epochs (max_epochs): None
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Early Stopping Patience (stop_patience): 200
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Plateau Scheduler (plateau_scheduler): False
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Validation Ratio (val_ratio): 0.1
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Split File (split_file): None
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Target Mean (target_mean): -594.789978
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Target Stddev (target_stddev): 361.503448
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Distributed Training (distributed): True
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Master Port (master_port): 12356
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  Distributed Timeout (dist_timeout) (s): 600
+   2025-07-21 12:53:04,528 [RANK0] [INFO ]  ---------------------- Training ------------------------
+   2025-07-21 12:53:07,976 [RANK0] [INFO ]  step=186000, energy_mae=7.901, energy_rmse=9.284, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=9.284, sqrt(train_loss)=1.632, patience=  0, training time=0.022 min, eval time=0.035 min
+   2025-07-21 12:54:36,354 [RANK0] [INFO ]  step=187000, energy_mae=1.614, energy_rmse=2.418, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=2.418, sqrt(train_loss)=3.668, patience=  0, training time=1.293 min, eval time=0.034 min
+   2025-07-21 12:56:07,311 [RANK0] [INFO ]  step=188000, energy_mae=2.025, energy_rmse=2.903, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=2.903, sqrt(train_loss)=3.530, patience=  0, training time=1.336 min, eval time=0.035 min
+   2025-07-21 12:57:36,083 [RANK0] [INFO ]  step=189000, energy_mae=1.612, energy_rmse=2.484, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=2.484, sqrt(train_loss)=3.607, patience=  0, training time=1.300 min, eval time=0.034 min
+   2025-07-21 12:59:05,271 [RANK0] [INFO ]  step=190000, energy_mae=2.149, energy_rmse=3.215, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=3.215, sqrt(train_loss)=3.399, patience=  0, training time=1.306 min, eval time=0.035 min
+   2025-07-21 13:00:35,395 [RANK0] [INFO ]  step=191000, energy_mae=1.584, energy_rmse=2.808, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=2.808, sqrt(train_loss)=3.430, patience=  1, training time=1.322 min, eval time=0.034 min
+   2025-07-21 13:02:04,686 [RANK0] [INFO ]  step=192000, energy_mae=2.003, energy_rmse=2.728, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=2.728, sqrt(train_loss)=3.549, patience=  1, training time=1.307 min, eval time=0.034 min
+   2025-07-21 13:03:34,198 [RANK0] [INFO ]  step=193000, energy_mae=1.735, energy_rmse=2.535, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=2.535, sqrt(train_loss)=3.320, patience=  1, training time=1.311 min, eval time=0.034 min
+   2025-07-21 13:05:03,454 [RANK0] [INFO ]  step=194000, energy_mae=2.091, energy_rmse=3.040, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=3.040, sqrt(train_loss)=3.321, patience=  1, training time=1.308 min, eval time=0.034 min
+   2025-07-21 13:06:32,814 [RANK0] [INFO ]  step=195000, energy_mae=1.648, energy_rmse=2.716, forces_mae=0.000, forces_rmse=0.000, sqrt(total_loss)=2.716, sqrt(train_loss)=3.531, patience=  2, training time=1.309 min, eval time=0.034 min
+
+
+Multi-GPU Training examples
+--------------------------
+
+Here is an example of how to run multi-GPU training on NERSC:
+
+.. code-block:: bash
+
+   #!/bin/bash
+   #SBATCH -N 2                   # Number of nodes
+   #SBATCH -C gpu                 # Use GPU nodes
+   #SBATCH -q debug               # Use regular/debug queue
+   #SBATCH -t 00:30:00            # Time limit
+   #SBATCH -A m2997               # Your account
+   #SBATCH --gpus-per-node=4      # GPUs per node
+   #SBATCH --ntasks-per-node=4    # Number of tasks per node
+   #SBATCH --cpus-per-task=1      # Number of CPUs per task
+
+   export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN/:$PYTHONPATH
+   module purge
+   module load PrgEnv-nvidia; module load openmpi
+
+   export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+   export NNODES=$SLURM_NNODES
+   export FI_CXI_RDZV_GET_MIN=0 # vender bugs fixed on nersc for multiple nodes
+   export FI_CXI_SAFE_DEVMEM_COPY_THRESHOLD=16777216 # vender bugs fixed on nersc
+
+   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
+      python train.py
+
+
+Here is an example of how to run multi-GPU training on S3DF:
+
+.. code-block:: bash
+
+   #!/bin/bash
+   #SBATCH --job-name=train
+   #SBATCH --nodes=2
+   #SBATCH --tasks-per-node=1
+   #SBATCH --cpus-per-task=1
+   #SBATCH --gpus-per-node=1
+   #SBATCH --time=00:30:00
+   #SBATCH --partition=ampere
+   #SBATCH --account=suncat:normal
+
+   conda activate /sdf/home/c/changzhi/softwares/anoconda3/envs/painn
+   export PYTHONPATH=/sdf/home/c/changzhi/changzhi/softwares/IANN_v2/IANN:$PYTHONPATH
+
+   export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+   export NNODES=$SLURM_NNODES
+
+   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
+      python train.py
+
 
 See the :doc:`parallelization` guide for details on distributed training.
 
-Command Line Training
----------------------
-
-Run the trainin in command line is another way. Put all configurations in a TOML file, and run it in a python command line.
-.. code-block:: bash 
-
-   python test/painn/train.py --cfg config.toml
 
 
 Monitoring Training
 -------------------
 
-Training progress is logged to the specified output directory. You can monitor:
+Training progress is logged to the output directory. You can monitor:
 
 * Energy and force prediction errors
 * Training and validation losses

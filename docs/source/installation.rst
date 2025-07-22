@@ -6,11 +6,16 @@ Prerequisites
 
 Before installing IANN, ensure you have the following prerequisites:
 
-* ASE 3.24 or higher
-* PyTorch 1.9 or higher
 * Python 3.7 or higher
-* ASAP3 3.13 or higher
-* e3nn 0.4.4 or higher
+* PyTorch 1.9 or higher
+
+To install PyTorch, visit the `official PyTorch website <https://pytorch.org/get-started/locally/>`_ for installation instructions specific to your system. 
+Here is an example of how to install PyTorch on a Linux machine with CUDA support:
+
+.. code-block:: bash
+
+   pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
 
 Installing IANN
 --------------
@@ -20,7 +25,7 @@ You can install IANN using pip:
 .. code-block:: bash
 
    # Clone the repository
-   git clone https://github.com/changzhiai/IANN.git
+   git clone git@github.com:changzhiai/IANN.git
    cd IANN
 
    # Install with pip
@@ -37,7 +42,6 @@ For GPU acceleration, make sure you have CUDA installed and PyTorch with CUDA su
    # Check if PyTorch is using CUDA
    python -c "import torch; print(torch.cuda.is_available())"
 
-If you need to install PyTorch with CUDA support, visit the `official PyTorch website <https://pytorch.org/get-started/locally/>`_ for installation instructions specific to your system.
 
 Verifying Installation
 --------------------
@@ -50,3 +54,11 @@ To verify your installation, you can run:
    print(iann.__version__)
 
 If no error occurs, IANN has been installed successfully. 
+
+
+LAMMPS Interface Support
+------------------------
+
+To use IANN in LAMMPS, you need to install the LAMMPS interface. Please see LAMMPS plugins installation section :doc:`lammps` for more details.
+
+
