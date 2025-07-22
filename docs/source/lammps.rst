@@ -16,7 +16,7 @@ Installation
 * OpenMPI
 
 
-1. **Install LibTorch** from official website`<https://pytorch.org/get-started/locally/>`_: 
+1. **Install LibTorch** from `official website <https://pytorch.org/get-started/locally/>`_: 
 
 Here is an example that selects Stable, Linux, LibTorch, C++/Java, and CUDA 11.8. Then downloading as follows: 
 

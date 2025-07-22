@@ -10,11 +10,13 @@ Before installing IANN, ensure you have the following prerequisites:
 * PyTorch 1.9 or higher
 
 To install PyTorch, visit the `official PyTorch website <https://pytorch.org/get-started/locally/>`_ for installation instructions specific to your system. 
+
 Here is an example of how to install PyTorch on a Linux machine with CUDA support:
 
 .. code-block:: bash
 
-   pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+   # Choose Stable, Linux, Pip, Python, CUDA 11.8
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 
 Installing IANN
