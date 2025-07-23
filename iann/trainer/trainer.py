@@ -12,6 +12,7 @@ from datetime import timedelta
 import warnings
 warnings.filterwarnings("ignore", message=".*weights_only=False.*", category=FutureWarning)
 
+
 path = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 
 # Default configuration that can be overridden
@@ -34,13 +35,14 @@ DEFAULT_CONFIG = {
     "split_file": None,
     "load_model": False,
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
-    "device": None,      # override device, e.g. 'cpu' or 'cuda:1'
-    "dist_timeout": 600,     # 30 minutes timeout for distributed operations
+    "device": None,      # override device, e.g. 'cpu' or 'cuda'
+    "dist_timeout": 600,     # timeout (seconds) for distributed operations
     "master_port": 12356,
     "debug": False,
     "optimizer_type": "adam",
     'output_log': 'print_out.log',
     "max_grad_norm": None,    # Gradient clipping norm
+    "output_model": "best_model.pth",
 }
 
 # Logging filter to inject rank into log records
@@ -497,15 +499,18 @@ class Trainer:
             else:
                 if 'SLURM_LOCALID' in os.environ:
                     local_rank = int(os.environ['SLURM_LOCALID'])
+                    if self.model_type == "equiformerv2" and self.config["compute_forces"]:
+                        find_unused_parameters = True
+                    else:
+                        find_unused_parameters = False
                     self.model = DDP(
                         self.model, 
                         device_ids=[local_rank],
                         gradient_as_bucket_view=True,  # Memory efficiency
                         broadcast_buffers=False,       # Broadcast buffers may cause stuck for MACE or NequiIP
                         static_graph=False,            # Dynamic graph is False by default
-                        find_unused_parameters=True, 
+                        find_unused_parameters=find_unused_parameters, 
                     )
-                    # self.model = DDP(self.model, device_ids=[local_rank])
                 else:
                     self.model = DDP(self.model, device_ids=[self.rank])
         
@@ -554,7 +559,7 @@ class Trainer:
     
     def _load_model(self):
         """Load model from checkpoint"""
-        best_model = os.path.join(self.config["output_dir"], 'best_model.pth')
+        best_model = os.path.join(self.config["output_dir"], self.config["output_model"])
         if os.path.exists(best_model):
             logging.info(f"Loading model from {best_model}")
             if self.distributed:
@@ -893,7 +898,7 @@ class Trainer:
                     if not self.early_stop(math.sqrt(smooth_loss), best_val_loss):
                         best_val_loss = math.sqrt(smooth_loss)
                         
-                        self._save_model("best_model.pth", total_steps, best_val_loss)
+                        self._save_model(self.config["output_model"], total_steps, best_val_loss)
                     else:
                         logging.info(f"Early stopping, training complete")
                         
@@ -996,82 +1001,3 @@ def process_function(rank, world_size, model_type, config, dataset_path):
 
 if __name__ == "__main__":
     main()
-
-    """
-    # Example usage:
-    # CPU mode:
-    # 1) create a new run.py file and copy the following code into it
-    from iann.train.train import Trainer
-    trainer = Trainer(
-        model="painn",
-        config={"device": "cpu"},
-        distributed=False
-    )
-    trainer.train("path/to/data.traj")
-
-    # 2) create a new run.sh file and copy the following code into it
-    # Single-CPU mode:
-    #SBATCH --nodes=1 --ntasks-per-node=1
-    module load pytorch
-    srun python run.py
-    And then submit the job to SLURM:
-    sbatch run.sh
-
-    # Multi-CPU mode:
-    #SBATCH --nodes=2 --ntasks-per-node=4
-    module load pytorch
-    srun python run.py
-    And then submit the job to SLURM:
-    sbatch run.sh
-
-    # GPU mode:
-    # 1) create a new run.py file and copy the following code into it
-    from iann.train.train import Trainer
-    trainer = Trainer(
-        model="painn",
-        distributed=False
-    )
-    trainer.train("path/to/data.traj")
-    
-    # 2) create a new run.sh file and copy the following code into it
-    # Single-GPU mode:
-    #SBATCH --nodes=1 --gpus-per-node=1
-    module load pytorch
-    srun python run.py
-    And then submit the job to SLURM:
-    sbatch run.sh 
-
-    # Multi-GPU mode:
-    #SBATCH --nodes=2 --gpus-per-node=4
-    module load pytorch
-    srun python run.py
-    And then submit the job to SLURM:
-    sbatch run.sh 
-
-
-    # python mode:
-    python train.py \
-        --model_type painn \
-        --dataset path/to/data.traj \
-        --cfg path/to/arguments.toml
-    
-    
-    # torchrun mode (no SLURM):
-    torchrun --nproc_per_node=4 train.py \
-        --model_type painn \
-        --dataset path/to/data.traj \
-        --cfg path/to/arguments.toml
-    # Here, nproc_per_node defines the number of local CPU or GPU workers.
-    # Device selection:
-    # - By default, Trainer auto-uses GPUs if torch.cuda.is_available().
-    # - To force CPU-only torchrun, either:
-    #     export CUDA_VISIBLE_DEVICES=""
-    #   or add `device = "cpu"` in your arguments.toml or config.
-    # - To target a specific GPU, set config `device = "cuda:IDX"` or export
-    #     CUDA_VISIBLE_DEVICES=IDX
-
-
-    # Note:for multi-GPUs/multi-CPUs mode, Trainer.train() will call mp.spawn() to launch `world_size` workers using the process_function.
-    # The parallelization parameters are automatically obtained from the SLURM environment variables.
-
-    """
