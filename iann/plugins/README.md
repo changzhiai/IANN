@@ -4,12 +4,12 @@ This plugin provides a LAMMPS interface for using trained interatomic neural net
 
 ## Installation
 
-# Prerequisites
+### Prerequisites
 
 - LibTorch (PyTorch C++ API) v1.8.0 or later
 - LAMMPS (with C++11 support or later)
 
-# Install LAMMPS intergrated with libtorch 
+### Install LAMMPS intergrated with libtorch 
 
 TorchScript installation  from official website: https://pytorch.org/get-started/locally/
 
@@ -59,7 +59,7 @@ If you want to make CPU version LAMMPS with LibTorch rather than GPU version, yo
    ```
 
 
-## Export your trained model
+### Export your trained model
 
 First, you need to have a trained model with torch format, which can be obtained by running the training script. Then convert the model to the torchscript format as follows:
 
@@ -86,7 +86,7 @@ Note: load environments before exporting if you are on NERSC:
 Note: always use same cuda version when export, compile and run, for example: module load cudatoolkit/11.7
 
 
-## Usage
+### Usage
 
 Here's a sample LAMMPS input script using the IANN pair style:
 
@@ -124,7 +124,7 @@ The `pair_style iann` command takes the following parameters:
 - `model_path`: Path to the exported TorchScript model
 - `cutoff`: Interaction cutoff distance in Å (must match the model's trained cutoff)
 
-## Notes on Performance
+### Notes on Performance
 
 The IANN potential computation is more computationally intensive than classical force fields. For optimal performance:
 
@@ -132,13 +132,13 @@ The IANN potential computation is more computationally intensive than classical 
 2. Consider smaller simulation sizes or longer timesteps
 3. Enable OpenMP if available by building LAMMPS with `-DBUILD_OMP=ON`
 
-## Limitations
+### Limitations
 
 - Atomic types in LAMMPS must match those used during model training
 - Currently supports only NVT and NVE ensembles
 - Periodic boundary conditions are required
 
-## Troubleshooting
+### Troubleshooting
 
 If you encounter issues with loading the model, ensure:
 
@@ -239,9 +239,9 @@ If you continue to see many undefined references to LibTorch/C10 symbols (`at::_
    ```
 
 
-## Known bugs:
+### Known bugs:
 
-### Bug 1:
+#### Bug 1:
    ```python
    File "/opt/anaconda3/lib/python3.11/site-packages/e3nn/nn/_activation.py", line 202
       index = 0
@@ -252,7 +252,7 @@ If you continue to see many undefined references to LibTorch/C10 symbols (`at::_
          if act is not None:
    ```
 
-### Solution 1:
+#### Solution 1:
    ```python
    import torch
 
@@ -369,7 +369,7 @@ If you continue to see many undefined references to LibTorch/C10 symbols (`at::_
    ```
 
 
-### Bug 2:
+#### Bug 2:
 
 ## type error
    ```python
@@ -386,7 +386,7 @@ If you continue to see many undefined references to LibTorch/C10 symbols (`at::_
          self.wigner = self.wigner.detach()
    ```
 
-## Solution 2:
+#### Solution 2:
 
    ```python
    def xyz_to_angles(xyz):
