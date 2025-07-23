@@ -61,6 +61,7 @@ If you want to make CPU version LAMMPS with LibTorch rather than GPU version, yo
 
 .. code-block:: bash
 
+   # Make CPU version LAMMPS with LibTorch
    cmake ../cmake \
    -D CMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
    -D CMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include"   \
@@ -82,11 +83,11 @@ First, you need to have a trained model with torch format, which can be obtained
 
 .. code-block:: python
 
-    from iann.plugins.converter import convert_model_for_lammps
+   from iann.plugins.converter import convert_model_for_lammps
 
-    convert_model_for_lammps(model_path='model.pth', 
-                            model_type='painn', # if not specified, the model type will be inferred from the model file
-                            output_path='model_lmp.pth')
+   convert_model_for_lammps(model_path='model.pth', 
+                           model_type='painn', # if not specified, the model type will be inferred from the model file
+                           output_path='model_lmp.pth')
 
 2. **Use the exported model in LAMMPS**:
 
