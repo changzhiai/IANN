@@ -154,8 +154,8 @@ for atoms in images:
     print(f"Energy: {energy} eV")
     print(f"Forces: {forces} eV/Å")
 ```
-[!TIP]  
-`EnsembleCalculator` and `AtomicEnsembleCalculator` are available to get uncertainty for each structure and each atom, seperately.
+>[!TIP]  
+> `EnsembleCalculator` and `AtomicEnsembleCalculator` are available to get uncertainty for each structure and each atom, seperately.
 
 ## 6. Parallelization
 
@@ -231,8 +231,8 @@ srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
 
 ```
 
-[!NOTE]
-the parallelization parameters are automatically obtained from the SLURM environment variables.
+> [!NOTE]
+> the parallelization parameters are automatically obtained from the SLURM environment variables.
 
 ### Performance Considerations
 
