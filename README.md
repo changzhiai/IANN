@@ -18,19 +18,14 @@ A documentation is available at: https://iann.readthedocs.io
 
 ### Prerequisites
 
-- ASE 3.24+
-- PyTorch 1.9+
 - Python 3.7+
-- ASAP 3.13+
-- e3nn>=0.4.4
-
-
+- PyTorch 1.9+
 
 ### Installing IANN
 
 ```bash
 # Clone the repository
-git clone https://github.com/changzhiai/IANN.git
+git clone git@github.com:changzhiai/IANN.git
 cd IANN
 
 # Install with pip
@@ -69,15 +64,22 @@ IANN works with ASE database (.db) or trajectory (.traj) files. Ensure your data
 
 ### Training
 Create `train.py`
-```
+
+```python
 from iann.trainer.trainer import Trainer
 
+# Define the Trainer
 trainer = Trainer(
     model="painn",
     config={"device": "cpu", 
-            'output_dir': 'output'},
+            'output_dir': 'output',
+            'output_log': 'output.log',
+            'output_model': 'model.pt',
+            },
     distributed=False
     )
+
+# Run the training
 trainer.train("dataset.traj")
 ```
 
@@ -90,24 +92,34 @@ Available models for `model`:
 ```
 
 Default configurations for `config`:
-```
+```python
 config = {
-    "max_steps": 50000,
     "node_size": 128,
     "num_interactions": 3,
-    "cutoff": 4.0,
+    "cutoff": 5.5,
     "val_ratio": 0.1,
     "output_dir": "output",
-    "dataset": "path/to/your/data.traj",
-    "batch_size": 32,
+    "max_steps": 1000000,
+    "batch_size": 12,
     "initial_lr": 0.0001,
     "forces_weight": 0.9,
     "log_interval": 2000,
-    "normalization": True,
-    "stop_patience": 50,
+    "normalization": False,
+    "atomwise_normalization": False,
+    "stop_patience": 200,
+    "plateau_scheduler": False,
     "random_seed": 666,
-    "load_model": None,
-    "device": "cpu",
+    "split_file": None,
+    "load_model": False,
+    "max_epochs": None,
+    "device": None,
+    "dist_timeout": 600,
+    "master_port": 12356,
+    "debug": False,
+    "optimizer_type": "adam",
+    'output_log': 'print_out.log',
+    "max_grad_norm": None,
+    "output_model": "model.pt",
 }
 ```
 
@@ -129,7 +141,7 @@ from iann.calculators.calculators import MLCalculator
 from ase.io import read
 
 # Create calculator with model path
-calc = MLCalculator("trained/best_model.pth")
+calc = MLCalculator("model.pt")
 
 # Read structures
 images = read("test_structures.traj", ":")
@@ -142,7 +154,8 @@ for atoms in images:
     print(f"Energy: {energy} eV")
     print(f"Forces: {forces} eV/Å")
 ```
-Note: `EnsembleCalculator` and `AtomicEnsembleCalculator` are available to get uncertainty for each structure and each atom, seperately.
+[!TIP]  
+`EnsembleCalculator` and `AtomicEnsembleCalculator` are available to get uncertainty for each structure and each atom, seperately.
 
 ## 6. Parallelization
 
@@ -150,29 +163,46 @@ IANN supports distributed training using PyTorch's Distributed Data Parallel (DD
 
 ### Multi-GPU Training
 Submit to multiple GPUs (in SLURM Workload Manager)
+
 ```bash
 # Run on multiple GPUs and multiple nodes
 #!/bin/bash
 #SBATCH -N 2                   # Number of nodes
 #SBATCH -C gpu                 # Use GPU nodes
-#SBATCH -q debug
-#SBATCH -t 00:30:00 
-#SBATCH --gpus-per-node=4      # Number of GPUs per node
-module load pytorch
-srun python run.py
+#SBATCH -q debug               # Use regular/debug queue
+#SBATCH -t 00:30:00            # Time limit
+#SBATCH -A m2997               # Your account
+#SBATCH --gpus-per-node=4      # GPUs per node
+#SBATCH --ntasks-per-node=4    # Number of tasks per node
+#SBATCH --cpus-per-task=1      # Number of CPUs per task
+
+module load your_modules
+
+export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+export NNODES=$SLURM_NNODES
+
+srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 ```
 ### Multi-CPU Training
 Submit to multiple CPUs (in SLURM Workload Manager)
+
 ```bash
 # Run on multiple CPUs and multiple nodes
 #!/bin/bash
 #SBATCH -N 2                   # Number of nodes
 #SBATCH -C cpu                 # Use CPU nodes
-#SBATCH -q debug
-#SBATCH -t 00:30:00
-#SBATCH --ntasks-per-node=128  # Number of CPU cores per node
-module load pytorch
-srun python run.py
+#SBATCH -q debug               # Use regular/debug queue
+#SBATCH -t 00:30:00            # Time limit
+#SBATCH -A m2997               # Your account
+#SBATCH --ntasks-per-node=1    # Number of tasks per node
+#SBATCH --cpus-per-task=128    # Number of CPUs per task
+
+module load your_modules
+
+export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+export NNODES=$SLURM_NNODES
+
+srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 ```
 
 ### Example on NERSC
@@ -201,7 +231,8 @@ srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
 
 ```
 
-Note: the parallelization parameters are automatically obtained from the SLURM environment variables.
+[!NOTE]
+the parallelization parameters are automatically obtained from the SLURM environment variables.
 
 ### Performance Considerations
 
@@ -218,28 +249,36 @@ IANN models can be used as interatomic potentials in LAMMPS molecular dynamics s
 ```python
 from iann.plugins.converter import convert_model_for_lammps
 
-convert_model_for_lammps(model_path='best_model.pth', 
+convert_model_for_lammps(model_path='best_model.pt', 
                          model_type='painn', 
-                         output_path='output_model.pth')
+                         output_path='output_model.pt')
 ```
 
 ### Using with LAMMPS
 
+To run the LAMMPS simulation with IANN, you can use the following script:
 ```
 # LAMMPS input script example
+
+# Define the units and the atom style
 units metal
 atom_style atomic
+
+# Define the boundary conditions
 boundary p p p
 
+# Read the initial structure
 read_data initial.data
 
 # Define the IANN pair style
-pair_style iann painn output_model.pt 5.5
+pair_style iann painn model_lmp.pt 5.5
 pair_coeff * *
 
+# Define the mass of the atoms
 mass 1 1.0079999997406976 # H
 mass 2 195.08399994981576 # Pt
 
+# Define the neighbor list
 neighbor 0.5 bin
 neigh_modify every 1 delay 0 check yes
 
@@ -249,13 +288,74 @@ thermo 10
 # Initial minimization to relax the system before dynamics
 minimize 1.0e-4 1.0e-6 100 1000
 
-# Run your simulation
+# Define the timestep and the thermostat
 timestep 0.001
 fix 1 all nvt temp 300.0 300.0 0.1
+
+# Define the dump frequency and the dump file
 dump 1 all custom 10 dump.xyz id type x y z
 
+# Run the simulation
 run 5000
 ```
+
+To run the ensemble LAMMPS simulation with IANN, you can use the following script:
+
+```
+# LAMMPS input script example
+   
+# Define the units and the atom style
+units metal
+atom_style atomic
+
+# Define the boundary conditions
+boundary p p p
+
+# Read the initial structure
+read_data initial.data
+
+# Define the IANN pair style
+pair_style iann painn model_ensemble_lmp.pt 5.5
+pair_coeff * *
+
+# Define the mass of the atoms
+mass 1 1.0079999997406976 # H
+mass 2 195.08399994981576 # Pt
+
+# Define the neighbor list
+neighbor 0.5 bin
+neigh_modify every 1 delay 0 check yes
+
+# Compute the variance mode of the energy and force of the ensemble model
+compute variance all iann/variance
+
+# Define the thermodynamic style
+thermo_style custom step pe ke etotal temp press c_variance[1] c_variance[2] c_variance[3] c_variance[4]
+
+# Define the thermodynamic modify
+thermo_modify colname c_variance[1] energy_var
+thermo_modify colname c_variance[2] force_var
+thermo_modify colname c_variance[3] max_energy_var
+thermo_modify colname c_variance[4] max_force_var
+thermo_modify flush yes
+
+# Thermodynamic settings
+thermo 100
+
+# Initial minimization to relax the system before dynamics
+minimize 1.0e-4 1.0e-6 100 1000
+
+# Define the timestep and the thermostat
+timestep 0.001
+fix 1 all nvt temp 300.0 300.0 0.1
+
+# Define the dump frequency and the dump file
+dump 1 all custom 10 dump.xyz id type x y z
+
+# Run the simulation
+run 5000
+```
+
 
 ## 8. Modules
 
@@ -265,6 +365,7 @@ IANN is organized into several key modules:
 Data handling utilities:
 - `AtomsData`: Data object for each atoms
 - `AseDataset`: Dataset class for handling atomic structures
+
   
 ### iann.models
 Contains neural network model implementations:
@@ -274,12 +375,12 @@ Contains neural network model implementations:
 - `EquiformerV2`: EquiformerV2 model implementation for energy and force prediction
 
 
-
 ### iann.calculators
 Utility functions:
 - `MLCalculator`: ASE calculator interface for models
 - `EnsembleCalculator`: ASE ensemble calculator interface for models
 - `AtomicEnsembleCalculator`: ASE atomic ensemble calculator interface for models
+
 
 ### iann.plugins
 Tools for converting models:
