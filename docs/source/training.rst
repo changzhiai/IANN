@@ -24,8 +24,9 @@ Here is an simple example ``train.py`` of how to run training:
 
    trainer = Trainer(
       model="painn",
-      config={"device": "cuda", 
-               'output_dir': 'output'},
+      config={'device': 'cuda', 
+               'output_dir': 'output',
+               'output_model': 'model.pt'},
       distributed=False
       )
    trainer.train("dataset.traj")
@@ -67,7 +68,7 @@ Available configurations for ``config``:
       "optimizer_type": "adam",
       'output_log': 'output.log',
       "max_grad_norm": None,    # Gradient clipping norm
-      "output_model": "model.pth",
+      "output_model": "model.pt",
    }
 
 
@@ -181,6 +182,60 @@ Here is an example of how to run multi-GPU training on S3DF:
 
 
 See the :doc:`parallelization` guide for details on distributed training.
+
+
+Continuous Training
+-------------------  
+
+If you want to continue training from a previous checkpoint, you can use the ``load_model`` option.
+
+.. code-block:: python
+
+   trainer = Trainer(
+      model="painn",
+      config={"device": 'cuda',
+               'load_model': '/path/to/model.pt', # path to the model checkpoint
+               'output_dir': 'output',
+               'output_model': 'model.pt'},
+      distributed=False
+   )
+
+Only add ``'load_model': /path/to/model.pt`` and not change anything else if you want to continue training from a previous checkpoint.
+
+
+Parameters Explanation
+----------------------
+Here is a list of default parameters and their explanations in ``config``:
+
+* ``device``: device to run the training on, e.g. 'cuda' or 'cpu'
+* ``load_model``: path to the model checkpoint
+* ``output_dir``: output directory
+* ``output_model``: output model file name
+* ``distributed``: whether to use distributed training
+* ``node_size``: number of nodes in the model
+* ``num_interactions``: number of interactions in the model
+* ``cutoff``: cutoff radius in the model
+* ``val_ratio``: validation set ratio
+* ``forces_weight``: weight of the force loss
+* ``normalization``: whether to use normalization
+* ``atomwise_normalization``: whether to use atomwise normalization
+* ``stop_patience``: patience for early stopping
+* ``plateau_scheduler``: whether to use plateau scheduler
+* ``random_seed``: random seed
+* ``split_file``: path to the split file
+* ``max_steps``: maximum number of steps
+* ``max_epochs``: maximum number of epochs
+* ``batch_size``: batch size
+* ``initial_lr``: initial learning rate
+* ``max_grad_norm``: maximum gradient norm
+* ``optimizer_type``: optimizer type
+* ``output_log``: output log file name
+* ``log_interval``: log interval
+* ``debug``: whether to use debug mode
+* ``dist_timeout``: timeout for distributed training
+* ``master_port``: master port for distributed training
+
+There are more parameters for each model, please refer to the :doc:`api` reference for details.
 
 
 
