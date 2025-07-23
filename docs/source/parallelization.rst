@@ -107,7 +107,7 @@ This guide covers how to use IANN with distributed training to parallelize the t
    #SBATCH -t 00:30:00            # Time limit
    #SBATCH -A m2997               # Your account
    #SBATCH --ntasks-per-node=1    # Number of tasks per node
-   #SBATCH --cpus-per-task=128      # Number of CPUs per task
+   #SBATCH --cpus-per-task=128    # Number of CPUs per task
 
    module load your_modules
 
