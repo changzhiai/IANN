@@ -242,9 +242,14 @@ srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
 
 ## 7. LAMMPS Interface
 
-IANN models can be used as interatomic potentials in LAMMPS molecular dynamics simulations.
+IANN models can be used as interatomic potentials in LAMMPS molecular dynamics simulations (Support GPU).
 
-### Exporting Models
+### Use an IANN model with LAMMPS
+
+
+#### Exporting Models
+
+First, you need to have a trained model with torch format, which can be obtained by running the training script. Then convert the model to the torchscript format as follows:
 
 ```python
 from iann.plugins.converter import convert_model_for_lammps
@@ -254,10 +259,11 @@ convert_model_for_lammps(model_path='best_model.pt',
                          output_path='output_model.pt')
 ```
 
-### Using with LAMMPS
+####  Convert a trained model to the torchscript format
 
 To run the LAMMPS simulation with IANN, you can use the following script:
-```
+
+```bash
 # LAMMPS input script example
 
 # Define the units and the atom style
@@ -299,9 +305,30 @@ dump 1 all custom 10 dump.xyz id type x y z
 run 5000
 ```
 
+### Use an ensemble IANN model with LAMMPS
+
+#### Convert trained models to a ensemble model
+
+First, you need to have several trained models with torch format, which can be obtained by running several training scripts. Then convert the models to the torchscript format as follows:
+
+```Python
+from iann.plugins.converter import convert_models_for_lammps
+
+# Give a list of models
+model_paths = ["model_1.pt", "model_2.pt"]
+
+# Convert the models to a torchscript model
+output_path = convert_models_for_lammps(
+    model_paths=model_paths,
+    model_type="painn", # if not specified, the model type will be inferred from the model file
+    output_path="model_ensemble_lmp.pt"
+)
+```
+#### Use the exported ensemble model in LAMMPS
+
 To run the ensemble LAMMPS simulation with IANN, you can use the following script:
 
-```
+```bash
 # LAMMPS input script example
    
 # Define the units and the atom style
