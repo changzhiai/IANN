@@ -43,7 +43,7 @@ Install GPU version LAMMPS with LibTorch:
    cp $INSTALL_PATH/IANN/iann/plugins/*.h $INSTALL_PATH/IANN/iann/plugins/*.cpp .
    cd .. && mkdir build && cd build
 
-   # Make GPU version LAMMPS with LibTorch (Here an example on NERSC. It may be different on different servers)
+   # Make GPU version LAMMPS with LibTorch (Here is an example on NERSC. It may be different on different servers)
    module load PrgEnv-nvidia gcc cmake openmpi cudatoolkit # Load required modules on NERSC
    GPU_ARCH=`nvidia-smi --query-gpu=name --format=csv,noheader`
    cmake ../cmake \
@@ -61,7 +61,9 @@ If you want to make CPU version LAMMPS with LibTorch rather than GPU version, yo
 
 .. code-block:: bash
 
-   # Make CPU version LAMMPS with LibTorch
+   # Make CPU version LAMMPS with LibTorch (Here is an example on S3DF. It may be different on different servers)
+   module use /sdf/scratch/users/c/changzhi/softwares/easybuild/modules/all # Load easybuild modules on S3DF
+   module load GCC/11.3.0 CMake/3.23.1-GCCcore-11.3.0 OpenMPI # Load required modules on S3DF
    cmake ../cmake \
    -D CMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
    -D CMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include"   \
