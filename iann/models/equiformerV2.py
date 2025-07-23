@@ -2296,8 +2296,8 @@ class EquiformerV2(nn.Module):
                  normalization=False, atomwise_normalization=False, normalize_stddev=1.0, normalize_mean=0.0, species=None, **kwargs):
         super().__init__()
         # Initialize the basic parameters
-        self._AVG_NUM_NODES  = kwargs.get('avg_num_nodes', 1) #77.81317
-        self._AVG_DEGREE     = kwargs.get('avg_degree', 1) #23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
+        self._AVG_NUM_NODES = kwargs.get('avg_num_nodes', 1) #77.81317
+        self._AVG_DEGREE = kwargs.get('avg_degree', 1) #23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
         self.lmax_list = kwargs.get('lmax_list', [4]) # [6]
         self.mmax_list = kwargs.get('mmax_list', [2])
         self.grid_resolution = kwargs.get('grid_resolution', None) #Initialize the transformations between spherical and grid representations
@@ -2601,7 +2601,6 @@ class EquiformerV2(nn.Module):
         node_energy = node_energy.embedding.narrow(1, 0, 1)
         energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
         energy.index_add_(0, image_indices, node_energy.view(-1))
-        # energy = energy / self._AVG_NUM_NODES
 
         # Apply de-normalization
         if self.normalization:
