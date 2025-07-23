@@ -371,7 +371,7 @@ If you continue to see many undefined references to LibTorch/C10 symbols (`at::_
 
 #### Bug 2:
 
-## type error
+#### type error
    ```python
    normalize(Tensor input, float p=2., int dim=1, float eps=9.9999999999999998e-13, Tensor? out=None) -> Tensor:
    Expected a value of type 'float' for argument 'p' but instead found type 'int'.
