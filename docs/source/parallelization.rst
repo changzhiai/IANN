@@ -12,12 +12,17 @@ Here is the training script ``train.py``:
 
    from iann.trainer.trainer import Trainer
 
+   # Define the trainer
    trainer = Trainer(
       model="painn",
       config={"device": "cuda", 
-               'output_dir': 'output'},
-      distributed=False
+               'output_dir': 'output',
+               'output_log': 'output.log',
+               'output_model': 'model.pt'},
+      distributed=False,
       )
+
+   # Train the model
    trainer.train("dataset.traj")
 
 To run **training on a local machine** in serial, you can run the script on command line:
@@ -149,15 +154,20 @@ Here is an example of how to run **multi-GPU training on NERSC**:
    #SBATCH --ntasks-per-node=4    # Number of tasks per node
    #SBATCH --cpus-per-task=1      # Number of CPUs per task
 
+   # Load the environments, such as:   
    export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN/:$PYTHONPATH
    module purge
    module load PrgEnv-nvidia; module load openmpi
 
-   export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
-   export NNODES=$SLURM_NNODES
+   # Vender bugs fixed on nersc for multiple nodes
    export FI_CXI_RDZV_GET_MIN=0 # vender bugs fixed on nersc for multiple nodes
    export FI_CXI_SAFE_DEVMEM_COPY_THRESHOLD=16777216 # vender bugs fixed on nersc
 
+   # GPUs per node and number of nodes
+   export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+   export NNODES=$SLURM_NNODES
+
+   # Run the training script on multiple GPUs/CPUs
    srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
@@ -175,12 +185,15 @@ Here is an example of how to run **multi-GPU training on S3DF**:
    #SBATCH --partition=ampere
    #SBATCH --account=suncat:normal
 
+   # Load the environments, such as:
    conda activate /sdf/home/c/changzhi/softwares/anoconda3/envs/painn
    export PYTHONPATH=/sdf/home/c/changzhi/changzhi/softwares/IANN_v2/IANN:$PYTHONPATH
 
+   # GPUs per node and number of nodes
    export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
    export NNODES=$SLURM_NNODES
 
+   # Run the training script on multiple GPUs/CPUs
    srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 

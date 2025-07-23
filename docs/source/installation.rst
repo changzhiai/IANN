@@ -53,6 +53,8 @@ To verify your installation, you can run:
 .. code-block:: python
 
    import iann
+
+   # Print the version of IANN
    print(iann.__version__)
 
 If no error occurs, IANN has been installed successfully. 

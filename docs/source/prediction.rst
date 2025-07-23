@@ -14,8 +14,8 @@ The ``MLCalculator`` provides a convenient ASE calculator interface:
    from iann.calculators.calculators import MLCalculator
    from ase.io import read
 
-   # Create calculator with model path
-   calc = MLCalculator("model.pth")
+   # Create calculator with trained model
+   calc = MLCalculator("model.pt")
    
    # Read structures
    images = read("test_structures.traj", ":")
@@ -41,8 +41,8 @@ The ``EnsembleCalculator`` provides a convenient ASE calculator interface with u
    from iann.calculators.calculators import EnsembleCalculator
    from ase.io import read
 
-   # Create calculator with model path
-   model_paths = ['model_1.pth', 'model_2.pth']
+   # Create calculator with trained models
+   model_paths = ['model_1.pt', 'model_2.pt']
    calc = EnsembleCalculator(model_paths)
 
    # Read structures
@@ -66,8 +66,8 @@ The ``AtomicEnsembleCalculator`` provides a convenient ASE calculator interface 
    from iann.calculators.calculators import AtomicEnsembleCalculator
    from ase.io import read
 
-   # Create calculator with model path
-   model_paths = ['model_1.pth', 'model_2.pth']
+   # Create calculator with trained models
+   model_paths = ['model_1.pt', 'model_2.pt']
    calc = AtomicEnsembleCalculator(model_paths)
 
    # Read structures
@@ -102,7 +102,7 @@ For efficient batch prediction:
    dataset = AseDataset("test_structures.traj")
    dataloader = DataLoader(dataset, batch_size=32)
 
-   model = torch.load("model.pth")
+   model = torch.load("model.pt")
 
    # Make predictions
    model.eval()
@@ -137,14 +137,15 @@ The ASE optimizers like ``BFGS`` can be used to optimize the geometry of a struc
 
 .. code-block:: python
 
-   from ase.optimize import BFGS
    from iann.calculators.calculators import MLCalculator
+   from ase.optimize import BFGS
+   from ase.io import read
 
    # load structure
    atoms = read("atoms.traj") 
 
    # Create calculator
-   calc = MLCalculator("model.pth")
+   calc = MLCalculator("model.pt")
    atoms.calc = calc
 
    # Create optimizer
@@ -161,7 +162,8 @@ The ASE thermostats like ``Langevin`` can be used to perform molecular dynamics:
 
 .. code-block:: python  
 
-   from ase.io import read, write, Trajectory
+   from iann.calculators.calculators import MLCalculator
+   from ase.io import read, Trajectory
    from ase.md.langevin import Langevin
    from ase import units
    from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
@@ -171,7 +173,7 @@ The ASE thermostats like ``Langevin`` can be used to perform molecular dynamics:
    atoms = read("atoms.traj") 
 
    # Create calculator
-   calc = MLCalculator("model.pth")
+   calc = MLCalculator("model.pt")
    atoms.calc = calc
 
    # Set temperature and timestep

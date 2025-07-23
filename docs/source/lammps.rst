@@ -87,9 +87,10 @@ First, you need to have a trained model with torch format, which can be obtained
 
    from iann.plugins.converter import convert_model_for_lammps
 
-   convert_model_for_lammps(model_path='model.pth', 
+   # Convert the model to the torchscript format
+   convert_model_for_lammps(model_path='model.pt', 
                            model_type='painn', # if not specified, the model type will be inferred from the model file
-                           output_path='model_lmp.pth')
+                           output_path='model_lmp.pt')
 
 2. **Use the exported model in LAMMPS**:
 
@@ -103,7 +104,10 @@ To convert ase trajectory to lammps data file, you can use the following script:
    from ase.io import read
    from ase.io.lammpsdata import write_lammps_data
 
+   # Read the initial structure
    atoms = read('start.traj')
+
+   # Write the initial structure to the lammps data file
    write_lammps_data("initial.data", atoms, masses=True)
 
 
@@ -198,15 +202,26 @@ To convert xyz file to ase trajectory and visualize the structures, you can use 
    from ase.io import read, write
    from ase.visualize import view
 
+   # Read the structures from the xyz file
    images = read('dump.xyz', ':')
+
+   # Define the type to symbol mapping
    type_to_symbol = {1: 1, 2: 78,} # H and Pt
 
    for atoms in images:
+      # Get the atom types
       atom_types = atoms.numbers
+
+      # Convert the atom types to atomic numbers
       atomic_numbers = [type_to_symbol[t] for t in atom_types]
+
+      # Set the atomic numbers
       atoms.set_atomic_numbers(atomic_numbers)
 
+   # Write the structures to the trajectory file
    write('trajectory.traj', images)
+
+   # Visualize the structures
    view(images)
 
 
@@ -259,11 +274,14 @@ First, you need to have several trained models with torch format, which can be o
 
    from iann.plugins.converter import convert_models_for_lammps
 
-   model_paths = ["model_1.pth", "model_2.pth"]
+   # Give a list of models
+   model_paths = ["model_1.pt", "model_2.pt"]
+
+   # Convert the models to a torchscript model
    output_path = convert_models_for_lammps(
        model_paths=model_paths,
        model_type="painn", # if not specified, the model type will be inferred from the model file
-       output_path="./model_ensemble_lmp.pth"
+       output_path="model_ensemble_lmp.pt"
    )
 
 2. **Use the exported ensemble model in LAMMPS**:
@@ -273,24 +291,36 @@ Here's a basic LAMMPS input script ``in.lmp`` to use the exported ensemble model
 .. code-block:: lammps
 
    # LAMMPS input script example
+   
+   # Define the units and the atom style
    units metal
    atom_style atomic
+
+   # Define the boundary conditions
    boundary p p p
 
+   # Read the initial structure
    read_data initial.data
 
    # Define the IANN pair style
-   pair_style iann painn model_ensemble_lmp.pth 5.5
+   pair_style iann painn model_ensemble_lmp.pt 5.5
    pair_coeff * *
 
+   # Define the mass of the atoms
    mass 1 1.0079999997406976 # H
    mass 2 195.08399994981576 # Pt
 
+   # Define the neighbor list
    neighbor 0.5 bin
    neigh_modify every 1 delay 0 check yes
 
+   # Compute the variance mode of the energy and force of the ensemble model
    compute variance all iann/variance
+   
+   # Define the thermodynamic style
    thermo_style custom step pe ke etotal temp press c_variance[1] c_variance[2] c_variance[3] c_variance[4]
+
+   # Define the thermodynamic modify
    thermo_modify colname c_variance[1] energy_var
    thermo_modify colname c_variance[2] force_var
    thermo_modify colname c_variance[3] max_energy_var
@@ -303,11 +333,14 @@ Here's a basic LAMMPS input script ``in.lmp`` to use the exported ensemble model
    # Initial minimization to relax the system before dynamics
    minimize 1.0e-4 1.0e-6 100 1000
 
-   # Run your simulation
+   # Define the timestep and the thermostat
    timestep 0.001
    fix 1 all nvt temp 300.0 300.0 0.1
+
+   # Define the dump frequency and the dump file
    dump 1 all custom 10 dump.xyz id type x y z
 
+   # Run the simulation
    run 5000
 
 Output would be ``lammps.log`` and ``dump.xyz``. You can use the same script ``view.py`` to visualize the structures.
@@ -330,10 +363,6 @@ The log file ``lammps.log`` is shown something like below:
    1000  -526.6048       10.167        -516.4378       971.05348      5777.5752      0.10106332     0.41264692     0.0096192099   0.084062219
    1100  -525.99164      8.865721      -517.12592      846.76793      12156.906      0.18633902     0.97626913     0.022417877    0.32700533
    1200  -524.8175       7.3447002     -517.4728       701.49474      12890.364      0.086737752    0.67208624     0.0091473255   0.19820641
-
-
-
-
 
 
 Key Components:

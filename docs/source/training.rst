@@ -22,13 +22,17 @@ Here is an simple example ``train.py`` of how to run training:
 
    from iann.trainer.trainer import Trainer
 
+   # Define the trainer
    trainer = Trainer(
       model="painn",
       config={'device': 'cuda', 
                'output_dir': 'output',
+               'output_log': 'output.log',
                'output_model': 'model.pt'},
-      distributed=False
+      distributed=False,
       )
+
+   # Train the model
    trainer.train("dataset.traj")
 
 Available models for ``model``:
