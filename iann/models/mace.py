@@ -1055,7 +1055,8 @@ class MACE(nn.Module):
             mean_shift = self.normalize_mean
             if self.atomwise_normalization:
                 mean_shift = len(data.edge_indices) * mean_shift
-            data.energy = energy + mean_shift
+            energy = energy + mean_shift
+            data = replace_properties(data, energy=energy)
         
         if self.compute_forces:
             data = self.gradient_output(data)
