@@ -146,6 +146,7 @@ When choosing a model, consider:
 
    * PaiNN and MACE for large systems
    * NequIP for smaller, high-precision systems
+   * EquiformerV2 is not the best choice for small systems
 
 .. note::
 

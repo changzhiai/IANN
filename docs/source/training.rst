@@ -146,15 +146,20 @@ Here is an example of how to run multi-GPU training on NERSC:
    #SBATCH --ntasks-per-node=4    # Number of tasks per node
    #SBATCH --cpus-per-task=1      # Number of CPUs per task
 
+   # Load environments, such as:
    export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN/:$PYTHONPATH
    module purge
    module load PrgEnv-nvidia; module load openmpi
-
-   export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
-   export NNODES=$SLURM_NNODES
+   
+   # NERSC specific environment variables for parallelization
    export FI_CXI_RDZV_GET_MIN=0 # vender bugs fixed on nersc for multiple nodes
    export FI_CXI_SAFE_DEVMEM_COPY_THRESHOLD=16777216 # vender bugs fixed on nersc
 
+   # GPUs per node and number of nodes
+   export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
+   export NNODES=$SLURM_NNODES
+
+   # Run the training script on multiple GPUs/CPUs
    srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
@@ -172,16 +177,20 @@ Here is an example of how to run multi-GPU training on S3DF:
    #SBATCH --partition=ampere
    #SBATCH --account=suncat:normal
 
+   # Load environments, such as:
    conda activate /sdf/home/c/changzhi/softwares/anoconda3/envs/painn
    export PYTHONPATH=/sdf/home/c/changzhi/changzhi/softwares/IANN_v2/IANN:$PYTHONPATH
 
+   # GPUs per node and number of nodes
    export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
    export NNODES=$SLURM_NNODES
 
+   # Run the training script on multiple GPUs/CPUs
    srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
 See the :doc:`parallelization` guide for details on distributed training.
+
 
 
 Continuous Training
@@ -207,7 +216,7 @@ Parameters Explanation
 ----------------------
 Here is a list of default parameters and their explanations in ``config``:
 
-* ``device``: device to run the training on, e.g. 'cuda' or 'cpu'
+* ``device``: device to run the training on, e.g. `cuda` or `cpu`
 * ``load_model``: path to the model checkpoint
 * ``output_dir``: output directory
 * ``output_model``: output model file name
@@ -216,7 +225,7 @@ Here is a list of default parameters and their explanations in ``config``:
 * ``num_interactions``: number of interactions in the model
 * ``cutoff``: cutoff radius in the model
 * ``val_ratio``: validation set ratio
-* ``forces_weight``: weight of the force loss
+* ``forces_weight``: weight of the force loss. calculate forces if ``forces_weight > 0``
 * ``normalization``: whether to use normalization
 * ``atomwise_normalization``: whether to use atomwise normalization
 * ``stop_patience``: patience for early stopping
@@ -237,7 +246,8 @@ Here is a list of default parameters and their explanations in ``config``:
 
 There are more parameters for each model, please refer to the :doc:`api` reference for details.
 
-
+.. note::
+   Choose either ``max_steps`` or ``max_epochs`` to setup the training process. If both ``max_steps`` and ``max_epochs`` are set, the ``max_steps`` will be ignored.
 
 Monitoring Training
 -------------------

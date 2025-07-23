@@ -120,6 +120,14 @@ To directly run **training on multiple GPUs/CPUs on a local machine**:
    # Run on N GPUs/CPUs
    python -m torch.distributed.launch --nproc_per_node=N train.py
 
+Or use the following command by ``torchrun``:
+
+.. code-block:: bash
+
+   # Run on N GPUs/CPUs
+   torchrun --nproc_per_node=N train.py
+
+
 .. note::
    nproc_per_node defines the number of local CPU or GPU workers. Setup ``device="cpu"`` or ``device="cuda"`` to make device selection in your config.toml.
 
@@ -176,10 +184,16 @@ Here is an example of how to run **multi-GPU training on S3DF**:
    srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
+.. note::
+   The ``srun`` command is used to run the training script on multiple GPUs/CPUs. It is a wrapper around the ``mpirun`` command for multiple GPUs/CPUs parallelization. 
+   For multi-GPUs/multi-CPUs mode, `Trainer.train()` will call `mp.spawn()` to launch `world_size` workers using the `process_function`.
+   The parallelization parameters would be automatically obtained from the SLURM environment variables.
+
+
 Configuration
 -----------
 
-When using DDP, keep in mind that these configuration parameters are vital, which are automatically obtained from the SLURM environment variables when using SLURM Workload Manager:
+When using DDP, keep in mind that these ``config`` parameters are vital, which are automatically obtained from the SLURM environment variables when using SLURM Workload Manager:
 
 .. code-block:: toml
 

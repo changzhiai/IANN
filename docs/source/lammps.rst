@@ -112,19 +112,26 @@ To run the LAMMPS simulation, you can use the following script ``in.lmp``:
 .. code-block:: lammps
 
    # LAMMPS input script example
+   
+   # Define the units and the atom style
    units metal
    atom_style atomic
+
+   # Define the boundary conditions
    boundary p p p
 
+   # Read the initial structure
    read_data initial.data
 
    # Define the IANN pair style
    pair_style iann painn model_lmp.pt 5.5
    pair_coeff * *
-
+   
+   # Define the mass of the atoms
    mass 1 1.0079999997406976 # H
    mass 2 195.08399994981576 # Pt
 
+   # Define the neighbor list
    neighbor 0.5 bin
    neigh_modify every 1 delay 0 check yes
 
@@ -134,11 +141,14 @@ To run the LAMMPS simulation, you can use the following script ``in.lmp``:
    # Initial minimization to relax the system before dynamics
    minimize 1.0e-4 1.0e-6 100 1000
 
-   # Run your simulation
+   # Define the timestep and the thermostat
    timestep 0.001
    fix 1 all nvt temp 300.0 300.0 0.1
+
+   # Define the dump frequency and the dump file
    dump 1 all custom 10 dump.xyz id type x y z
 
+   # Run the simulation
    run 5000
 
 Output would be log file ``lammps.log`` and structures file ``dump.xyz``. 
