@@ -24,6 +24,7 @@ PaiNN is a message-passing neural network that considers features including:
 * Vector: coordinate difference
 
 Key features:
+
 * High computational efficiency
 * Good balance of accuracy and speed
 * Suitable for general-purpose applications
@@ -52,6 +53,7 @@ NequIP is an equivariant neural network that considers features including:
 
 
 Key features:
+
 * Excellent accuracy
 * Uses spherical harmonics symmetries
 * Good for high-precision applications
@@ -80,6 +82,7 @@ MACE combines message-passing architecture and multi-body expansion, which consi
 * multi-body expansion
 
 Key features:
+
 * Fast training and inference
 * Good scaling properties
 * Suitable for large-scale applications
@@ -107,6 +110,7 @@ EquiformerV2 is a transformer-based model that:
 
 
 Key features:
+
 * State-of-the-art accuracy
 * Good for complex systems
 

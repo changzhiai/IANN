@@ -4,7 +4,7 @@ Predicting Guide
 This guide explains how to use trained IANN models for making predictions.
 
 
-Using the ML Calculator
+Using the ML Calculators
 --------------------
 
 The ``MLCalculator`` provides a convenient ASE calculator interface:

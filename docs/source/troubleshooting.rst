@@ -44,6 +44,7 @@ DDP Issues
    * Problem: Warning about gradient strides not matching bucket view strides
    * Solution: This is a known PyTorch DDP warning that can be safely ignored. It doesn't affect training accuracy.
 
+
 2. **Communication Errors**
 
    * Problem: DDP communication failures
@@ -53,6 +54,7 @@ DDP Issues
      * Verify NCCL installation
      * Increase DDP timeout
      * Check GPU compatibility
+
 
 3. **Synchronization Issues**
 
@@ -77,6 +79,7 @@ Prediction Issues
      * Ensure cutoff radius matches training
      * Validate atomic numbers
 
+
 2. **Performance Issues**
 
    * Problem: Slow prediction speed
@@ -100,6 +103,7 @@ LAMMPS Integration
      * Ensure correct LAMMPS version
      * Validate model compatibility
 
+
 2. **Energy/Force Issues**
 
    * Problem: Incorrect energies or forces in LAMMPS
@@ -109,6 +113,7 @@ LAMMPS Integration
      * Verify cutoff radius
      * Validate energy/force scaling
      * Test with simple systems
+
 
 3. **Performance Problems**
 
@@ -130,12 +135,14 @@ General Tips
    * Check intermediate outputs
    * Monitor memory usage
 
+
 2. **Performance Optimization**
 
    * Profile your code
    * Use appropriate batch sizes
    * Enable mixed precision
    * Optimize data loading
+
 
 3. **Best Practices**
 

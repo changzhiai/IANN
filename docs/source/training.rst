@@ -16,7 +16,7 @@ IANN works with ASE database (.db) or trajectory (.traj) files. Your data should
 Running Training 
 ----------------
 
-Here is an simple example `train.py` of how to run training:
+Here is an simple example ``train.py`` of how to run training:
 
 .. code-block:: python
 
@@ -30,7 +30,7 @@ Here is an simple example `train.py` of how to run training:
       )
    trainer.train("dataset.traj")
 
-Available models for `model`:
+Available models for ``model``:
 
 * painn
 * nequip
@@ -65,8 +65,9 @@ Available configurations for ``config``:
       "master_port": 12356,
       "debug": False,
       "optimizer_type": "adam",
-      'output_log': 'print_out.log',
+      'output_log': 'output.log',
       "max_grad_norm": None,    # Gradient clipping norm
+      "output_model": "model.pth",
    }
 
 
@@ -89,14 +90,7 @@ The example log file is shown below:
    2025-07-21 12:52:09,284 [RANK0] [INFO ]  Master Address: nid008380
    2025-07-21 12:52:09,284 [RANK0] [INFO ]  Master Port: 12356
    2025-07-21 12:52:09,454 [RANK0] [INFO ]  Process 0 using device cuda:0 on nid008380. GPU architecture: NVIDIA A100-SXM4-80GB
-   2025-07-21 12:52:09,540 [RANK1] [INFO ]  Process 1 using device cuda:1 on nid008381. GPU architecture: NVIDIA A100-SXM4-80GB
-   2025-07-21 12:52:09,757 [RANK2] [INFO ]  Process 2 using device cuda:2 on nid008380. GPU architecture: NVIDIA A100-SXM4-80GB
-   2025-07-21 12:52:09,807 [RANK3] [INFO ]  Process 3 using device cuda:3 on nid008381. GPU architecture: NVIDIA A100-SXM4-80GB
-   2025-07-21 12:52:09,856 [RANK4] [INFO ]  Process 4 using device cuda:0 on nid008380. GPU architecture: NVIDIA A100-SXM4-80GB
-   2025-07-21 12:52:09,906 [RANK5] [INFO ]  Process 5 using device cuda:1 on nid008381. GPU architecture: NVIDIA A100-SXM4-80GB
-   2025-07-21 12:52:10,004 [RANK6] [INFO ]  Process 6 using device cuda:2 on nid008380. GPU architecture: NVIDIA A100-SXM4-80GB
-   2025-07-21 12:52:10,111 [RANK7] [INFO ]  Process 7 using device cuda:3 on nid008381. GPU architecture: NVIDIA A100-SXM4-80GB
-   2025-07-21 12:52:11,024 [RANK0] [INFO ]  Loading data from /pscratch/sd/c/changzhi/run_md/iter_14/train/dft_Pt_adss_r14_spc_undistor.traj
+   2025-07-21 12:52:11,024 [RANK0] [INFO ]  Loading data from ~/dataset.traj
    2025-07-21 12:52:11,028 [RANK0] [INFO ]  Dataset size: 12974, training set size: 11676, validation set size: 1298
    2025-07-21 12:53:04,407 [RANK0] [INFO ]  Total trainable parameters: 821089
    2025-07-21 12:53:04,408 [RANK0] [INFO ]  Total memory: 3.13 MB
@@ -160,8 +154,7 @@ Here is an example of how to run multi-GPU training on NERSC:
    export FI_CXI_RDZV_GET_MIN=0 # vender bugs fixed on nersc for multiple nodes
    export FI_CXI_SAFE_DEVMEM_COPY_THRESHOLD=16777216 # vender bugs fixed on nersc
 
-   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
-      python train.py
+   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
 Here is an example of how to run multi-GPU training on S3DF:
@@ -184,8 +177,7 @@ Here is an example of how to run multi-GPU training on S3DF:
    export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
    export NNODES=$SLURM_NNODES
 
-   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
-      python train.py
+   srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
 
 See the :doc:`parallelization` guide for details on distributed training.
