@@ -48,6 +48,7 @@ If you want to make CPU version LAMMPS with LibTorch rather than GPU version, yo
 
    ```
    # CPU version
+   module use /sdf/scratch/users/c/changzhi/softwares/easybuild/modules/all # Load easybuild modules on S3DF
    module load GCC/11.3.0 CMake/3.23.1-GCCcore-11.3.0 OpenMPI  # Load required modules on S3DF. It requires GCC≥ 7.1, CMake≥ 3.18, OpenMP
    cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
    -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include" \
