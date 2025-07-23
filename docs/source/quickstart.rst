@@ -19,7 +19,8 @@ Here's a simple example that demonstrates how to use IANN:
         model="painn",
         config={"device": "cpu", 
                 'output_dir': 'output',
-                'output_model': 'model.pth'},
+                'output_log': 'output.log',
+                'output_model': 'model.pt'},
         distributed=False
         )
     
@@ -27,7 +28,7 @@ Here's a simple example that demonstrates how to use IANN:
     trainer.train("dataset.traj")
 
     # Create calculator with trained model
-    calc = MLCalculator("output/model.pth")
+    calc = MLCalculator("output/model.pt")
 
     # Read structures
     atoms = read("test_structures.traj", ":")

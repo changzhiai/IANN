@@ -16,9 +16,9 @@ Here is the training script ``train.py``:
    trainer = Trainer(
       model="painn",
       config={"device": "cuda", 
-               'output_dir': 'output',
-               'output_log': 'output.log',
-               'output_model': 'model.pt'},
+              'output_dir': 'output',
+              'output_log': 'output.log',
+              'output_model': 'model.pt'},
       distributed=False,
       )
 
