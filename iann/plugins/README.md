@@ -1,150 +1,123 @@
 # IANN-LAMMPS Interface
 
-This package provides a LAMMPS interface for using trained interatomic neural network (IANN) potentials including PaiNN, NEQuIP, MACE, and EquiformerV2 in molecular dynamics simulations.
+This plugin provides a LAMMPS interface for using trained interatomic neural network (IANN) potentials including PaiNN, NequIP, MACE, and EquiformerV2 in molecular dynamics simulations.
 
-## Prerequisites
+## Installation
+
+# Prerequisites
 
 - LibTorch (PyTorch C++ API) v1.8.0 or later
 - LAMMPS (with C++11 support or later)
 
-## Installation
+# Install LAMMPS intergrated with libtorch 
 
 TorchScript installation  from official website: https://pytorch.org/get-started/locally/
 
 Here is an example that selects Stable, Linux, LibTorch, C++/Java, and CUDA 11.8. Then downloading as follows: 
-```bash
-INSTALL_PATH=~/changzhi/softwares
-cd $INSTALL_PATH
-wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu118.zip
-unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu118.zip
-cd libtorch
-```
 
-Lammps installation intergrated with libtorch
-```
-cd $INSTALL_PATH
-git clone https://github.com/lammps/lammps.git
-cd lammps/src
-cp $INSTALL_PATH/IANN/iann/plugins/*.h $INSTALL_PATH/IANN/iann/plugins/*.cpp .
-cd .. && mkdir build && cd build
+   ```bash
+   INSTALL_PATH=~/changzhi/softwares
+   cd $INSTALL_PATH
+   wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu118.zip
+   unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu118.zip
+   cd libtorch
+   ```
 
-#CPU version
-module load GCC/11.3.0 CMake/3.23.1-GCCcore-11.3.0 OpenMPI  # Load required modules on S3DF. It requires GCC≥ 7.1, CMake≥ 3.18, OpenMP
-cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
-  -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include" \
-  -DTorch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
-  -DPKG_USER-MISC=ON -DBUILD_MPI=ON -DBUILD_OMP=ON \
-  -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
-  -ltorch_cpu -lc10" ; make -j 8
+Lammps GPU version installation intergrated with libtorch:
 
-# GPU version
-module load PrgEnv-nvidia gcc cmake openmpi cudatoolkit # Load required modules on NERSC. It may be different on different servers
-GPU_ARCH=`nvidia-smi --query-gpu=name --format=csv,noheader`
-cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
-  -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include"   \
-  -DTorch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
-  -DCMAKE_BUILD_TYPE=Release -DPKG_GPU=yes  -DGPU_API=cuda -DGPU_ARCH=$GPU_ARCH \
-  -DPKG_USER-MISC=ON -DBUILD_MPI=ON   -DBUILD_OMP=ON   \
-  -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
-  -ltorch_cpu -lc10" ; make -j 8
-```
+   ```
+   cd $INSTALL_PATH
+   git clone https://github.com/lammps/lammps.git
+   cd lammps/src
+   cp $INSTALL_PATH/IANN/iann/plugins/*.h $INSTALL_PATH/IANN/iann/plugins/*.cpp .
+   cd .. && mkdir build && cd build
+
+   # GPU version
+   module load PrgEnv-nvidia gcc cmake openmpi cudatoolkit # Load required modules on NERSC. It may be different on different servers
+   GPU_ARCH=`nvidia-smi --query-gpu=name --format=csv,noheader`
+   cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
+   -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include"   \
+   -DTorch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
+   -DCMAKE_BUILD_TYPE=Release -DPKG_GPU=yes  -DGPU_API=cuda -DGPU_ARCH=$GPU_ARCH \
+   -DPKG_USER-MISC=ON -DBUILD_MPI=ON   -DBUILD_OMP=ON   \
+   -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
+   -ltorch_cpu -lc10" ; make -j 8
+   ```
+
+If you want to make CPU version LAMMPS with LibTorch rather than GPU version, you can use the following command:
+
+   ```
+   # CPU version
+   module load GCC/11.3.0 CMake/3.23.1-GCCcore-11.3.0 OpenMPI  # Load required modules on S3DF. It requires GCC≥ 7.1, CMake≥ 3.18, OpenMP
+   cmake ../cmake -DCMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
+   -DCMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include" \
+   -DTorch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
+   -DPKG_USER-MISC=ON -DBUILD_MPI=ON -DBUILD_OMP=ON \
+   -DCMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch \
+   -ltorch_cpu -lc10" ; make -j 8
+   ```
 
 
+## Export your trained model
 
-### 1. Export your trained model
+First, you need to have a trained model with torch format, which can be obtained by running the training script. Then convert the model to the torchscript format as follows:
 
-First, export your trained model to TorchScript format:
+   ```python
+   from iann.plugins.converter import convert_model_for_lammps
 
-```bash
-python export_model.py path/to/best_model.pth painn --output painn_lammps.pt
-```
+   convert_model_for_lammps(model_path='model.pth', 
+                           model_type='painn', # if not specified, the model type will be inferred from the model file
+                           output_path='model_lmp.pth')
+   ```
 
 Replace `painn` with your model type (`nequip`, `mace`, or `equiformer2`).
 
-Note: load environments on NERSC
-```bash
-module purge; module load PrgEnv-nvidia; module load openmpi; export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN:$PYTHONPATH; module load cudatoolkit/11.7
-```
+Note: load environments before exporting if you are on NERSC:
 
-### 2. Build LAMMPS with LibTorch and the IANN package
+   ```bash
+   module purge
+   module load PrgEnv-nvidia
+   module load openmpi
+   module load cudatoolkit/11.7
+   export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN:$PYTHONPATH
+   ```
 
-1. Download and install LibTorch from https://pytorch.org/get-started/locally/
+Note: always use same cuda version when export, compile and run, for example: module load cudatoolkit/11.7
 
-2. Copy `pair_iann.h` and `pair_iann.cpp` to your LAMMPS source directory:
-
-```bash
-cp pair_iann.h pair_iann.cpp /path/to/lammps/src
-```
-
-#### Building on NERSC
-
-```bash
-# Load required modules
-module load PrgEnv-nvidia gcc openmpi cmake cudatoolkit # use Open MPI to satisfy ompi_mpi_double symbol
-
-# Clone LAMMPS repository and copy the IANN plugin
-git clone https://github.com/lammps/lammps.git ~/lammps
-cp pair_iann.h pair_iann.cpp ~/lammps/src/
-
-# Create and enter build directory
-mkdir -p ~/lammps/build && cd ~/lammps/build
-
-# Configure with LibTorch (update LIBTORCH_PATH)
-
-# CPU install:
-cmake ../cmake   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares/libtorch \
-  -DCMAKE_CXX_FLAGS="-I/global/homes/c/changzhi/changzhi/softwares/libtorch/include/torch/csrc/api/include -I/global/homes/c/changzhi/changzhi/softwares/libtorch/include"   \
-  -DTorch_DIR=/global/homes/c/changzhi/changzhi/softwares/libtorch/share/cmake/Torch \
-  -DPKG_USER-MISC=ON   -DBUILD_MPI=ON   -DBUILD_OMP=ON   \
-  -DCMAKE_EXE_LINKER_FLAGS="-L/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -Wl,-rpath,/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -ltorch \
-  -ltorch_cpu -lc10" ; make -j 8
-
-# GPU install:
-cmake ../cmake   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares/libtorch \
-  -DCMAKE_CXX_FLAGS="-I/global/homes/c/changzhi/changzhi/softwares/libtorch/include/torch/csrc/api/include -I/global/homes/c/changzhi/changzhi/softwares/libtorch/include"   \
-  -DTorch_DIR=/global/homes/c/changzhi/changzhi/softwares/libtorch/share/cmake/Torch \
-  -DCMAKE_BUILD_TYPE=Release -DPKG_GPU=yes  -DGPU_API=cuda -DGPU_ARCH="NVIDIA A100-PCIE-40GB" \
-  -DPKG_USER-MISC=ON   -DBUILD_MPI=ON   -DBUILD_OMP=ON   \
-  -DCMAKE_EXE_LINKER_FLAGS="-L/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -Wl,-rpath,/global/homes/c/changzhi/changzhi/softwares/libtorch/lib -ltorch \
-  -ltorch_cpu -lc10" ; make -j 8
-
-
-# Note: always use same cuda version when export, compile and run, for example: module load cudatoolkit/11.7
-```
 
 ## Usage
 
 Here's a sample LAMMPS input script using the IANN pair style:
 
-```
-# Input script for LAMMPS with IANN potentials
+   ```
+   # Input script for LAMMPS with IANN potentials
 
-units metal
-atom_style atomic
-boundary p p p
+   units metal
+   atom_style atomic
+   boundary p p p
 
-read_data initial.data
+   read_data initial.data
 
-# Define the IANN pair style
-pair_style iann painn /path/to/painn_lammps.pt 5.5
-pair_coeff * * 
+   # Define the IANN pair style
+   pair_style iann painn /path/to/painn_lammps.pt 5.5
+   pair_coeff * * 
 
-# Run your simulation
-timestep 0.001
-fix 1 all nvt temp 300.0 300.0 0.1
-thermo 100
-dump 1 all custom 1 dump.xyz id type x y z   # dump every timestep to record full trajectory
+   # Run your simulation
+   timestep 0.001
+   fix 1 all nvt temp 300.0 300.0 0.1
+   thermo 100
+   dump 1 all custom 1 dump.xyz id type x y z   # dump every timestep to record full trajectory
 
-run 5000
-```
+   run 5000
+   ```
 
 ### Pair Style Parameters
 
 The `pair_style iann` command takes the following parameters:
 
-```
-pair_style iann model_type model_path cutoff
-```
+   ```
+   pair_style iann model_type model_path cutoff
+   ```
 
 - `model_type`: Type of ML model (painn, nequip, mace, equiformer2)
 - `model_path`: Path to the exported TorchScript model
@@ -177,10 +150,11 @@ If you encounter issues with loading the model, ensure:
 
    ```bash
    cmake ../cmake \
-     -DCMAKE_PREFIX_PATH=/path/to/libtorch \
-     -DCMAKE_CXX_FLAGS="-I/path/to/libtorch/include/torch/csrc/api/include -I/path/to/libtorch/include" \
-     -DPKG_USER-MISC=ON -DBUILD_MPI=ON -DBUILD_OMP=ON
+      -DCMAKE_PREFIX_PATH=/path/to/libtorch \
+      -DCMAKE_CXX_FLAGS="-I/path/to/libtorch/include/torch/csrc/api/include -I/path/to/libtorch/include" \
+      -DPKG_USER-MISC=ON -DBUILD_MPI=ON -DBUILD_OMP=ON
    ```
+
 7. If you get an undefined reference to `ompi_mpi_double`, make sure you're building with the same Open MPI you load via `mpicc`/`mpicxx` (e.g. unload `cray-mpich` and `module load openmpi`) or explicitly set `-DMPI_C_COMPILER=$(which mpicc) -DMPI_CXX_COMPILER=$(which mpicxx)` so CMake finds and links the correct MPI library.
 
 ### Resolving persistent LibTorch linking issues
@@ -262,36 +236,6 @@ If you continue to see many undefined references to LibTorch/C10 symbols (`at::_
    # Run to confirm correct linking
    ./test_torch
    ```
-
-#### Patching LAMMPS CMakeLists for Full Torch Support
-
-If undefined references persist, ensure the LAMMPS build system explicitly finds and links the full set of Torch libraries via CMake's `find_package`. In `lammps/src/CMakeLists.txt`, apply a patch like:
-
-   ```diff
-   find_package(MPI REQUIRED)
-   +find_package(Torch REQUIRED PATHS /global/homes/c/changzhi/changzhi/softwares/libtorch/share/cmake/Torch)
-   +include_directories(${TORCH_INCLUDE_DIRS})
-   +set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-   @@
-   add_executable(lmp ${srcs} ${hdrs})
-   target_link_libraries(lmp
-      ${MPI_LIBRARIES}
-   +    ${TORCH_LIBRARIES}
-      ${LAMMPS_DEP_LIBS}
-   )
-   ```
-
-Then reconfigure and rebuild in your build directory:
-
-   ```bash
-   cd ~/lammps/build
-   cmake ../cmake \
-   -DCMAKE_PREFIX_PATH=/global/homes/c/changzhi/changzhi/softwares/libtorch \
-   -DPKG_USER-MISC=ON -DBUILD_MPI=ON -DBUILD_OMP=ON
-   make -j${SLURM_CPUS_ON_NODE:-$(nproc)}
-   ```
-
-This leverages CMake's Torch support to pull in and link all required (`c10`, `torch`, JIT, CPU/CUDA backends, etc.) libraries automatically. 
 
 
 ## Known bugs:
