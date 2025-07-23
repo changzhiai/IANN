@@ -190,7 +190,7 @@ Here is an example of how to run **multi-GPU training on S3DF**:
    The parallelization parameters would be automatically obtained from the SLURM environment variables.
 
 
-Configuration
+Parallelization Configuration
 -----------
 
 When using DDP, keep in mind that these ``config`` parameters are vital, which are automatically obtained from the SLURM environment variables when using SLURM Workload Manager:
