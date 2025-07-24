@@ -11,7 +11,7 @@ setup(
     version="0.1.0",
     description="Interatomic Neural Network Package for materials science",
     author="Changzhi Ai",
-    author_email="changzhi@.stanford.edu",
+    author_email="changzhi@stanford.edu",
     url="https://github.com/changzhiai/IANN",
     packages=find_packages(),
     install_requires=requirements,
