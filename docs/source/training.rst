@@ -20,7 +20,7 @@ Here is an simple example ``train.py`` of how to run training:
 
 .. code-block:: python
 
-   from iann.trainer.trainer import Trainer
+   from iann.trainer import Trainer
 
    # Define the trainer
    trainer = Trainer(
@@ -203,7 +203,10 @@ Continuous Training
 If you want to continue training from a previous checkpoint, you can use the ``load_model`` option.
 
 .. code-block:: python
+   
+   from iann.trainer import Trainer
 
+   # Load the model from a checkpoint and continue training
    trainer = Trainer(
       model="painn",
       config={"device": 'cuda',

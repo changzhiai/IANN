@@ -11,7 +11,7 @@ The ``MLCalculator`` provides a convenient ASE calculator interface:
 
 .. code-block:: python
 
-   from iann.calculators.calculators import MLCalculator
+   from iann.calculators import MLCalculator
    from ase.io import read
 
    # Create calculator with trained model
@@ -38,7 +38,7 @@ The ``EnsembleCalculator`` provides a convenient ASE calculator interface with u
 
 .. code-block:: python
 
-   from iann.calculators.calculators import EnsembleCalculator
+   from iann.calculators import EnsembleCalculator
    from ase.io import read
 
    # Create calculator with trained models
@@ -63,7 +63,7 @@ The ``AtomicEnsembleCalculator`` provides a convenient ASE calculator interface 
 
 .. code-block:: python
 
-   from iann.calculators.calculators import AtomicEnsembleCalculator
+   from iann.calculators import AtomicEnsembleCalculator
    from ase.io import read
 
    # Create calculator with trained models
@@ -137,7 +137,7 @@ The ASE optimizers like ``BFGS`` can be used to optimize the geometry of a struc
 
 .. code-block:: python
 
-   from iann.calculators.calculators import MLCalculator
+   from iann.calculators import MLCalculator
    from ase.optimize import BFGS
    from ase.io import read
 
@@ -162,7 +162,7 @@ The ASE thermostats like ``Langevin`` can be used to perform molecular dynamics:
 
 .. code-block:: python  
 
-   from iann.calculators.calculators import MLCalculator
+   from iann.calculators import MLCalculator
    from ase.io import read, Trajectory
    from ase.md.langevin import Langevin
    from ase import units

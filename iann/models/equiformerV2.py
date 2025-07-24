@@ -5,7 +5,7 @@ from e3nn import o3
 import math
 import torch_geometric
 from typing import List, Optional, Callable, Union
-from iann.data.data import AtomsData, replace_properties
+from iann.data import AtomsData, replace_properties
 import iann
 
 
@@ -2512,11 +2512,15 @@ class EquiformerV2(nn.Module):
 
     def forward(self, data: AtomsData):
         """
-        Args:
-            data (AtomsData): A NamedTuple of model inputs
+        Parameters
+        ----------
+        data : AtomsData
+            Input data for the model.
 
-        Returns:
-            dict: A dictionary with keys 'energy' and 'forces'
+        Returns
+        -------
+        AtomsData
+            Output data after applying the model.
         """
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()

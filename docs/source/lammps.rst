@@ -79,7 +79,7 @@ If you want to make CPU version LAMMPS with LibTorch rather than GPU version, yo
 Usage of LAMMPS with IANN models
 -------------------------------
 
-1. **To use an IANN model with LAMMPS**, first export a trained model with torch format to the torchscript format:
+1. **Convert a trained model to the torchscript format**:
 
 First, you need to have a trained model with torch format, which can be obtained by running the training script. Then convert the model to the torchscript format as follows ``convert.py``:
 
@@ -266,7 +266,7 @@ An submission example script of running LAMMPS with IANN model on SLURM:
 Usage of LAMMPS with ensemble IANN models
 ----------------------------------------
 
-1. **To use an ensemble IANN model with LAMMPS**, first export trained models with torch format to a ensemble model with the torchscript format:
+1. **Convert trained models to a ensemble model**:
 
 First, you need to have several trained models with torch format, which can be obtained by running several training scripts. Then convert the models to the torchscript format as follows:
 

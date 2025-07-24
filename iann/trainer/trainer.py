@@ -1,3 +1,4 @@
+from iann.data import AseDataset, collate_atomsdata
 import numpy as np
 import math, time
 import json, os, toml, sys
@@ -7,7 +8,6 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
-from iann.data.data import AseDataset, collate_atomsdata
 from datetime import timedelta
 import warnings
 warnings.filterwarnings("ignore", message=".*weights_only=False.*", category=FutureWarning)

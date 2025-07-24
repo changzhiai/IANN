@@ -1,6 +1,6 @@
+from iann.data import AtomsData, replace_properties
 import torch
 from torch import nn
-from iann.data.data import AtomsData, replace_properties
 from typing import List, Optional
 from torch import Tensor
 
@@ -215,17 +215,20 @@ class PaiNN(nn.Module):
         
     def forward(self, data: AtomsData):
         """
-        Args:
-            data (AtomsData): A NamedTuple of model inputs
+        Parameters
+        ----------
+        data : AtomsData
+            Input data for the model.
 
-        Returns:
-            AtomsData: A object with keys including 'energy' and 'forces'
+        Returns
+        -------
+        AtomsData
+            Output data after applying the model.
         """
         num_atoms = data.num_atoms
         num_edges = data.num_edges
         positions = data.positions
         edge_indices = data.edge_indices
-        edge_vectors = data.edge_vectors
         atomic_numbers = data.atomic_numbers
 
         if self.compute_forces:

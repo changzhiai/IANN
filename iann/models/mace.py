@@ -1,3 +1,4 @@
+from iann.data import AtomsData, replace_properties
 import torch
 from torch import nn
 from e3nn import o3
@@ -11,7 +12,6 @@ from typing import List, Dict, Union
 from e3nn.nn import FullyConnectedNet
 from e3nn.util.codegen import CodeGenMixin
 import opt_einsum_fx, collections
-from iann.data.data import AtomsData, replace_properties
 import warnings
 warnings.filterwarnings("ignore", message="The TorchScript type system doesn't support instance-level annotations")
 
@@ -1005,13 +1005,16 @@ class MACE(nn.Module):
             
     def forward(self, data: AtomsData):
         """
-        Args:
-            data (AtomsData): A NamedTuple of model inputs
+        Parameters
+        ----------
+        data : AtomsData
+            Input data for the model.
 
-        Returns:
-            dict: A dictionary with keys 'energy' and 'forces'
+        Returns
+        -------
+        AtomsData
+            Output data after applying the model.
         """
-
         for m in self.embeddings.values():
             data = m(data)
         

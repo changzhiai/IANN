@@ -1,15 +1,13 @@
+from iann.data import AtomsData, replace_properties
 import torch
 from torch import nn
 from e3nn import o3
 from e3nn.o3 import Linear
 import abc, math
 from ase.data import atomic_numbers
-import warnings
 from e3nn.o3 import Linear, TensorProduct, FullyConnectedTensorProduct
-from e3nn.nn import FullyConnectedNet
-from e3nn.nn import Gate, NormActivation
+from e3nn.nn import FullyConnectedNet, Gate, NormActivation
 from typing import Dict, List, Optional, Union, Callable
-from iann.data.data import AtomsData, replace_properties
 import warnings
 warnings.filterwarnings("ignore", message="The TorchScript type system doesn't support instance-level annotations")
 
@@ -778,7 +776,17 @@ class NequIP(torch.nn.Module):
                 self.gradient_output = GradientOutput(model_outputs=['forces'])
 
     def forward(self, data: AtomsData):
+        """
+        Parameters
+        ----------
+        data : AtomsData
+            Input data for the model.
 
+        Returns
+        -------
+        AtomsData
+            Output data after applying the model.
+        """
         for m in self.embeddings.values():
             data = m(data)
             

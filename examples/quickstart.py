@@ -1,4 +1,4 @@
-from iann.trainer.trainer import Trainer
+from iann.trainer import Trainer
 from iann.calculators.calculators import MLCalculator
 from ase.io import read
 

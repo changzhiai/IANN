@@ -10,7 +10,7 @@ Here is the training script ``train.py``:
 
 .. code-block:: python
 
-   from iann.trainer.trainer import Trainer
+   from iann.trainer import Trainer
 
    # Define the trainer
    trainer = Trainer(

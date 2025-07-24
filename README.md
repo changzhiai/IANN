@@ -66,7 +66,7 @@ IANN works with ASE database (.db) or trajectory (.traj) files. Ensure your data
 Create `train.py`
 
 ```python
-from iann.trainer.trainer import Trainer
+from iann.trainer import Trainer
 
 # Define the Trainer
 trainer = Trainer(
@@ -137,7 +137,7 @@ Training logs will be saved in the specified output directory. You can monitor:
 
 ```python
 
-from iann.calculators.calculators import MLCalculator
+from iann.calculators import MLCalculator
 from ase.io import read
 
 # Create calculator with model path

@@ -10,8 +10,8 @@ Here's a simple example that demonstrates how to use IANN:
 
 .. code-block:: python
 
-    from iann.trainer.trainer import Trainer
-    from iann.calculators.calculators import MLCalculator
+    from iann.trainer import Trainer
+    from iann.calculators import MLCalculator
     from ase.io import read
 
     # Train a model

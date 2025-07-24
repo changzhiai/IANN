@@ -7,10 +7,10 @@ Creates a wrapper that adapts model inputs/outputs for LAMMPS
 Supports all four model types with proper error handling
 """
 
+from iann.data import AseDataReader, AtomsData
 import argparse
 import torch
 from pathlib import Path
-from iann.data.data import AseDataReader, AtomsData
 from typing import Dict
 import warnings
 warnings.filterwarnings("ignore", message=".*weights_only=False.*", category=FutureWarning)
