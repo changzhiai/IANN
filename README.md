@@ -247,7 +247,7 @@ IANN models can be used as interatomic potentials in LAMMPS molecular dynamics s
 ### Use an IANN model with LAMMPS
 
 
-#### Exporting Models
+#### 1. Convert a trained model to the torchscript format
 
 First, you need to have a trained model with torch format, which can be obtained by running the training script. Then convert the model to the torchscript format as follows:
 
@@ -259,7 +259,7 @@ convert_model_for_lammps(model_path='best_model.pt',
                          output_path='output_model.pt')
 ```
 
-####  Convert a trained model to the torchscript format
+#### 2. Use the exported model in LAMMPS
 
 To run the LAMMPS simulation with IANN, you can use the following script:
 
@@ -307,7 +307,7 @@ run 5000
 
 ### Use an ensemble IANN model with LAMMPS
 
-#### Convert trained models to a ensemble model
+#### 1. Convert trained models to a ensemble model
 
 First, you need to have several trained models with torch format, which can be obtained by running several training scripts. Then convert the models to the torchscript format as follows:
 
@@ -324,7 +324,7 @@ output_path = convert_models_for_lammps(
     output_path="model_ensemble_lmp.pt"
 )
 ```
-#### Use the exported ensemble model in LAMMPS
+#### 2. Use the exported ensemble model in LAMMPS
 
 To run the ensemble LAMMPS simulation with IANN, you can use the following script:
 
