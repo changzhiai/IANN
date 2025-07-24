@@ -499,7 +499,7 @@ class Trainer:
             else:
                 if 'SLURM_LOCALID' in os.environ:
                     local_rank = int(os.environ['SLURM_LOCALID'])
-                    if self.model_type == "equiformerv2" and self.config["compute_forces"]:
+                    if self.model_type == "equiformerv2" and bool(self.config["forces_weight"]):
                         find_unused_parameters = True
                     else:
                         find_unused_parameters = False
