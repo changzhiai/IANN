@@ -6,6 +6,49 @@ import numpy as np
 from scipy.spatial import distance_matrix
 
 class AtomsData(NamedTuple):
+    """
+    A NamedTuple of model inputs.
+
+    Parameters
+    ----------
+    num_atoms : torch.Tensor
+        The number of atoms in the system.
+    atomic_numbers : torch.Tensor
+        The atomic numbers of the atoms in the system.
+    positions : torch.Tensor
+        The positions of the atoms in the system.
+    cell : torch.Tensor
+        The cell of the system.
+    edge_indices : torch.Tensor
+        The indices of the edges in the system.
+    edge_vectors : torch.Tensor
+        The vectors of the edges in the system.
+    num_edges : torch.Tensor
+        The number of edges in the system.
+    energy : Optional[torch.Tensor]
+        The energy of the system.
+    forces : Optional[torch.Tensor]
+        The forces of the system.
+    image_indices : Optional[torch.Tensor]
+        The image indices of the atoms in the system.
+    atomic_energy : Optional[torch.Tensor]
+        The atomic energy of the system.
+    atomic_types : Optional[torch.Tensor]
+        The atomic types of the atoms in the system.
+    node_attr : Optional[torch.Tensor]
+        The node attributes of the atoms in the system.
+    node_feat : Optional[torch.Tensor]
+        The node features of the atoms in the system.
+    edge_dist_embedding : Optional[torch.Tensor]
+        The edge distance embedding of the atoms in the system.
+    edge_diff_embedding : Optional[torch.Tensor]
+        The edge difference embedding of the atoms in the system.
+    energy_variance : Optional[torch.Tensor]
+        The energy variance of the system.
+    forces_variance : Optional[torch.Tensor]
+        The forces variance of the system.
+
+    """
     num_atoms: torch.Tensor
     atomic_numbers: torch.Tensor
     positions: torch.Tensor
@@ -75,6 +118,9 @@ def replace_properties(
     energy_variance: Optional[torch.Tensor] = None,
     forces_variance: Optional[torch.Tensor] = None,
 ) -> AtomsData:
+    """
+    Replace the properties of the AtomsData object.
+    """
     return AtomsData(
         num_atoms=data.num_atoms,
         atomic_numbers=data.atomic_numbers,
@@ -97,6 +143,21 @@ def replace_properties(
     )
 
 class AseDataReader:
+    """
+    A class to read the data from the ASE Atoms object.
+
+    Parameters
+    ----------
+    cutoff : float
+        The cutoff radius for the neighbor list.
+    compute_forces : bool
+        Whether to compute the forces.
+
+    Returns
+    -------
+    atoms_data : AtomsData
+        The AtomsData object.
+    """
     def __init__(self, cutoff=5.0, compute_forces=False):            
         self.cutoff = cutoff
         self.compute_forces = compute_forces
@@ -170,9 +231,24 @@ class AseDataReader:
         return edge_indices, edge_vectors
 
 class AseDataset(torch.utils.data.Dataset):
+    """
+    A class to read the data from the ASE Atoms object.
+
+    Parameters
+    ----------
+    db : str or ase.Atoms (or list of ase.Atoms)
+        The ASE Atoms object or the path to the ASE Atoms object.
+    cutoff : float
+        The cutoff radius for the neighbor list.
+    compute_forces : bool
+        Whether to compute the forces.
+
+    Returns
+    -------
+    atoms_data : AtomsData
+        The AtomsData object.
+    """
     def __init__(self, ase_db, cutoff=5.0, compute_forces=False, **kwargs):
-        super().__init__(**kwargs)
-        
         if isinstance(ase_db, str):
             self.db = Trajectory(ase_db)
         else:

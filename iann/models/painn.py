@@ -120,6 +120,9 @@ class PainnUpdate(nn.Module):
         return node_scalar + delta_s, node_vector + delta_v
 
 class PaiNN(nn.Module):
+    """
+    A class to set up the PaiNN model.
+    """
     def __init__(
         self, 
         num_interactions, 
@@ -131,6 +134,9 @@ class PaiNN(nn.Module):
         atomwise_normalization=True, 
         **kwargs,
     ):
+        """
+        Initialize the PaiNN model.
+        """
         super().__init__()
         
         num_embedding = 119   # number of all elements

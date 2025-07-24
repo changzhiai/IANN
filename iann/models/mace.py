@@ -837,6 +837,9 @@ class EquivariantProductBasisBlock(torch.nn.Module):
         return self.linear(node_feats)
 
 class MACE(nn.Module):
+    """
+    A class to set up the MACE model.
+    """
     def __init__(
         self,
         cutoff: float,
@@ -862,6 +865,8 @@ class MACE(nn.Module):
         **kwargs,
     ) -> None:
         """
+        Initialize the MACE model.
+
         Args:
             cutoff (float): Cutoff radius
             num_interactions (int): Number of interaction blocks

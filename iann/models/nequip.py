@@ -622,6 +622,9 @@ class InteractionLayer(torch.nn.Module):
         return data
 
 class NequIP(torch.nn.Module):
+    """
+    A class to set up the NequIP model.
+    """
     def __init__(
         self,
         cutoff: float,
@@ -650,6 +653,7 @@ class NequIP(torch.nn.Module):
         **kwargs,
     ) -> None:
         """
+        Initialize the NequIP model.
 
         Args:
             cutoff (float): Cutoff radius

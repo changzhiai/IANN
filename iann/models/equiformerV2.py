@@ -2292,8 +2292,14 @@ class ModuleListInfo(torch.nn.ModuleList):
     
 
 class EquiformerV2(nn.Module):
+    """
+    A class to set up the EquiformerV2 model.
+    """
     def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3, compute_forces=False, 
                  normalization=False, atomwise_normalization=False, normalize_stddev=1.0, normalize_mean=0.0, species=None, **kwargs):
+        """
+        Initialize the EquiformerV2 model.
+        """
         super().__init__()
         # Initialize the basic parameters
         self._AVG_NUM_NODES = kwargs.get('avg_num_nodes', 1) #77.81317

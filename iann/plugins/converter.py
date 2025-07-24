@@ -16,6 +16,9 @@ import warnings
 warnings.filterwarnings("ignore", message=".*weights_only=False.*", category=FutureWarning)
 
 class LAMMPSModelWrapper(torch.nn.Module):
+    """
+    A wrapper that adapts model inputs/outputs for LAMMPS.
+    """
     def __init__(self, model, compute_forces=True):
         super().__init__()
         self.model = model
@@ -59,6 +62,9 @@ class LAMMPSModelWrapper(torch.nn.Module):
         return results
     
 class EnsembleLAMMPSModelWrapper(torch.nn.Module):
+    """
+    A wrapper that adapts ensemble model inputs/outputs for LAMMPS.
+    """
     def __init__(self, models, compute_forces=True):
         super().__init__()
         self.models = models

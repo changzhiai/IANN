@@ -6,10 +6,10 @@ This section provides detailed documentation for the IANN package modules and cl
 Data
 ----
 
-.. autoclass:: iann.data.data.AtomsData
+.. autoclass:: iann.data.AtomsData
    :members: forward
 
-.. autoclass:: iann.data.data.AseDataset
+.. autoclass:: iann.data.AseDataset
    :members: forward
 
 Models
@@ -59,9 +59,9 @@ Plugins
 .. autoclass:: iann.plugins.converter.EnsembleLAMMPSModelWrapper
    :members: forward
 
-.. function:: iann.plugins.converter.convert_model_for_lammps
+.. autofunction:: iann.plugins.converter.convert_model_for_lammps
 
-.. function:: iann.plugins.converter.convert_models_for_lammps
+.. autofunction:: iann.plugins.converter.convert_models_for_lammps
 
 
 For more information about specific functions and classes, see their respective module. 

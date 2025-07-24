@@ -17,32 +17,32 @@ path = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 
 # Default configuration that can be overridden
 DEFAULT_CONFIG = {
-    "node_size": 128,
-    "num_interactions": 3,
-    "cutoff": 5.5,
-    "val_ratio": 0.1,
-    "output_dir": "output",
-    "max_steps": 1000000,
-    "batch_size": 12,
-    "initial_lr": 0.0001,
-    "forces_weight": 0.9,
-    "log_interval": 2000,
-    "normalization": False,
-    "atomwise_normalization": False,
-    "stop_patience": 200,
-    "plateau_scheduler": False,
-    "random_seed": 666,
-    "split_file": None,
-    "load_model": False,
-    "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "device": None,      # override device, e.g. 'cpu' or 'cuda'
-    "dist_timeout": 600,     # timeout (seconds) for distributed operations
-    "master_port": 12356,
-    "debug": False,
-    "optimizer_type": "adam",
-    'output_log': 'print_out.log',
+    "node_size": 128, # number of nodes in the model
+    "num_interactions": 3, # number of interactions in the model
+    "cutoff": 5.5, # cutoff radius
+    "val_ratio": 0.1, # validation ratio
+    "max_steps": 1000000, # maximum number of steps
+    "batch_size": 12, # batch size
+    "initial_lr": 0.0001, # initial learning rate
+    "forces_weight": 0.9, # weight for forces
+    "normalization": False, # use normalization
+    "atomwise_normalization": False, # use atomwise normalization
+    "random_seed": 666, # random seed for reproducibility
+    "split_file": None, # path to a json file with data splits
+    "load_model": False, # load model from checkpoint
+    "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
+    "dist_timeout": 600,  # timeout (seconds) for distributed operations
+    "master_port": 12356, # port for distributed operations
+    "optimizer_type": "adam", # optimizer type
     "max_grad_norm": None,    # Gradient clipping norm
-    "output_model": "best_model.pth",
+    "log_interval": 2000, # log interval
+    "stop_patience": 200, # patience for early stopping
+    "plateau_scheduler": False, # use plateau scheduler
+    "output_dir": "output", # output directory
+    'output_log': 'output.log', # log file
+    "output_model": "model.pt", # model file
+    "debug": False, # debug mode
 }
 
 # Logging filter to inject rank into log records
