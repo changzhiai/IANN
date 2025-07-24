@@ -41,6 +41,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',  # if you're using Google or NumPy docstrings
     'sphinx_rtd_theme',
+    'sphinx.ext.viewcode',  # show the source code of the current module
 ]
 
 autodoc_mock_imports = ["asap3", "e3nn", "torch", "torch_geometric", "opt_einsum_fx"]
