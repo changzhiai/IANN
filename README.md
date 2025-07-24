@@ -244,6 +244,9 @@ srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
 
 IANN models can be used as interatomic potentials in LAMMPS molecular dynamics simulations (Support GPU).
 
+> [!WARNING]
+> You have to install IANN plugins for LAMMPS first, if you want to use IANN models with LAMMPS. Please see the documentation in [LAMMPS interface](https://iann.readthedocs.io/en/latest/lammps.html) section.
+
 ### Use an IANN model with LAMMPS
 
 
