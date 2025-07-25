@@ -1,7 +1,7 @@
 API Reference
 ============
 
-This section provides detailed documentation for the IANN package modules and classes.
+This section provides detailed documentation and source code links for the IANN package modules, classes, and functions.
 
 Data
 ----
@@ -33,20 +33,20 @@ Models
 Trainer
 ------
 
-.. autoclass:: iann.trainer.trainer.Trainer
+.. autoclass:: iann.trainer.Trainer
    :members: __init__, forward
 
 
 Calculators
 --------
 
-.. autoclass:: iann.calculators.calculators.MLCalculator
+.. autoclass:: iann.calculators.MLCalculator
    :members: forward
 
-.. autoclass:: iann.calculators.calculators.EnsembleCalculator
+.. autoclass:: iann.calculators.EnsembleCalculator
    :members: forward
 
-.. autoclass:: iann.calculators.calculators.AtomicEnsembleCalculator
+.. autoclass:: iann.calculators.AtomicEnsembleCalculator
    :members: forward
 
 
@@ -64,4 +64,4 @@ Plugins
 .. autofunction:: iann.plugins.converter.convert_models_for_lammps
 
 
-For more information about specific functions and classes, see their respective module. 
+For more information about specific functions and classes, see their respective module in source code. 
