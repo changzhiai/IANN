@@ -613,7 +613,7 @@ class Trainer:
                 "step": total_steps,
                 "best_val_loss": best_val_loss,
                 "num_channels": self.config["num_channels"],
-                "num_layer": self.config["num_layers"],
+                "num_layers": self.config["num_layers"],
                 "cutoff": self.config["cutoff"],
                 "compute_forces": self.config["forces_weight"],
             },
@@ -778,6 +778,13 @@ class Trainer:
         # Setup model, optimizer, and scheduler
         self._setup_model()
         
+        # determine max_steps or max_epochs
+        if self.config["max_epochs"]:
+            self.config["max_steps"] = None
+            max_epochs = self.config["max_epochs"]
+        else:
+            max_epochs = int(self.config["max_steps"])
+        
         # Log detailed model configuration and setup
         if self.rank == 0:
             logging.info("---------------- Configuration Settings ----------------")
@@ -794,11 +801,8 @@ class Trainer:
             logging.info(f"Forces Weight (forces_weight): {self.config['forces_weight']}")
             
             if self.config["max_epochs"]:
-                self.config["max_steps"] = None
-                max_epochs = self.config["max_epochs"]
                 logging.info(f"Max Epochs (max_epochs): {max_epochs}")
             else:
-                max_epochs = int(self.config["max_steps"])
                 logging.info(f"Max Steps (max_steps): {self.config['max_steps']}")
             logging.info(f"Optimizer Type (optimizer_type): {self.optimizer_type}")
             if self.config['max_grad_norm']:
