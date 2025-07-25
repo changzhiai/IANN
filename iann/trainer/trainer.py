@@ -17,30 +17,36 @@ path = os.path.abspath(os.path.join(os.path.dirname(__file__)))
 
 # Default configuration that can be overridden
 DEFAULT_CONFIG = {
-    "device": None,      # override device, e.g. 'cpu' or 'cuda'
-    "node_size": 128, # number of nodes in the model
-    "num_interactions": 3, # number of interactions in the model
+    # parameters for model
+    "num_channels": 128, # number of channels in the model
+    "num_layers": 3, # number of layers in the model
     "cutoff": 5.5, # cutoff radius
+    # parameters for trainer
+    "device": None,      # override device, e.g. 'cpu' or 'cuda'
     "val_ratio": 0.1, # validation ratio
-    "max_steps": 1000000, # maximum number of steps
     "batch_size": 12, # batch size
-    "initial_lr": 0.0001, # initial learning rate
+    "learning_rate": 0.0001, # initial learning rate
     "forces_weight": 0.9, # weight for forces
-    "normalization": False, # use normalization
-    "atomwise_normalization": False, # use atomwise normalization
-    "random_seed": 666, # random seed for reproducibility
-    "split_file": None, # path to a json file with data splits
     "load_model": False, # load model from checkpoint
+    "max_steps": 1000000, # maximum number of steps
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
-    "dist_timeout": 600,  # timeout (seconds) for distributed operations
-    "master_port": 12356, # port for distributed operations
-    "optimizer_type": "adam", # optimizer type
-    "max_grad_norm": None,    # Gradient clipping norm
+    "optimizer_type": "adam", # optimizer type: "adam", "sgd", "rmsprop", "adagrad", "adadelta", "adamax", "adamw"
+    "max_grad_norm": None,    # gradient clipping norm
     "log_interval": 2000, # log interval
     "stop_patience": 200, # patience for early stopping
-    "plateau_scheduler": False, # use plateau scheduler
+    "scheduler_type": "LambdaLR", # scheduler type: "ReduceLROnPlateau", "LambdaLR", "CosineAnnealingLR", "CosineAnnealingWarmRestarts", "StepLR", "MultiStepLR", "ExponentialLR"
+    # parameters for data
+    "random_seed": 666, # random seed for reproducibility
+    "save_split": False, # save split file name
+    "load_split": False, # load split file name
+    "norm_data": False, # normalize data
+    "norm_per_atom": False, # normalize data per atom
+    # parameters for DDP (Parallelization)
+    "dist_timeout": 600,  # timeout (seconds) for distributed operations
+    "master_port": 12356, # port for distributed operations
+    # parameters for output
     "output_dir": "output", # output directory
-    'output_log': 'output.log', # log file
+    "output_log": "output.log", # log file
     "output_model": "model.pt", # model file
     "debug": False, # debug mode
 }
@@ -95,7 +101,7 @@ def forces_criterion(predicted, target, reduction="mean"):
         raise ValueError("Reduction must be 'mean' or 'sum'")
     return scalar
 
-def get_normalization(dataset, per_atom=True):
+def get_norm_data(dataset, per_atom=True):
     x_sum = torch.zeros(1, dtype=torch.double)
     x_2 = torch.zeros(1, dtype=torch.double)
     num_objects = 0
@@ -134,12 +140,15 @@ class EarlyStopping():
                 
         return self.early_stop
 
-def split_data(dataset, config):
-    # Load or generate splits
-    if config["split_file"]:
-        with open(config["split_file"], "r") as fp:
+def split_data(dataset, config, rank):
+    # Load existed split file
+    if config["load_split"]:
+        with open(f"{config['load_split']}.json", "r") as fp:
             splits = json.load(fp)
+            if rank == 0:
+                logging.info(f"Loaded Existed Json Split File (load_split): {config['load_split']}")
     else:
+        # Split the dataset into training and validation sets
         datalen = len(dataset)
         num_validation = int(math.ceil(datalen * config["val_ratio"]))
         indices = np.random.permutation(len(dataset))
@@ -148,11 +157,13 @@ def split_data(dataset, config):
             "validation": indices[:num_validation].tolist(),
         }
     # Save split file
-    if config["debug"]:
+    if config["save_split"]:
         output_dir = config["output_dir"]
         os.makedirs(output_dir, exist_ok=True)
-        with open(os.path.join(output_dir, "DataSplitsLog.json"), "w") as f:
+        with open(os.path.join(output_dir, f"{config['save_split']}.json"), "w") as f:
             json.dump(splits, f)
+        if rank == 0:
+            logging.info(f"Saved Json Split File (save_split): {config['save_split']}")
 
     # Split the dataset
     datasplits = {}
@@ -220,11 +231,12 @@ class Trainer:
         self.val_loader = None
         self.train_sampler = None
         self.val_sampler = None
-        self.target_mean = None
-        self.target_stddev = None
+        self.data_mean = None
+        self.data_stddev = None
 
         self.optimizer_type = self.config["optimizer_type"]
-        
+        self.scheduler_type = self.config["scheduler_type"]
+
         # Create output directory
         os.makedirs(self.config["output_dir"], exist_ok=True)
         
@@ -306,15 +318,6 @@ class Trainer:
             world_size=self.world_size,
             timeout=timedelta(seconds=self.config["dist_timeout"])
         )
-            
-        # Log NCCL configuration for debugging
-        if self.rank == 0 and backend == "nccl" and self.config["debug"]:
-            logging.info("NCCL Configuration:")
-            logging.info(f"  NCCL_TIMEOUT: {os.environ.get('NCCL_TIMEOUT', 'Not set')}")
-            logging.info(f"  NCCL_DEBUG: {os.environ.get('NCCL_DEBUG', 'Not set')}")
-            logging.info(f"  NCCL_BLOCKING_WAIT: {os.environ.get('NCCL_BLOCKING_WAIT', 'Not set')}")
-            logging.info(f"  NCCL_IB_DISABLE: {os.environ.get('NCCL_IB_DISABLE', 'Not set')}")
-            logging.info(f"  NCCL_P2P_DISABLE: {os.environ.get('NCCL_P2P_DISABLE', 'Not set')}")
 
         # Wait for all ranks to finish logging
         time.sleep((self.world_size - self.rank) * 0.1 + 0.1)  # Each rank waits for others
@@ -340,7 +343,7 @@ class Trainer:
         )
         
         # Split data
-        self.datasplits = split_data(self.dataset, self.config)
+        self.datasplits = split_data(self.dataset, self.config, self.rank)
         
         if self.distributed:
             # Setup distributed samplers
@@ -388,49 +391,50 @@ class Trainer:
                 len(self.datasplits["validation"]),
             ))
         
-        # Compute normalization if needed
-        if self.config["normalization"]:
+        # Compute data normalization if needed
+        if self.config["norm_data"] or self.config["norm_per_atom"]:
             if self.rank == 0:
-                logging.info("Computing energy mean and variance of the dataset")
-            self.target_mean, self.target_stddev = get_normalization(
+                logging.info("Computing energy mean and variance of the dataset: ")
+            self.data_mean, self.data_stddev = get_norm_data(
                 self.datasplits["train"], 
-                per_atom=self.config["atomwise_normalization"],
+                per_atom=self.config["norm_per_atom"],
             )
             if self.rank == 0:
-                logging.debug(f"Mean of energy: {self.target_mean.item():.4f}, standard deviation of energy: {self.target_stddev.item():.4f}")
+                logging.info(f"Mean of energy: {self.data_mean.item():.4f}, standard deviation of energy: {self.data_stddev.item():.4f}")
         else:
-            self.target_mean = torch.tensor([0.0])
-            self.target_stddev = torch.tensor([1.0])
-        
-    
+            self.data_mean = torch.tensor([0.0])
+            self.data_stddev = torch.tensor([1.0])
+
+        if bool(self.config['forces_weight']):
+            logging.info("Compute forces: True")
+        else:
+            logging.info("Compute forces: False")
+
     def _create_model(self):
         """Create model based on model_type"""
-        # Common model parameters
-        common_params = {
-            "cutoff": self.config["cutoff"],
+        # Other model parameters
+        model_params = {
             "compute_forces": bool(self.config["forces_weight"]),
         }
-        # update all params in common_params
-        common_params.update(self.config) # To do: update all params in log
-        if self.config["debug"]:
-            logging.info(f"All parameters: {common_params}")
-        common_params.pop("num_interactions")
-        common_params.pop("node_size")
-        common_params.pop("normalization")
-        common_params.pop("atomwise_normalization")
-        common_params.pop("device")
+        # update all params in model_params
+        model_params.update(self.config)
+        model_params.pop("num_layers")
+        model_params.pop("num_channels")
+        model_params.pop("norm_data")
+        model_params.pop("norm_per_atom")
+        model_params.pop("device")
         
-        # To do: set the default value for each model via self.config.get("xxx", x)
+        # Set model
         if self.model_type == "painn":
             from iann.models.painn import PaiNN
             model = PaiNN(
-                num_interactions=self.config["num_interactions"], 
-                hidden_state_size=self.config["node_size"],
-                normalization=self.config["normalization"],
-                target_mean=self.target_mean.tolist() if self.config["normalization"] else [0.0],
-                target_stddev=self.target_stddev.tolist() if self.config["normalization"] else [1.0],
-                atomwise_normalization=self.config["atomwise_normalization"],
-                **common_params
+                num_layers=self.config["num_layers"], 
+                num_channels=self.config["num_channels"],
+                norm_data=self.config["norm_data"],
+                data_mean=self.data_mean.tolist() if self.config["norm_data"] else [0.0],
+                data_stddev=self.data_stddev.tolist() if self.config["norm_data"] else [1.0],
+                norm_per_atom=self.config["norm_per_atom"],
+                **model_params
             )
         elif self.model_type == "nequip":
             try:
@@ -439,14 +443,13 @@ class Trainer:
                 raise ImportError("NequIP is not available")
             
             model = NequIP(
-                num_interactions=self.config["num_interactions"],
-                num_features=self.config["node_size"],
-                lmax=self.config.get("lmax", 2),  # Default lmax
-                normalization=self.config["normalization"],
-                target_mean=self.target_mean.tolist() if self.config["normalization"] else [0.0],
-                target_stddev=self.target_stddev.tolist() if self.config["normalization"] else [1.0],
-                atomwise_normalization=self.config["atomwise_normalization"],
-                **common_params
+                num_layers=self.config["num_layers"],
+                num_channels=self.config["num_channels"],
+                norm_data=self.config["norm_data"],
+                data_mean=self.data_mean.tolist() if self.config["norm_data"] else [0.0],
+                data_stddev=self.data_stddev.tolist() if self.config["norm_data"] else [1.0],
+                norm_per_atom=self.config["norm_per_atom"],
+                **model_params
             )
         elif self.model_type == "mace":
             try:
@@ -454,15 +457,13 @@ class Trainer:
             except ImportError:
                 raise ImportError("MACE is not available")
             model = MACE(
-                num_interactions=self.config["num_interactions"],
-                num_features=self.config["node_size"],
-                correlation=self.config.get("correlation", 3),  # Default correlation
-                species=self.config.get("species", None),  # Auto-determine from dataset
-                normalization=self.config["normalization"],
-                target_mean=self.target_mean.tolist() if self.config["normalization"] else [0.0],
-                target_stddev=self.target_stddev.tolist() if self.config["normalization"] else [1.0],
-                atomwise_normalization=self.config["atomwise_normalization"],
-                **common_params
+                num_layers=self.config["num_layers"],
+                num_channels=self.config["num_channels"],
+                norm_data=self.config["norm_data"],
+                data_mean=self.data_mean.tolist() if self.config["norm_data"] else [0.0],
+                data_stddev=self.data_stddev.tolist() if self.config["norm_data"] else [1.0],
+                norm_per_atom=self.config["norm_per_atom"],
+                **model_params
             )
         elif self.model_type == "equiformerv2":
             try:
@@ -470,14 +471,14 @@ class Trainer:
             except ImportError:
                 raise ImportError("EquiformerV2 is not available")
             model = EquiformerV2(
-                num_interactions=self.config["num_interactions"],
-                num_features=self.config["node_size"],
+                num_layers=self.config["num_layers"],
+                num_channels=self.config["num_channels"],
                 device=self.device,
-                normalization=self.config["normalization"],
-                target_mean=self.target_mean.tolist() if self.config["normalization"] else [0.0],
-                target_stddev=self.target_stddev.tolist() if self.config["normalization"] else [1.0],
-                atomwise_normalization=self.config["atomwise_normalization"],
-                **common_params
+                norm_data=self.config["norm_data"],
+                data_mean=self.data_mean.tolist() if self.config["norm_data"] else [0.0],
+                data_stddev=self.data_stddev.tolist() if self.config["norm_data"] else [1.0],
+                norm_per_atom=self.config["norm_per_atom"],
+                **model_params
             )
         else:
             raise ValueError(f"Unknown model type: {self.model_type}")
@@ -520,15 +521,15 @@ class Trainer:
             logging.info(f"Total trainable parameters: {total_params}")
         total_memory = sum(p.element_size() * p.numel() for p in self.model.parameters())
         if self.rank == 0:
-            logging.info(f"Total memory: {total_memory / 1024**2:.2f} MB")
+            logging.info(f"Total memory of the model: {total_memory / 1024**2:.2f} MB")
         
         # Setup optimizer
         if self.optimizer_type == "adam":
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config["initial_lr"])
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config["learning_rate"])
         elif self.optimizer_type == "adamw":
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config["initial_lr"], weight_decay=self.config.get("weight_decay", 1e-2))
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config["learning_rate"], weight_decay=self.config.get("weight_decay", 1e-2))
         elif self.optimizer_type == "sgd":
-            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config["initial_lr"], momentum=self.config.get("momentum", 0.9))
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.config["learning_rate"], momentum=self.config.get("momentum", 0.9))
         else:
             raise ValueError(f"Unknown optimizer type: {self.optimizer_type}")
         self.criterion = torch.nn.MSELoss()
@@ -538,13 +539,23 @@ class Trainer:
             self.max_grad_norm = self.config.get("max_grad_norm")
         
         # Setup scheduler
-        if self.config["plateau_scheduler"]:
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                self.optimizer, 'min', factor=0.5, patience=10
-            )
-        else:
+        if self.scheduler_type=="ReduceLROnPlateau":
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', factor=0.5, patience=10)
+        elif self.scheduler_type=="LambdaLR":
             scheduler_fn = lambda step: 0.96 ** (step / 100000)
             self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, scheduler_fn)
+        elif self.scheduler_type=="CosineAnnealingLR":
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.config["max_steps"])
+        elif self.scheduler_type=="CosineAnnealingWarmRestarts":
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=10, T_mult=2)
+        elif self.scheduler_type=="StepLR":
+            self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.5)
+        elif self.scheduler_type=="MultiStepLR":
+            self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[10, 20, 30], gamma=0.5)
+        elif self.scheduler_type=="ExponentialLR":
+            self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.95)
+        else:
+            raise ValueError(f"Unknown scheduler type: {self.scheduler_type}")
         
         # Setup early stopping
         self.early_stop = EarlyStopping(patience=self.config["stop_patience"])
@@ -586,6 +597,7 @@ class Trainer:
                 
             self.scheduler.load_state_dict(state_dict["scheduler"])
         else:
+            logging.info(f"No model found at {best_model}")
             self.config["load_model"] = False
     
     def _save_model(self, filename, total_steps, best_val_loss):
@@ -600,8 +612,8 @@ class Trainer:
                 "scheduler": self.scheduler.state_dict(),
                 "step": total_steps,
                 "best_val_loss": best_val_loss,
-                "node_size": self.config["node_size"],
-                "num_layer": self.config["num_interactions"],
+                "num_channels": self.config["num_channels"],
+                "num_layer": self.config["num_layers"],
                 "cutoff": self.config["cutoff"],
                 "compute_forces": self.config["forces_weight"],
             },
@@ -769,29 +781,60 @@ class Trainer:
         # Log detailed model configuration and setup
         if self.rank == 0:
             logging.info("---------------- Configuration Settings ----------------")
-            # logging.info("Configuration settings:")
+            # Log for model
             logging.info(f"Model Type (model): {self.model_type}")
-            logging.info(f"Node Size (node_size): {self.config['node_size']}")
-            logging.info(f"Number of Interactions (num_interactions): {self.config['num_interactions']}")
+            logging.info(f"Number of Channels (num_channels): {self.config['num_channels']}")
+            logging.info(f"Number of Layers (num_layers): {self.config['num_layers']}")
             logging.info(f"Cutoff Radius (cutoff): {self.config['cutoff']}")
-            logging.info(f"Forces Weight (forces_weight): {self.config['forces_weight']}")
-            logging.info(f"Normalization (normalization): {self.config['normalization']}")
-            logging.info(f"Atomwise Normalization (atomwise_normalization): {self.config['atomwise_normalization']}")
-            logging.info(f"Batch Size (batch_size): {self.config['batch_size']}")
-            logging.info(f"Initial Learning Rate (initial_lr): {self.config['initial_lr']}")
-            logging.info(f"Max Steps (max_steps): {self.config['max_steps']}")
-            logging.info(f"Max Epochs (max_epochs): {self.config['max_epochs']}")
-            logging.info(f"Early Stopping Patience (stop_patience): {self.config['stop_patience']}")
-            logging.info(f"Plateau Scheduler (plateau_scheduler): {self.config['plateau_scheduler']}")
+
+            # Log for trainer
             logging.info(f"Validation Ratio (val_ratio): {self.config['val_ratio']}")
-            logging.info(f"Split File (split_file): {self.config['split_file']}")
-            if self.config['debug']:
-                logging.info(f"Target Mean (target_mean): {self.target_mean.item():4f}")
-                logging.info(f"Target Stddev (target_stddev): {self.target_stddev.item():4f}")
+            logging.info(f"Batch Size (batch_size): {self.config['batch_size']}")
+            logging.info(f"Learning Rate (learning_rate): {self.config['learning_rate']}")
+            logging.info(f"Forces Weight (forces_weight): {self.config['forces_weight']}")
+            
+            if self.config["max_epochs"]:
+                self.config["max_steps"] = None
+                max_epochs = self.config["max_epochs"]
+                logging.info(f"Max Epochs (max_epochs): {max_epochs}")
+            else:
+                max_epochs = int(self.config["max_steps"])
+                logging.info(f"Max Steps (max_steps): {self.config['max_steps']}")
+            logging.info(f"Optimizer Type (optimizer_type): {self.optimizer_type}")
+            if self.config['max_grad_norm']:
+                logging.info(f"Gradient Clipping Norm (max_grad_norm): {self.config['max_grad_norm']}")
+            logging.info(f"Log Interval (log_interval): {self.config['log_interval']}")
+            logging.info(f"Early Stopping Patience (stop_patience): {self.config['stop_patience']}")
+            logging.info(f"Scheduler Type (scheduler_type): {self.config['scheduler_type']}")
+
+            # Log for data
+            logging.info(f"Random Seed (random_seed): {self.config['random_seed']}")
+            if self.config['save_split']:
+                logging.info(f"Save Split File Name (save_split): {self.config['save_split']}")
+            if self.config['load_split']:
+                logging.info(f"Load Split File Name (load_split): {self.config['load_split']}")
+            if self.config['norm_data'] and not self.config['norm_per_atom']:
+                logging.info(f"Data Normalization (norm_data): {self.config['norm_data']}")
+            if self.config['norm_per_atom']:
+                logging.info(f"Data Normalization per Atom (norm_per_atom): {self.config['norm_per_atom']}")
+            if not self.config['norm_data'] and not self.config['norm_per_atom']:
+                logging.info("Data Normalization (norm_data): False")
+            
+            # Log for DDP
             logging.info(f"Distributed Training (distributed): {self.distributed}")
             if self.distributed:
                 logging.info(f"Master Port (master_port): {self.config['master_port']}")
                 logging.info(f"Distributed Timeout (dist_timeout) (s): {self.config['dist_timeout']}")
+            
+            # Log for output
+            logging.info(f"Output Directory (output_dir): {self.config['output_dir']}")
+            logging.info(f"Output Log File (output_log): {self.config['output_log']}")
+            logging.info(f"Output Model File (output_model): {self.config['output_model']}")
+
+            # To do: log all default model parameters
+            if self.config['debug']:
+                logging.info(f"All parameters: {self.config}") # log all default parameters except for other model default parameters
+                logging.info(f"Debug Mode (debug): {self.config['debug']}")
         
         # Initialize counters
         local_steps = 0
@@ -802,18 +845,12 @@ class Trainer:
         prev_loss = None
         best_val_loss = np.inf
         
-        if self.config["max_epochs"]:
-            self.config["max_steps"] = None
-            max_epochs = self.config["max_epochs"]
-        # Training loop
-        else:
-            max_epochs = int(self.config["max_steps"])
-        
         if self.rank == 0:
             logging.info("---------------------- Training ------------------------")
+        # Training loop
         for epoch in range(max_epochs):
-            if epoch == max_epochs - 1:
-                logging.info(f"Reached maximum epochs ({max_epochs}), stopping training")
+            if epoch >= max_epochs - 1:
+                logging.info(f"Reached maximum epochs ({max_epochs}), stopping training!")
                 if self.distributed:
                     self._cleanup_distributed()
                 return
@@ -823,7 +860,7 @@ class Trainer:
                 self.train_sampler.set_epoch(epoch)
                 
             self.model.train()
-            for batch_idx, batch in enumerate(self.train_loader):
+            for batch in self.train_loader:
                 train_start_time = time.time()
                 
                 device_batch = batch.to(self.device)
@@ -891,7 +928,7 @@ class Trainer:
 
                     training_time = 0
                     
-                    if self.config["plateau_scheduler"]:
+                    if self.scheduler_type=="ReduceLROnPlateau":
                         self.scheduler.step(smooth_loss)
                     
                     # Check early stopping and save best model
@@ -909,8 +946,8 @@ class Trainer:
                 # Count steps
                 local_steps += 1
                 
-                if not self.config["plateau_scheduler"]:
-                    self.scheduler.step()
+                if self.scheduler_type!="ReduceLROnPlateau":
+                    self.scheduler.step() # update learning rate based on scheduler type
                 
                 if bool(self.config["max_steps"]) and total_steps >= self.config["max_steps"]:
                     logging.info(f"Maximum steps {self.config['max_steps']} reached, training complete")
