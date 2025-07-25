@@ -600,7 +600,7 @@ class Contraction(torch.nn.Module):
     ) -> None:
         super().__init__()
 
-        self.num_features = irreps_in.count((0, 1))
+        self.num_channels = irreps_in.count((0, 1))
         self.coupling_irreps = o3.Irreps([irrep.ir for irrep in irreps_in])
         self.correlation = correlation
         dtype = torch.get_default_dtype()
@@ -645,14 +645,14 @@ class Contraction(torch.nn.Module):
                         torch.randn(
                             [num_equivariance] + [num_ell] * i + [num_params]
                         ).squeeze(0),
-                        torch.randn((num_elements, num_params, self.num_features)),
-                        torch.randn((BATCH_EXAMPLE, self.num_features, num_ell)),
+                        torch.randn((num_elements, num_params, self.num_channels)),
+                        torch.randn((BATCH_EXAMPLE, self.num_channels, num_ell)),
                         torch.randn((BATCH_EXAMPLE, num_elements)),
                     ),
                 )
                 # Parameters for the product basis
                 w = torch.nn.Parameter(
-                    torch.randn((num_elements, num_params, self.num_features))
+                    torch.randn((num_elements, num_params, self.num_channels))
                     / num_params
                 )
                 self.weights_max = w
@@ -687,7 +687,7 @@ class Contraction(torch.nn.Module):
                         torch.randn(
                             [num_equivariance] + [num_ell] * i + [num_params]
                         ).squeeze(0),
-                        torch.randn((num_elements, num_params, self.num_features)),
+                        torch.randn((num_elements, num_params, self.num_channels)),
                         torch.randn((BATCH_EXAMPLE, num_elements)),
                     ),
                 )
@@ -695,17 +695,17 @@ class Contraction(torch.nn.Module):
                     model=graph_module_features,
                     example_inputs=(
                         torch.randn(
-                            [BATCH_EXAMPLE, self.num_features, num_equivariance]
+                            [BATCH_EXAMPLE, self.num_channels, num_equivariance]
                             + [num_ell] * i
                         ).squeeze(2),
-                        torch.randn((BATCH_EXAMPLE, self.num_features, num_ell)),
+                        torch.randn((BATCH_EXAMPLE, self.num_channels, num_ell)),
                     ),
                 )
                 self.contractions_weighting.append(graph_opt_weighting)
                 self.contractions_features.append(graph_opt_features)
                 # Parameters for the product basis
                 w = torch.nn.Parameter(
-                    torch.randn((num_elements, num_params, self.num_features))
+                    torch.randn((num_elements, num_params, self.num_channels))
                     / num_params
                 )
                 self.weights.append(w)
@@ -843,10 +843,8 @@ class MACE(nn.Module):
     def __init__(
         self,
         cutoff: float,
-        num_interactions: int,
-        correlation: Union[int, List[int]],
-        species: List[str],
-        num_elements: Optional[int] = None,
+        num_layers: int,
+        num_channels: Optional[int] = None,
         hidden_irreps: Union[o3.Irreps, str, None] = None,
         edge_sh_irreps: Union[o3.Irreps, str, None] = None,
         node_irreps: Union[o3.Irreps, str, None] = None,
@@ -854,14 +852,13 @@ class MACE(nn.Module):
         avg_num_neighbors: Optional[float] = None,
         lmax: int = 2,
         parity: bool = True,
-        num_features: Optional[int] = None,
         num_basis: int = 8,
         power: int = 6,
         gate: Union[str, Callable] = 'silu',
-        normalization: bool = False,
-        atomwise_normalization: bool = False,
-        normalize_stddev: float = 1.0,
-        normalize_mean: float = 0.0,
+        norm_data: bool = False,
+        norm_per_atom: bool = False,
+        data_stddev: float = 1.0,
+        data_mean: float = 0.0,
         **kwargs,
     ) -> None:
         """
@@ -869,10 +866,7 @@ class MACE(nn.Module):
 
         Args:
             cutoff (float): Cutoff radius
-            num_interactions (int): Number of interaction blocks
-            correlation (int): Correlation type. 0 for dot product, 1 for cosine similarity
-            species (List[str]): List of species
-            num_elements (Optional[int], optional): Number of elements. Defaults to None.
+            num_layers (int): Number of interaction blocks
             hidden_irreps (Union[o3.Irreps, str, None], optional): Hidden irreps. Defaults to None.
             edge_sh_irreps (Union[o3.Irreps, str, None], optional): Edge irreps. Defaults to None.
             node_irreps (Union[o3.Irreps, str, None], optional): Node irreps. Defaults to None.
@@ -880,7 +874,7 @@ class MACE(nn.Module):
             avg_num_neighbors (Optional[float], optional): Average number of neighbors. Defaults to None.
             lmax (int, optional): Maximum l value. Defaults to 2.
             parity (bool, optional): Parity. Defaults to True.
-            num_features (Optional[int], optional): Number of features. Defaults to None.
+            num_channels (Optional[int], optional): Number of features. Defaults to None.
             num_basis (int, optional): Number of radial basis. Defaults to 8.
             power (int, optional): Power of radial basis. Defaults to 6.
             gate (Union[str, Callable], optional): Activation function for gate. Defaults to 'silu'.
@@ -890,11 +884,17 @@ class MACE(nn.Module):
         self.cutoff = cutoff
         self.lmax = lmax
         self.parity = parity
-        if isinstance(correlation, int):
-            correlation = [correlation] * num_interactions
 
-        if num_elements is None:
-            num_elements = len(species) if species is not None else 119
+        correlation: Union[int, List[int]] = kwargs.get('correlation', 3)
+        if isinstance(correlation, int):
+            correlation = [correlation] * num_layers
+
+        species: List[str] = kwargs.get('species', None)
+
+        if bool(species):
+            num_elements = len(species)
+        else:
+            num_elements = 119
         
         # hidden feature irreps
         if hidden_irreps is not None:
@@ -902,7 +902,7 @@ class MACE(nn.Module):
         else:
             self.hidden_irreps = o3.Irreps(
                 [
-                    (num_features, o3.Irrep(l, p))
+                    (num_channels, o3.Irrep(l, p))
                     for p in ((1, -1) if parity else (1,))
                     for l in range(lmax + 1)
                 ]
@@ -910,12 +910,12 @@ class MACE(nn.Module):
         # MACE prohibits some irreps like 0e, 1e to be used
         forbidden_ir = ['0o', '1e', '2o', '3e', '4o']
         self.hidden_irreps = o3.Irreps([irrep for irrep in self.hidden_irreps if str(irrep.ir) not in forbidden_ir])
-        self.num_features = self.hidden_irreps.count(o3.Irrep(0, 1))
+        self.num_channels = self.hidden_irreps.count(o3.Irrep(0, 1))
 
         ## handling irreps
         # chemical embedding irreps
         if node_irreps is None:
-            self.node_irreps = o3.Irreps([(self.num_features, o3.Irrep(0, 1))])
+            self.node_irreps = o3.Irreps([(self.num_channels, o3.Irrep(0, 1))])
         elif isinstance(node_irreps, str):
             self.node_irreps = o3.Irreps(node_irreps)
         else:
@@ -930,7 +930,7 @@ class MACE(nn.Module):
         
         # MLP_irreps
         if MLP_irreps is None:
-            self.MLP_irreps = o3.Irreps([(max(1, self.num_features // 2), o3.Irrep(0, 1))])
+            self.MLP_irreps = o3.Irreps([(max(1, self.num_channels // 2), o3.Irrep(0, 1))])
         elif isinstance(MLP_irreps, str):
             self.MLP_irreps = o3.Irreps(MLP_irreps)
         else:
@@ -956,15 +956,15 @@ class MACE(nn.Module):
         )
         self.irreps_in['node_feat'] = self.embeddings.chemical_embedding.irreps_out
         
-        interaction_irreps = (self.edge_sh_irreps * self.num_features).sort()[0].simplify()
+        interaction_irreps = (self.edge_sh_irreps * self.num_channels).sort()[0].simplify()
         
         self.interactions = torch.nn.ModuleList()
         self.products = torch.nn.ModuleList()
         self.readouts = torch.nn.ModuleList()
         gate_fn = activation_fn[gate] if isinstance(gate, str) else gate
         # interaction blocks
-        for i in range(num_interactions):
-            hidden_irreps_out = str(self.hidden_irreps[0]) if i == num_interactions - 1 else self.hidden_irreps
+        for i in range(num_layers):
+            hidden_irreps_out = str(self.hidden_irreps[0]) if i == num_layers - 1 else self.hidden_irreps
             if i > 0:
                 self.irreps_in['node_feat'] = self.hidden_irreps
             inter = RealAgnosticResidualInteractionBlock(
@@ -984,7 +984,7 @@ class MACE(nn.Module):
             )
             self.products.append(prod)
             
-            if i == num_interactions - 1:
+            if i == num_layers - 1:
                 readout = AtomwiseNonLinear(
                     irreps_in=hidden_irreps_out, 
                     MLP_irreps=self.MLP_irreps,
@@ -997,10 +997,10 @@ class MACE(nn.Module):
             self.atomwise_reduce = AtomwiseReduce(output_key='energy')
         
         # Normalisation constants
-        self.normalization = torch.nn.Parameter(torch.tensor(normalization), requires_grad=False)
-        self.atomwise_normalization = torch.nn.Parameter(torch.tensor(atomwise_normalization), requires_grad=False)
-        self.normalize_stddev = torch.nn.Parameter(torch.tensor(normalize_stddev), requires_grad=False)
-        self.normalize_mean = torch.nn.Parameter(torch.tensor(normalize_mean), requires_grad=False)
+        self.norm_data = torch.nn.Parameter(torch.tensor(norm_data), requires_grad=False)
+        self.norm_per_atom = torch.nn.Parameter(torch.tensor(norm_per_atom), requires_grad=False)
+        self.data_stddev = torch.nn.Parameter(torch.tensor(data_stddev), requires_grad=False)
+        self.data_mean = torch.nn.Parameter(torch.tensor(data_mean), requires_grad=False)
         
         self.compute_forces = False
         if 'compute_forces' in kwargs.keys():
@@ -1057,11 +1057,11 @@ class MACE(nn.Module):
         data = self.atomwise_reduce(data)
 
         # de-normalization
-        if self.normalization:
-            normalizer = self.normalize_stddev
+        if self.norm_data:
+            normalizer = self.data_stddev
             energy = normalizer * data.energy
-            mean_shift = self.normalize_mean
-            if self.atomwise_normalization:
+            mean_shift = self.data_mean
+            if self.norm_per_atom:
                 mean_shift = len(data.edge_indices) * mean_shift
             energy = energy + mean_shift
             data = replace_properties(data, energy=energy)

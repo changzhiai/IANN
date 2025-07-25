@@ -628,28 +628,25 @@ class NequIP(torch.nn.Module):
     def __init__(
         self,
         cutoff: float,
-        num_interactions: int,
-        species: Optional[List[str]] = None,
-        num_elements: Optional[int] = None,
+        num_layers: int,
         hidden_irreps: Union[o3.Irreps, str, None] = None,
         edge_sh_irreps: Union[o3.Irreps, str, None] = None,
         node_irreps: Union[o3.Irreps, str, None] = None,
         MLP_irreps: Union[o3.Irreps, str, None] = None,
         lmax: int = 2,
         parity: bool = True,
-        num_features: Optional[int] = None,
+        num_channels: Optional[int] = None,
         num_basis: int = 8,
         power: int = 6,
-        # parameters for interaction blocks and convnet
         resnet: bool = False,
         nonlinearity_type: str = "gate",
         nonlinearity_scalars: Dict[int, Callable] = {"e": "ssp", "o": "tanh"},
         nonlinearity_gates: Dict[int, Callable] = {"e": "ssp", "o": "abs"},
         convolution_kwargs: dict = {},
-        normalization: bool = False,
-        atomwise_normalization: bool = False,
-        normalize_stddev: float = 1.0,
-        normalize_mean: float = 0.0,
+        norm_data: bool = False,
+        norm_per_atom: bool = False,
+        data_stddev: float = 1.0,
+        data_mean: float = 0.0,
         **kwargs,
     ) -> None:
         """
@@ -657,16 +654,14 @@ class NequIP(torch.nn.Module):
 
         Args:
             cutoff (float): Cutoff radius
-            num_interactions (int): Number of interaction blocks
-            species (List[str]): List of species
-            num_elements (Optional[int], optional): Number of elements. Defaults to None.
+            num_layers (int): Number of interaction blocks
             hidden_irreps (Union[o3.Irreps, str, None], optional): Hidden irreps. Defaults to None.
             edge_sh_irreps (Union[o3.Irreps, str, None], optional): Edge irreps. Defaults to None.
             node_irreps (Union[o3.Irreps, str, None], optional): Node irreps. Defaults to None.
             MLP_irreps (Union[o3.Irreps, str, None], optional): MLP irreps. Defaults to None.
             lmax (int, optional): Maximum l value for spherical harmonics. Defaults to 2.
             parity (bool, optional): Parity. Defaults to True.
-            num_features (Optional[int], optional): Number of features. Defaults to None.
+            num_channels (Optional[int], optional): Number of features. Defaults to None.
             num_basis (int, optional): Number of basis. Defaults to 8.
             power (int, optional): Power of radial basis. Defaults to 6.
             resnet (bool, optional): ResNet. Defaults to False.
@@ -677,17 +672,20 @@ class NequIP(torch.nn.Module):
         """
         super().__init__()
         self.cutoff = cutoff
-        self.num_features = num_features
+        self.num_channels = num_channels
         self.lmax = lmax
         self.parity = parity
         
-        if num_elements is None:
-            num_elements = len(species) if species is not None else 119
+        species: List[str] = kwargs.get('species', None)
+        if bool(species):
+            num_elements = len(species)
+        else:
+            num_elements = 119
         
         ## handling irreps
         # chemical embedding irreps
         if node_irreps is None:
-            self.node_irreps = o3.Irreps([(num_features, o3.Irrep(0, 1))])
+            self.node_irreps = o3.Irreps([(num_channels, o3.Irrep(0, 1))])
         elif isinstance(node_irreps, str):
             self.node_irreps = o3.Irreps(node_irreps)
         else:
@@ -703,7 +701,7 @@ class NequIP(torch.nn.Module):
         if hidden_irreps is None:
             self.hidden_irreps = o3.Irreps(
                 [
-                    (num_features, o3.Irrep(l, p))
+                    (num_channels, o3.Irrep(l, p))
                     for p in ((1, -1) if parity else (1,))
                     for l in range(lmax + 1)
                 ]
@@ -714,7 +712,7 @@ class NequIP(torch.nn.Module):
             self.hidden_irreps = hidden_irreps
         # MLP_irreps
         if MLP_irreps is None:
-            self.MLP_irreps = o3.Irreps([(max(1, num_features // 2), o3.Irrep(0, 1))])
+            self.MLP_irreps = o3.Irreps([(max(1, num_channels // 2), o3.Irrep(0, 1))])
         elif isinstance(MLP_irreps, str):
             self.MLP_irreps = o3.Irreps(MLP_irreps)
         else:
@@ -741,7 +739,7 @@ class NequIP(torch.nn.Module):
         self.irreps_in['node_feat'] = self.embeddings.chemical_embedding.irreps_out
         
         self.interactions = nn.ModuleList()
-        for _ in range(num_interactions):
+        for _ in range(num_layers):
             interaction = InteractionLayer(
                 irreps_in=self.irreps_in, 
                 feature_irreps_hidden=self.hidden_irreps,
@@ -766,10 +764,10 @@ class NequIP(torch.nn.Module):
         )
 
         # Normalisation constants
-        self.normalization = torch.nn.Parameter(torch.tensor(normalization), requires_grad=False)
-        self.atomwise_normalization = torch.nn.Parameter(torch.tensor(atomwise_normalization), requires_grad=False)
-        self.normalize_stddev = torch.nn.Parameter(torch.tensor(normalize_stddev), requires_grad=False)
-        self.normalize_mean = torch.nn.Parameter(torch.tensor(normalize_mean), requires_grad=False)
+        self.norm_data = torch.nn.Parameter(torch.tensor(norm_data), requires_grad=False)
+        self.norm_per_atom = torch.nn.Parameter(torch.tensor(norm_per_atom), requires_grad=False)
+        self.data_stddev = torch.nn.Parameter(torch.tensor(data_stddev), requires_grad=False)
+        self.data_mean = torch.nn.Parameter(torch.tensor(data_mean), requires_grad=False)
         
         self.atomwise_reduce = AtomwiseReduce(output_key='energy')
         
@@ -805,11 +803,11 @@ class NequIP(torch.nn.Module):
         data = self.atomwise_reduce(data)
 
         # de-normalization
-        if self.normalization:
-            normalizer = self.normalize_stddev
+        if self.norm_data:
+            normalizer = self.data_stddev
             energy = normalizer * data.energy
-            mean_shift = self.normalize_mean
-            if self.atomwise_normalization:
+            mean_shift = self.data_mean
+            if self.norm_per_atom:
                 mean_shift = len(data.edge_indices) * mean_shift
             energy = energy + mean_shift
             data = replace_properties(data, energy=energy)

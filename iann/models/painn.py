@@ -35,20 +35,20 @@ def cosine_cutoff(edge_dist: torch.Tensor, cutoff: float):
 
 class PainnMessage(nn.Module):
     """Message function"""
-    def __init__(self, node_size: int, edge_size: int, cutoff: float):
+    def __init__(self, num_channels: int, edge_size: int, cutoff: float):
         super().__init__()
         
         self.edge_size = edge_size
-        self.node_size = node_size
+        self.num_channels = num_channels
         self.cutoff = cutoff
         
         self.scalar_message_mlp = nn.Sequential(
-            nn.Linear(node_size, node_size),
+            nn.Linear(num_channels, num_channels),
             nn.SiLU(),
-            nn.Linear(node_size, node_size * 3),
+            nn.Linear(num_channels, num_channels * 3),
         )
         
-        self.filter_layer = nn.Linear(edge_size, node_size * 3)
+        self.filter_layer = nn.Linear(edge_size, num_channels * 3)
         
     def forward(self, node_scalar, node_vector, edge_indices, edge_vectors, edge_dist):
         # remember to use v_j, s_j but not v_i, s_i        
@@ -59,11 +59,11 @@ class PainnMessage(nn.Module):
         
         gate_state_vector, gate_edge_vector, message_scalar = torch.split(
             filter_out, 
-            self.node_size,
+            self.num_channels,
             dim = 1,
         )
         
-        # num_pairs * 3 * node_size, num_pairs * node_size
+        # num_pairs * 3 * num_channels, num_pairs * num_channels
         message_vector = node_vector[edge_indices[:, 1]] * gate_state_vector.unsqueeze(1)
         edge_vector = gate_edge_vector.unsqueeze(1) * (edge_vectors / edge_dist.unsqueeze(-1)).unsqueeze(-1)
         message_vector = message_vector + edge_vector
@@ -82,16 +82,16 @@ class PainnMessage(nn.Module):
 
 class PainnUpdate(nn.Module):
     """Update function"""
-    def __init__(self, node_size: int):
+    def __init__(self, num_channels: int):
         super().__init__()
         
-        self.update_U = nn.Linear(node_size, node_size)
-        self.update_V = nn.Linear(node_size, node_size)
+        self.update_U = nn.Linear(num_channels, num_channels)
+        self.update_V = nn.Linear(num_channels, num_channels)
         
         self.update_mlp = nn.Sequential(
-            nn.Linear(node_size * 2, node_size),
+            nn.Linear(num_channels * 2, num_channels),
             nn.SiLU(),
-            nn.Linear(node_size, node_size * 3),
+            nn.Linear(num_channels, num_channels * 3),
         )
         
     def forward(self, node_scalar, node_vector):
@@ -125,13 +125,13 @@ class PaiNN(nn.Module):
     """
     def __init__(
         self, 
-        num_interactions, 
-        hidden_state_size, 
+        num_layers, 
+        num_channels, 
         cutoff,
-        normalization=True,
-        target_mean=[0.0],
-        target_stddev=[1.0],
-        atomwise_normalization=True, 
+        norm_data=True,
+        data_mean=[0.0],
+        data_stddev=[1.0],
+        norm_per_atom=True, 
         **kwargs,
     ):
         """
@@ -141,46 +141,46 @@ class PaiNN(nn.Module):
         
         num_embedding = 119   # number of all elements
         self.cutoff = cutoff
-        self.num_interactions = num_interactions
-        self.hidden_state_size = hidden_state_size
+        self.num_layers = num_layers
+        self.num_channels = num_channels
         self.edge_embedding_size = 20
         
         # Setup atom embeddings
-        self.atom_embedding = nn.Embedding(num_embedding, hidden_state_size)
+        self.atom_embedding = nn.Embedding(num_embedding, num_channels)
 
         # Setup message-passing layers
         self.message_layers = nn.ModuleList(
             [
-                PainnMessage(self.hidden_state_size, self.edge_embedding_size, self.cutoff)
-                for _ in range(self.num_interactions)
+                PainnMessage(self.num_channels, self.edge_embedding_size, self.cutoff)
+                for _ in range(self.num_layers)
             ]
         )
         self.update_layers = nn.ModuleList(
             [
-                PainnUpdate(self.hidden_state_size)
-                for _ in range(self.num_interactions)
+                PainnUpdate(self.num_channels)
+                for _ in range(self.num_layers)
             ]            
         )
         
         # Setup readout function
         self.readout_mlp = nn.Sequential(
-            nn.Linear(self.hidden_state_size, self.hidden_state_size),
+            nn.Linear(self.num_channels, self.num_channels),
             nn.SiLU(),
-            nn.Linear(self.hidden_state_size, 1),
+            nn.Linear(self.num_channels, 1),
         )
 
         # Normalisation constants
-        self.normalization = torch.nn.Parameter(
-            torch.tensor(normalization), requires_grad=False
+        self.norm_data = torch.nn.Parameter(
+            torch.tensor(norm_data), requires_grad=False
         )
-        self.atomwise_normalization = torch.nn.Parameter(
-            torch.tensor(atomwise_normalization), requires_grad=False
+        self.norm_per_atom = torch.nn.Parameter(
+            torch.tensor(norm_per_atom), requires_grad=False
         )
         self.normalize_stddev = torch.nn.Parameter(
-            torch.tensor(target_stddev[0]), requires_grad=False
+            torch.tensor(data_stddev[0]), requires_grad=False
         )
-        self.normalize_mean = torch.nn.Parameter(
-            torch.tensor(target_mean[0]), requires_grad=False
+        self.data_mean = torch.nn.Parameter(
+            torch.tensor(data_mean[0]), requires_grad=False
         )
 
         self.compute_forces = False
@@ -236,16 +236,14 @@ class PaiNN(nn.Module):
         positions = data.positions
         edge_indices = data.edge_indices
         atomic_numbers = data.atomic_numbers
-
-        if self.compute_forces:
-            edge_vectors.requires_grad_()
+        edge_vectors = data.edge_vectors
         edge_dist = torch.linalg.norm(edge_vectors, dim=1)
         
         # Initialize node states
         node_scalar = self.atom_embedding(atomic_numbers)
         node_scalar = self._make_contiguous(node_scalar)
         
-        node_vector = torch.zeros((positions.shape[0], 3, self.hidden_state_size),
+        node_vector = torch.zeros((positions.shape[0], 3, self.num_channels),
                                   device=positions.device,
                                   dtype=positions.dtype)
         
@@ -271,12 +269,12 @@ class PaiNN(nn.Module):
         atomic_energy = node_scalar
         data = replace_properties(data, atomic_energy=atomic_energy)
 
-        # Apply (de-)normalization
-        if self.normalization:
+        # Apply (de-)norm_data
+        if self.norm_data:
             normalizer = self.normalize_stddev
             energy = self._make_contiguous(normalizer * energy)
-            mean_shift = self.normalize_mean
-            if self.atomwise_normalization:
+            mean_shift = self.data_mean
+            if self.norm_per_atom:
                 mean_shift = self._make_contiguous(num_edges * mean_shift)
             energy = self._make_contiguous(energy + mean_shift)
 

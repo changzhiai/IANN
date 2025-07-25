@@ -2295,8 +2295,8 @@ class EquiformerV2(nn.Module):
     """
     A class to set up the EquiformerV2 model.
     """
-    def __init__(self, cutoff: float, device='cpu', num_features='128',num_interactions=3, compute_forces=False, 
-                 normalization=False, atomwise_normalization=False, normalize_stddev=1.0, normalize_mean=0.0, species=None, **kwargs):
+    def __init__(self, cutoff: float, device='cpu', num_channels='128',num_layers=3, compute_forces=False, 
+                 norm_data=False, norm_per_atom=False, data_stddev=1.0, data_mean=0.0, species=None, **kwargs):
         """
         Initialize the EquiformerV2 model.
         """
@@ -2313,8 +2313,9 @@ class EquiformerV2(nn.Module):
         self.compute_forces = compute_forces
         self.cutoff = cutoff
         self.num_resolutions = len(self.lmax_list)
-
-        self.atom_channels=num_features
+        self.num_layers = num_layers
+        
+        self.atom_channels=num_channels
         self.species = species
         if species is None:
             self.max_num_elements = 119
@@ -2327,15 +2328,14 @@ class EquiformerV2(nn.Module):
         self.atom_embedding = nn.Embedding(self.max_num_elements, self.atom_channels_all)
 
         # Initialize the blocks for each layer of EquiformerV2
-        self.num_layers = kwargs.get('num_layers', num_interactions) # 12
-        self.attn_hidden_channels = kwargs.get('attn_hidden_channels', num_features)
+        self.attn_hidden_channels = kwargs.get('attn_hidden_channels', num_channels)
         self.num_heads = kwargs.get('num_heads', 8)
-        self.attn_alpha_channels = kwargs.get('attn_alpha_channels', num_features)
+        self.attn_alpha_channels = kwargs.get('attn_alpha_channels', num_channels)
         self.attn_value_channels = kwargs.get('attn_value_channels', 16)
-        self.ffn_hidden_channels = kwargs.get('ffn_hidden_channels', num_features*2) #4
+        self.ffn_hidden_channels = kwargs.get('ffn_hidden_channels', num_channels*2) #4
         self.use_m_share_rad = kwargs.get('use_m_share_rad', False)
         self.distance_function = kwargs.get('distance_function', 'gaussian')
-        self.num_distance_basis = kwargs.get('num_distance_basis', num_features*2) #4
+        self.num_distance_basis = kwargs.get('num_distance_basis', num_channels*2) #4
         self.attn_activation = kwargs.get('attn_activation', 'scaled_silu')
         self.use_s2_act_attn = kwargs.get('use_s2_act_attn', False)
         self.use_attn_renorm = kwargs.get('use_attn_renorm', True)
@@ -2373,7 +2373,7 @@ class EquiformerV2(nn.Module):
         else:
             self.block_use_atom_edge_embedding = self.use_atom_edge_embedding
 
-        self.edge_channels = kwargs.get('edge_channels', num_features)
+        self.edge_channels = kwargs.get('edge_channels', num_channels)
         # Initialize the sizes of radial functions (input channels and 2 hidden channels)
         self.edge_channels_list = [int(self.distance_expansion.num_output)] + [self.edge_channels] * 2
 
@@ -2504,10 +2504,10 @@ class EquiformerV2(nn.Module):
         )
 
         # Normalisation constants
-        self.normalization = torch.nn.Parameter(torch.tensor(normalization), requires_grad=False)
-        self.atomwise_normalization = torch.nn.Parameter(torch.tensor(atomwise_normalization), requires_grad=False)
-        self.normalize_stddev = torch.nn.Parameter(torch.tensor(normalize_stddev), requires_grad=False)
-        self.normalize_mean = torch.nn.Parameter(torch.tensor(normalize_mean), requires_grad=False)
+        self.norm_data = torch.nn.Parameter(torch.tensor(norm_data), requires_grad=False)
+        self.norm_per_atom = torch.nn.Parameter(torch.tensor(norm_per_atom), requires_grad=False)
+        self.data_stddev = torch.nn.Parameter(torch.tensor(data_stddev), requires_grad=False)
+        self.data_mean = torch.nn.Parameter(torch.tensor(data_mean), requires_grad=False)
 
         if self.compute_forces:
             self.gradient_output = GradientOutput(model_outputs=['forces'])
@@ -2613,11 +2613,11 @@ class EquiformerV2(nn.Module):
         energy.index_add_(0, image_indices, node_energy.view(-1))
 
         # Apply de-normalization
-        if self.normalization:
-            normalizer = self.normalize_stddev
+        if self.norm_data:
+            normalizer = self.data_stddev
             energy = normalizer * energy
-            mean_shift = self.normalize_mean
-            if self.atomwise_normalization:
+            mean_shift = self.data_mean
+            if self.norm_per_atom:
                 mean_shift = len(edge_index) * mean_shift
             energy = energy + mean_shift
 
