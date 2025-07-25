@@ -125,7 +125,7 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
         results = {'energy': avg_energy, 'forces': avg_forces, 'energy_variance': energy_var, 'forces_variance': forces_var, 'atomic_energy_variance': atomic_energy_var}
         return results
 
-def convert_model_for_lammps(model_path, model_type, output_path=None, compute_forces=True, debug=False, atoms=None):
+def convert_model_for_lammps(model_path, model_type, output_path=None, debug=False, atoms=None, **kwargs):
     """Wrap a trained model in a TorchScript-compatible wrapper for LAMMPS.
     
     Args:
@@ -145,69 +145,60 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
     # Create appropriate model wrapper based on type
     if model_type.lower() == "painn":
         from iann.models.painn import PaiNN
-        node_size = state_dict.get("node_size", 128)
-        num_interactions = state_dict.get("num_layer", 3)
+        num_channels = state_dict.get("num_channels", 128)
+        num_layers = state_dict.get("num_layers", 3)
         cutoff = state_dict.get("cutoff", 5.5)
         raw_model = PaiNN(
-            hidden_state_size=node_size,
-            num_interactions=num_interactions,
+            num_layers=num_layers,
+            num_channels=num_channels,
             cutoff=cutoff,
-            compute_forces=True,
-            normalization=False,
-            atomwise_normalization=False,
+            compute_forces=kwargs.get("compute_forces", True),
+            **kwargs,
         )
         raw_model.load_state_dict(state_dict["model"])
     elif model_type.lower() == "nequip":
-        try:
-            from iann.models.nequip import NequIP
-            num_interactions = state_dict.get("num_layer", 3)
-            node_size = state_dict.get("node_size", 128)
-            cutoff = state_dict.get("cutoff", 5.5)
-            raw_model = NequIP(
-                num_interactions=num_interactions,
-                num_features=node_size,
-                cutoff=cutoff,
-                compute_forces=True
-            )
-            raw_model.load_state_dict(state_dict["model"])
-        except ImportError:
-            raise ImportError("Nequip is not available")
+        from iann.models.nequip import NequIP
+        num_layers = state_dict.get("num_layers", 3)
+        num_channels = state_dict.get("num_channels", 128)
+        cutoff = state_dict.get("cutoff", 5.5)
+        raw_model = NequIP(
+            num_layers=num_layers,
+            num_channels=num_channels,
+            cutoff=cutoff,
+            compute_forces=kwargs.get("compute_forces", True),
+            **kwargs,
+        )
+        raw_model.load_state_dict(state_dict["model"])
     elif model_type.lower() == "mace":
-        try:
-            from iann.models.mace import MACE
-            num_interactions = state_dict.get("num_layer", 3)
-            node_size = state_dict.get("node_size", 128)
-            cutoff = state_dict.get("cutoff", 5.5)
-            raw_model = MACE(
-                num_interactions=num_interactions,
-                num_features=node_size,
-                cutoff=cutoff,
-                correlation = 3,
-                species = None,
-                compute_forces=True
-            )
-            raw_model.load_state_dict(state_dict["model"])
-        except ImportError:
-            raise ImportError("MACE is not available")
+        from iann.models.mace import MACE
+        num_layers = state_dict.get("num_layers", 3)
+        num_channels = state_dict.get("num_channels", 128)
+        cutoff = state_dict.get("cutoff", 5.5)
+        raw_model = MACE(
+            num_layers=num_layers,
+            num_channels=num_channels,
+            cutoff=cutoff,
+            compute_forces=kwargs.get("compute_forces", True),
+            **kwargs,
+        )
+        raw_model.load_state_dict(state_dict["model"])
     elif model_type.lower() == "equiformerv2":
-        try:
-            from iann.models.equiformerV2 import EquiformerV2
-            num_interactions = state_dict.get("num_layer", 3)
-            node_size = state_dict.get("node_size", 128)
-            cutoff = state_dict.get("cutoff", 5.5)
-            raw_model = EquiformerV2(
-                num_interactions=num_interactions,
-                num_features=node_size,
-                cutoff=cutoff,
-                compute_forces=True
-            )
-            raw_model.load_state_dict(state_dict["model"])
-        except ImportError:
-            raise ImportError("EquiformerV2 is not available")
+        from iann.models.equiformerV2 import EquiformerV2
+        num_layers = state_dict.get("num_layers", 3)
+        num_channels = state_dict.get("num_channels", 128)
+        cutoff = state_dict.get("cutoff", 5.5)
+        raw_model = EquiformerV2(
+            num_layers=num_layers,
+            num_channels=num_channels,
+            cutoff=cutoff,
+            compute_forces=kwargs.get("compute_forces", True),
+            **kwargs,
+        )
+        raw_model.load_state_dict(state_dict["model"])
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
-    wrapped_model = LAMMPSModelWrapper(raw_model, compute_forces=compute_forces)
+    wrapped_model = LAMMPSModelWrapper(raw_model, compute_forces=kwargs.get("compute_forces", True))
     wrapped_model.eval()
     # Example test: verify the wrapper with dummy ASE atoms
     if debug:
@@ -215,7 +206,7 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
         if not atoms:
             from ase.build import fcc100
             atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
-        model_inputs = AseDataReader(cutoff, compute_forces=compute_forces)(atoms)
+        model_inputs = AseDataReader(raw_model.cutoff, compute_forces=kwargs.get("compute_forces", True))(atoms)
         example_out = wrapped_model(
             model_inputs.num_atoms,
             model_inputs.atomic_numbers,
@@ -235,7 +226,7 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, compute_f
     print(f"Model exported to {output_path}")
     return output_path
 
-def convert_models_for_lammps(model_paths, model_type, output_path=None, compute_forces=True, debug=False, atoms=None):
+def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=False, atoms=None, **kwargs):
     """Convert multiple models to a single TorchScript model for LAMMPS with ensemble statistics.
     
     Args:
@@ -259,51 +250,51 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, compute
         # Create appropriate model based on type
         if model_type.lower() == "painn":
             from iann.models.painn import PaiNN
-            node_size = state_dict.get("node_size", 128)
-            num_interactions = state_dict.get("num_layer", 3)
+            num_channels = state_dict.get("num_channels", 128)
+            num_layers = state_dict.get("num_layers", 3)
             cutoff = state_dict.get("cutoff", 5.5)
             raw_model = PaiNN(
-                hidden_state_size=node_size,
-                num_interactions=num_interactions,
+                num_channels=num_channels,
+                num_layers=num_layers,
                 cutoff=cutoff,
-                compute_forces=True,
-                normalization=False,
-                atomwise_normalization=False,
+                compute_forces=kwargs.get("compute_forces", True),
+                **kwargs,
             )
         elif model_type.lower() == "nequip":
             from iann.models.nequip import NequIP
-            num_interactions = state_dict.get("num_layer", 3)
-            node_size = state_dict.get("node_size", 128)
+            num_layers = state_dict.get("num_layers", 3)
+            num_channels = state_dict.get("num_channels", 128)
             cutoff = state_dict.get("cutoff", 5.5)
             raw_model = NequIP(
-                num_interactions=num_interactions,
-                num_features=node_size,
+                num_layers=num_layers,
+                num_channels=num_channels,
                 cutoff=cutoff,
-                compute_forces=True
+                compute_forces=kwargs.get("compute_forces", True),
+                **kwargs,
             )
         elif model_type.lower() == "mace":
             from iann.models.mace import MACE
-            num_interactions = state_dict.get("num_layer", 3)
-            node_size = state_dict.get("node_size", 128)
+            num_layers = state_dict.get("num_layers", 3)
+            num_channels = state_dict.get("num_channels", 128)
             cutoff = state_dict.get("cutoff", 5.5)
             raw_model = MACE(
-                num_interactions=num_interactions,
-                num_features=node_size,
+                num_layers=num_layers,
+                num_channels=num_channels,
                 cutoff=cutoff,
-                correlation=3,
-                species=None,
-                compute_forces=True
+                compute_forces=kwargs.get("compute_forces", True),
+                **kwargs,
             )
         elif model_type.lower() == "equiformerv2":
             from iann.models.equiformerV2 import EquiformerV2
-            num_interactions = state_dict.get("num_layer", 3)
-            node_size = state_dict.get("node_size", 128)
+            num_layers = state_dict.get("num_layers", 3)
+            num_channels = state_dict.get("num_channels", 128)
             cutoff = state_dict.get("cutoff", 5.5)
             raw_model = EquiformerV2(
-                num_interactions=num_interactions,
-                num_features=node_size,
+                num_layers=num_layers,
+                num_channels=num_channels,
                 cutoff=cutoff,
-                compute_forces=True
+                compute_forces=kwargs.get("compute_forces", True),
+                **kwargs,
             )
         else:
             raise ValueError(f"Unknown model type: {model_type}")
@@ -313,7 +304,7 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, compute
         models.append(raw_model)
 
     # Create ensemble wrapper
-    wrapped_model = EnsembleLAMMPSModelWrapper(models, compute_forces=compute_forces)
+    wrapped_model = EnsembleLAMMPSModelWrapper(models, compute_forces=kwargs.get("compute_forces", True))
     wrapped_model.eval()
 
     # Test the wrapper with dummy ASE atoms
@@ -322,7 +313,7 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, compute
         if not atoms:
             from ase.build import fcc100
             atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
-        model_inputs = AseDataReader(models[0].cutoff, compute_forces=compute_forces)(atoms)
+        model_inputs = AseDataReader(models[0].cutoff, compute_forces=kwargs.get("compute_forces", True))(atoms)
         example_out = wrapped_model(
             model_inputs.num_atoms,
             model_inputs.atomic_numbers,
