@@ -12,7 +12,7 @@ def _load_model(model_path, device, compute_forces):
         model_type = state_dict["model_type"].lower()
     else:
         # Try to determine from model architecture
-        if "num_layer" in state_dict:
+        if "num_layers" in state_dict:
             model_type = "painn"
         elif "irreps" in state_dict:
             model_type = "nequip"
@@ -27,43 +27,40 @@ def _load_model(model_path, device, compute_forces):
     if model_type == "painn":
         from iann.models.painn import PaiNN
         model = PaiNN(
-            num_interactions=state_dict["num_layer"],
-            hidden_state_size=state_dict["node_size"],
+            num_layers=state_dict["num_layers"],
+            num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
             compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces
         )
     elif model_type == "nequip":
         from iann.models.nequip import NequIP
         model = NequIP(
-            num_interactions=state_dict["num_layer"],
-            num_features=state_dict["node_size"],
+            num_layers=state_dict["num_layers"],
+            num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            species=state_dict.get("species", None),
             compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces
         )
     elif model_type == "mace":
         from iann.models.mace import MACE
         model = MACE(
-            num_interactions=state_dict["num_layer"],
-            num_features=state_dict["node_size"],
+            num_layers=state_dict["num_layers"],
+            num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            correlation=state_dict.get("correlation", 3),
-            species=state_dict.get("species", None),
             compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces
         )
     elif model_type == "equiformerv2":
         from iann.models.equiformerV2 import EquiformerV2
         model = EquiformerV2(
-            num_interactions=state_dict["num_layer"],
-            num_features=state_dict["node_size"],
+            num_layers=state_dict["num_layers"],
+            num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
             compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, and equiformerV2!")
     
-    model.to(device)
     model.load_state_dict(state_dict["model"])
+    model.to(device)
     return model
 
 class MLCalculator(Calculator):
