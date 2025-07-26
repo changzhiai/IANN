@@ -32,7 +32,29 @@ class LAMMPSModelWrapper(torch.nn.Module):
                 edge_indices: torch.Tensor,
                 edge_vectors: torch.Tensor,
                 num_edges: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """Forward seven input tensors matching the C++ plugin call."""
+        """Forward input tensors matching the C++ plugin call.
+        
+        Parameters
+        ----------
+        num_atoms : torch.Tensor
+            Number of atoms.
+        atomic_numbers : torch.Tensor
+            Atomic numbers.
+        positions : torch.Tensor
+            Positions.
+        cell : torch.Tensor
+            Cell.
+        edge_indices : torch.Tensor
+            Edge indices.
+        edge_vectors : torch.Tensor
+            Edge vectors.
+        num_edges : torch.Tensor
+
+        Returns
+        -------
+        Dict[str, torch.Tensor]
+            Dictionary with keys 'energy', 'forces', 'atomic_energy'.
+        """
         # Reconstruct the NamedTuple internally
         model_inputs = AtomsData(
             num_atoms=num_atoms,
@@ -78,7 +100,29 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
                 edge_indices: torch.Tensor,
                 edge_vectors: torch.Tensor,
                 num_edges: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """Forward pass that computes ensemble averages and variances."""
+        """Forward pass that computes ensemble averages and variances.
+        
+        Parameters
+        ----------
+        num_atoms : torch.Tensor
+            Number of atoms.
+        atomic_numbers : torch.Tensor
+            Atomic numbers.
+        positions : torch.Tensor
+            Positions.
+        cell : torch.Tensor
+            Cell.
+        edge_indices : torch.Tensor
+            Edge indices.
+        edge_vectors : torch.Tensor
+            Edge vectors.
+        num_edges : torch.Tensor
+
+        Returns
+        -------
+        Dict[str, torch.Tensor]
+            Dictionary with keys 'energy', 'forces', 'energy_variance', 'forces_variance', 'atomic_energy_variance'.
+        """
         # Reconstruct the NamedTuple internally
         model_inputs = AtomsData(
             num_atoms=num_atoms,
