@@ -36,9 +36,9 @@ Example usage:
    from iann.models.painn import PaiNN
    
    model = PaiNN(
-       num_interactions=3,
-       hidden_state_size=128,
-       cutoff=4.0,
+       num_layers=3,
+       num_channels=64,
+       cutoff=5.5,
        compute_forces=True
    )
 
@@ -65,9 +65,9 @@ Example usage:
    from iann.models.nequip import NequIP
    
    model = NequIP(
-       num_interactions=3,
-       hidden_state_size=128,
-       cutoff=4.0,
+       num_layers=3,
+       num_channels=64,
+       cutoff=5.5,
        compute_forces=True
    )
 
@@ -94,9 +94,9 @@ Example usage:
    from iann.models.mace import MACE
    
    model = MACE(
-       num_interactions=3,
-       hidden_state_size=128,
-       cutoff=4.0,
+       num_layers=3,
+       num_channels=64,
+       cutoff=5.5,
        compute_forces=True
    )
 
@@ -121,9 +121,9 @@ Example usage:
    from iann.models.equiformerV2 import EquiformerV2
    
    model = EquiformerV2(
-       num_interactions=3,
-       hidden_state_size=128,
-       cutoff=4.0,
+       num_layers=3,
+       num_channels=32,
+       cutoff=5.5,
        compute_forces=True
    )
 
