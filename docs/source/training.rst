@@ -177,6 +177,7 @@ Here is an example of how to run multi-GPU training on NERSC:
 Similarly, the log file and checkpoint file will be saved in the output directory. The example log file is shown below:
 
 .. code-block:: text
+   
    2025-07-25 17:12:07,940 [RANK0] [INFO ]  PyTorch version: 2.4.0
    2025-07-25 17:12:07,941 [RANK0] [INFO ]  Node List: nid[008436,008509]
    2025-07-25 17:12:07,941 [RANK0] [INFO ]  World Size (number of GPUs): 8
