@@ -1,4 +1,4 @@
-from ase.calculators import Calculator, all_changes
+from ase.calculators.calculator import Calculator, all_changes
 from iann.data import AseDataReader
 import numpy as np
 import torch

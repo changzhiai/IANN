@@ -40,13 +40,13 @@ Trainer
 Calculators
 --------
 
-.. autoclass:: iann.calculators.calculators.MLCalculator
+.. autoclass:: iann.calculators.MLCalculator
    :members: forward
 
-.. autoclass:: iann.calculators.calculators.EnsembleCalculator
+.. autoclass:: iann.calculators.EnsembleCalculator
    :members: forward
 
-.. autoclass:: iann.calculators.calculators.AtomicEnsembleCalculator
+.. autoclass:: iann.calculators.AtomicEnsembleCalculator
    :members: forward
 
 
