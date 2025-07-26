@@ -38,7 +38,7 @@ Trainer
 
 
 Calculators
---------
+----------
 
 .. autoclass:: iann.calculators.MLCalculator
    :members: forward
