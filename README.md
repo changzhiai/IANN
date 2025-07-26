@@ -94,34 +94,43 @@ Available models for `model`:
 Default configurations for `config`:
 ```python
 config = {
-    "node_size": 128,
-    "num_interactions": 3,
-    "cutoff": 5.5,
-    "val_ratio": 0.1,
-    "output_dir": "output",
-    "max_steps": 1000000,
-    "batch_size": 12,
-    "initial_lr": 0.0001,
-    "forces_weight": 0.9,
-    "log_interval": 2000,
-    "normalization": False,
-    "atomwise_normalization": False,
-    "stop_patience": 200,
-    "plateau_scheduler": False,
-    "random_seed": 666,
-    "split_file": None,
-    "load_model": False,
-    "max_epochs": None,
-    "device": None,
-    "dist_timeout": 600,
-    "master_port": 12356,
-    "debug": False,
-    "optimizer_type": "adam",
-    'output_log': 'print_out.log',
-    "max_grad_norm": None,
-    "output_model": "model.pt",
+    # parameters for model
+    "num_channels": 128, # number of channels in the model
+    "num_layers": 3, # number of layers in the model
+    "cutoff": 5.5, # cutoff radius
+    # parameters for trainer
+    "device": None,      # override device, e.g. 'cpu' or 'cuda'
+    "val_ratio": 0.1, # validation ratio
+    "batch_size": 12, # batch size
+    "learning_rate": 0.0001, # initial learning rate
+    "forces_weight": 0.9, # weight for forces
+    "load_model": False, # load model from checkpoint
+    "max_steps": 1000000, # maximum number of steps
+    "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
+    "optimizer_type": "adam", # optimizer type: "adam", "sgd", "rmsprop", "adagrad", "adadelta", "adamax", "adamw"
+    "max_grad_norm": None,    # gradient clipping norm
+    "log_interval": 2000, # log interval
+    "stop_patience": 200, # patience for early stopping
+    "scheduler_type": "LambdaLR", # scheduler type: "ReduceLROnPlateau", "LambdaLR", "CosineAnnealingLR", "CosineAnnealingWarmRestarts", "StepLR", "MultiStepLR", "ExponentialLR"
+    # parameters for data
+    "random_seed": 666, # random seed for reproducibility
+    "save_split": False, # save split file name
+    "load_split": False, # load split file name
+    "norm_data": False, # normalize data
+    "norm_per_atom": False, # normalize data per atom
+    # parameters for DDP (Parallelization)
+    "dist_timeout": 600,  # timeout (seconds) for distributed operations
+    "master_port": 12356, # port for distributed operations
+    # parameters for output
+    "output_dir": "output", # output directory
+    "output_log": "output.log", # log file
+    "output_model": "model.pt", # model file
+    "debug": False, # debug mode
 }
 ```
+
+> [!NOTE]
+> There are more parameters for each model, please refer to the documentation or source code for details.
 
 ### Monitoring Training Progress
 

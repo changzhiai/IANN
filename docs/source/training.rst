@@ -81,6 +81,8 @@ Available configurations for ``config``:
    "debug": False, # debug mode
    }
 
+.. note::
+   There are more parameters for each model, please refer to the :doc:`api` reference for details.
 
 Directly run the training script in command line:
 
