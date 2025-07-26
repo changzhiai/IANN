@@ -404,11 +404,12 @@ class Trainer:
         else:
             self.data_mean = torch.tensor([0.0])
             self.data_stddev = torch.tensor([1.0])
-
-        if bool(self.config['forces_weight']):
-            logging.info("Compute forces: True")
-        else:
-            logging.info("Compute forces: False")
+        
+        if self.rank == 0:
+            if bool(self.config['forces_weight']):
+                logging.info("Compute forces: True")
+            else:
+                logging.info("Compute forces: False")
 
     def _create_model(self):
         """Create model based on model_type"""
