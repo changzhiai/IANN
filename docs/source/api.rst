@@ -41,13 +41,13 @@ Calculators
 ----------
 
 .. autoclass:: iann.calculators.MLCalculator
-   :members: forward
+   :members: __init__, calculate
 
 .. autoclass:: iann.calculators.EnsembleCalculator
-   :members: forward
+   :members: __init__, calculate, get_ensemble
 
 .. autoclass:: iann.calculators.AtomicEnsembleCalculator
-   :members: forward
+   :members: __init__, calculate, get_ensemble
 
 
 Plugins

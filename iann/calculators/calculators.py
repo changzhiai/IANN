@@ -125,10 +125,14 @@ class MLCalculator(Calculator):
 
     def calculate(self, atoms=None, properties=["energy", "forces"], system_changes=all_changes):
         """
-        Args:
-            atoms (ase.Atoms): ASE atoms object.
-            properties (list of str): do not use this, no functionality
-            system_changes (list of str): List of changes for ASE.
+        Parameters
+        ----------
+        atoms : ase.Atoms
+            ASE atoms object.
+        properties : list of str
+            energy and forces are supported.
+        system_changes : list of str
+            List of changes for ASE.
         """
         if atoms is not None:
             self.atoms = atoms.copy()       
@@ -214,10 +218,14 @@ class EnsembleCalculator(Calculator):
 
     def calculate(self, atoms=None, properties=["energy", "forces", "ensemble"], system_changes=all_changes):
         """
-        Args:
-            atoms (ase.Atoms): ASE atoms object.
-            properties (list of str): do not use this, no functionality
-            system_changes (list of str): List of changes for ASE.
+        Parameters
+        ----------
+        atoms : ase.Atoms
+            ASE atoms object.
+        properties : list of str
+            energy, forces, and ensemble are supported.
+        system_changes : list of str
+            List of changes for ASE.
         """
         if atoms is not None:
             self.atoms = atoms.copy()
@@ -314,10 +322,14 @@ class AtomicEnsembleCalculator(Calculator):
 
     def calculate(self, atoms=None, properties=["energy", "forces", "ensemble"], system_changes=all_changes):
         """
-        Args:
-            atoms (ase.Atoms): ASE atoms object.
-            properties (list of str): do not use this, no functionality
-            system_changes (list of str): List of changes for ASE.
+        Parameters
+        ----------
+        atoms : ase.Atoms
+            ASE atoms object.
+        properties : list of str
+            energy, forces, and ensemble are supported.
+        system_changes : list of str
+            List of changes for ASE.
         """
         if atoms is not None:
             self.atoms = atoms.copy()
