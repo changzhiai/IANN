@@ -1,18 +1,23 @@
 from iann.trainer import Trainer
-from iann.calculators.calculators import MLCalculator
+from iann.calculators import MLCalculator
 from ase.io import read
 
-# Train a model
+# Initialize trainer
 trainer = Trainer(
     model="painn",
-    config={"device": "cpu", 
-            'output_dir': 'output'},
+    config={'device': 'cpu', 
+           'output_dir': 'output',
+           'output_log': 'output.log',
+           'output_model': 'model.pt',
+            },
     distributed=False
     )
+
+# Train the model
 trainer.train("dataset.traj")
 
-# Create calculator with model path
-calc = MLCalculator("output/best_model.pth")
+# Create calculator with model
+calc = MLCalculator("output/model.pt")
 
 # Read structures
 images = read("test_structures.traj", ":")
