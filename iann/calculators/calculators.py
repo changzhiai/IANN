@@ -78,8 +78,25 @@ class MLCalculator(Calculator):
         forces_scale=1.0,
         device=None,
         verbose=False,
-        **kwargs
-    ):
+        **kwargs):
+        """
+        Parameters
+        ----------
+        model_path : str
+            Path to the model (only one model).
+        model : iann.models.Model
+            Model to use.
+        config : dict
+            Configuration for the calculator.
+        energy_scale : float
+            Energy scale.
+        forces_scale : float
+            Forces scale.
+        device : str
+            Device to use.
+        verbose : bool
+            Verbosity.
+        """
         super().__init__(**kwargs)
 
         if device is None:
@@ -167,8 +184,25 @@ class EnsembleCalculator(Calculator):
         forces_scale=1.0,
         device=None,
         verbose=False,
-        **kwargs
-    ):
+        **kwargs):
+        """
+        Parameters
+        ----------
+        model_paths : list of str
+            Paths to the models (several models for ensemble).
+        models : list of iann.models.Model
+            Models to use.
+        config : dict
+            Configuration for the calculator.
+        energy_scale : float
+            Energy scale.
+        forces_scale : float
+            Forces scale.
+        device : str
+            Device to use.
+        verbose : bool
+            Verbosity.
+        """
         super().__init__(**kwargs)
 
         if config is not None:
@@ -271,8 +305,25 @@ class AtomicEnsembleCalculator(Calculator):
         forces_scale=1.0,
         device=None,
         verbose=False,
-        **kwargs
-    ):
+        **kwargs):
+        """
+        Parameters
+        ----------
+        model_paths : list of str
+            Paths to the models (several models for ensemble).
+        models : list of iann.models.Model
+            Models to use.
+        config : dict
+            Configuration for the calculator.
+        energy_scale : float
+            Energy scale.
+        forces_scale : float
+            Forces scale.
+        device : str
+            Device to use.
+        verbose : bool
+            Verbosity.
+        """
         super().__init__(**kwargs)
 
         if config is not None:
