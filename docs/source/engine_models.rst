@@ -42,7 +42,7 @@ Example usage:
        compute_forces=True
    )
 
-There are more adjustable parameters for PaiNN, please check the source code :class:`iann.models.painn.PaiNN` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
+There are more adjustable parameters for PaiNN model to setup the training process, please check the source code :class:`iann.models.painn.PaiNN` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
 
 NequIP
 ------
@@ -73,7 +73,7 @@ Example usage:
        compute_forces=True
    )
 
-There are more adjustable parameters for NequIP, please check the source code :class:`iann.models.nequip.NequIP` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
+There are more adjustable parameters for NequIP model to setup the training process, please check the source code :class:`iann.models.nequip.NequIP` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
 
 MACE
 ----
@@ -104,7 +104,7 @@ Example usage:
        compute_forces=True
    )
 
-There are more adjustable parameters for MACE, please check the source code :class:`iann.models.mace.MACE` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
+There are more adjustable parameters for MACE model to setup the training process, please check the source code :class:`iann.models.mace.MACE` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
 
 EquiformerV2
 -----------
@@ -133,7 +133,7 @@ Example usage:
        compute_forces=True
    )
 
-There are more adjustable parameters for EquiformerV2, please check the source code :class:`iann.models.equiformerV2.EquiformerV2` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
+There are more adjustable parameters for EquiformerV2 model to setup the training process, please check the source code :class:`iann.models.equiformerV2.EquiformerV2` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
 
 Model Selection
 -------------

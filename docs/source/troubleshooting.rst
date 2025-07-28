@@ -154,15 +154,20 @@ General Tips
 References
 ----------
 
-.. [1] K. T. Schütt, et al. *Equivariant message passing for the prediction of tensorial properties and molecular spectra*, arXiv:2102.03150 (2021). `[Link] <https://arxiv.org/abs/2102.03150>`__
+.. [1] K. T. Schütt, et al. *Equivariant message passing for the prediction of tensorial properties and molecular spectra*, arXiv:2102.03150 (2021). 
+   `[Link] <https://arxiv.org/abs/2102.03150>`__
 
-.. [2] S. Batzner, et al. *E(3)-equivariant graph neural networks for data-efficient and accurate interatomic potentials*, Nature Communications, 13, 2453 (2022). `[Link] <https://doi.org/10.1038/s41467-022-29939-5>`__
+.. [2] S. Batzner, et al. *E(3)-equivariant graph neural networks for data-efficient and accurate interatomic potentials*, Nature Communications, 13, 2453 (2022). 
+   `[Link] <https://doi.org/10.1038/s41467-022-29939-5>`__
 
-.. [3] I. Batatia, et al. *MACE: Higher Order Equivariant Message Passing Neural Networks for Fast and Accurate Force Fields*, arXiv:2206.07697 (2022). `[Link] <https://arxiv.org/abs/2206.07697>`__
+.. [3] I. Batatia, et al. *MACE: Higher Order Equivariant Message Passing Neural Networks for Fast and Accurate Force Fields*, arXiv:2206.07697 (2022). 
+   `[Link] <https://arxiv.org/abs/2206.07697>`__
 
-.. [4] Y. L. Liao, et al. *EquiformerV2: Improved Equivariant Transformer for Scaling to Higher-Degree Representations*, arXiv:2306.12059 (2023). `[Link] <https://arxiv.org/abs/2306.12059>`__
+.. [4] Y. L. Liao, et al. *EquiformerV2: Improved Equivariant Transformer for Scaling to Higher-Degree Representations*, arXiv:2306.12059 (2023).
+   `[Link] <https://arxiv.org/abs/2306.12059>`__
 
-.. [5] X. Yang, et al. *CURATOR: Building Robust Machine Learning Potentials for Atomistic Simulations Autonomously with Batch Active Learning*, ChemRxiv (2024). `[Link] <http://dx.doi.org/10.26434/chemrxiv-2024-p5t3l>`__
+.. [5] X. Yang, et al. *CURATOR: Building Robust Machine Learning Potentials for Atomistic Simulations Autonomously with Batch Active Learning*, ChemRxiv (2024). 
+   `[Link] <http://dx.doi.org/10.26434/chemrxiv-2024-p5t3l>`__
 
 
 For more specific issues or if you need additional help, please:

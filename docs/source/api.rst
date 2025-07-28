@@ -16,19 +16,19 @@ Models
 ------
 
 .. autoclass:: iann.models.painn.PaiNN
-   :members: forward
+   :members: __init__, forward
 
 
 .. autoclass:: iann.models.nequip.NequIP
-   :members: forward
+   :members: __init__, forward
 
 
 .. autoclass:: iann.models.mace.MACE
-   :members: forward
+   :members: __init__, forward
 
 
 .. autoclass:: iann.models.equiformerV2.EquiformerV2
-   :members: forward
+   :members: __init__, forward
 
 Trainer
 ------
@@ -54,10 +54,10 @@ Plugins
 ------
 
 .. autoclass:: iann.plugins.converter.LAMMPSModelWrapper
-   :members: forward
+   :members: __init__, forward
 
 .. autoclass:: iann.plugins.converter.EnsembleLAMMPSModelWrapper
-   :members: forward
+   :members: __init__, forward
 
 .. autofunction:: iann.plugins.converter.convert_model_for_lammps
 
