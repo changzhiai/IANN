@@ -337,7 +337,7 @@ class AtomicEnsembleCalculator(Calculator):
         Returns
         -------
         Dict[str, array]
-            Dictionary with keys 'energy', 'forces', 'ensemble'.
+            Dictionary with keys 'energy', 'forces', 'ensemble' including atomic energy variance.
         """
         super().__init__(**kwargs)
 
@@ -396,11 +396,6 @@ class AtomicEnsembleCalculator(Calculator):
             energy, forces, and ensemble are supported.
         system_changes : list of str
             List of changes for ASE.
-
-        Returns
-        -------
-        Dict[str, torch.Tensor]
-            Dictionary with keys 'energy', 'forces', 'ensemble' including atomic energy variance.
         """
         if atoms is not None:
             self.atoms = atoms.copy()
