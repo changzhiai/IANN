@@ -2295,34 +2295,33 @@ class EquiformerV2(nn.Module):
     """
     A class to set up the EquiformerV2 model.
     """
-    def __init__(self, cutoff: float, device='cpu', num_channels='128',num_layers=3, compute_forces=False, 
-                 norm_data=False, norm_per_atom=False, data_stddev=1.0, data_mean=0.0, species=None, **kwargs):
+    def __init__(self, device='cpu', num_channels='64',num_layers=3, norm_data=False, norm_per_atom=False, data_stddev=1.0, data_mean=0.0, **kwargs):
         """
         Initialize the EquiformerV2 model.
         """
         super().__init__()
         # Initialize the basic parameters
-        self._AVG_NUM_NODES = kwargs.get('avg_num_nodes', 1) #77.81317
-        self._AVG_DEGREE = kwargs.get('avg_degree', 1) #23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
+        self.cutoff: float = kwargs.get('cutoff', 5.5)
+        self.compute_forces = kwargs.get('compute_forces', False)
+        self.species = kwargs.get('species', None)
+        self._AVG_NUM_NODES = kwargs.get('avg_num_nodes', 1) # 77.81317
+        self._AVG_DEGREE = kwargs.get('avg_degree', 1) # 23.395238876342773    # IS2RE: 100k, max_radius = 5, max_neighbors = 100
         self.lmax_list = kwargs.get('lmax_list', [4]) # [6]
         self.mmax_list = kwargs.get('mmax_list', [2])
         self.grid_resolution = kwargs.get('grid_resolution', None) #Initialize the transformations between spherical and grid representations
 
         self.device = torch.device(device)
         self.dtype = torch.float32 
-        self.compute_forces = compute_forces
-        self.cutoff = cutoff
         self.num_resolutions = len(self.lmax_list)
         self.num_layers = num_layers
         
         self.atom_channels=num_channels
-        self.species = species
-        if species is None:
+        if self.species is None:
             self.max_num_elements = 119
         else:
             from ase.data import atomic_numbers
-            self.max_num_elements = len(species)
-            Zs = [atomic_numbers[s] for s in species]
+            self.max_num_elements = len(self.species)
+            Zs = [atomic_numbers[s] for s in self.species]
             self.element_to_index = {Z: i for i, Z in enumerate(Zs)}
         self.atom_channels_all = self.num_resolutions * self.atom_channels
         self.atom_embedding = nn.Embedding(self.max_num_elements, self.atom_channels_all)
@@ -2359,7 +2358,7 @@ class EquiformerV2(nn.Module):
             self.distance_expansion = GaussianSmearing(
                 0.0,
                 self.cutoff,
-                300, #600,
+                300, # 600,
                 2.0,
             )
         else:

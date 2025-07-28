@@ -125,9 +125,8 @@ class PaiNN(nn.Module):
     """
     def __init__(
         self, 
-        num_layers, 
-        num_channels, 
-        cutoff,
+        num_layers=3, 
+        num_channels=128, 
         norm_data=True,
         data_mean=[0.0],
         data_stddev=[1.0],
@@ -139,11 +138,11 @@ class PaiNN(nn.Module):
         """
         super().__init__()
         
-        num_embedding = 119   # number of all elements
-        self.cutoff = cutoff
+        num_embedding = kwargs.get('num_embedding', 119)   # number of all elements
+        self.cutoff = kwargs.get('cutoff', 5.5)
         self.num_layers = num_layers
         self.num_channels = num_channels
-        self.edge_embedding_size = 20
+        self.edge_embedding_size = kwargs.get('edge_embedding_size', 20)
         
         # Setup atom embeddings
         self.atom_embedding = nn.Embedding(num_embedding, num_channels)

@@ -627,22 +627,8 @@ class NequIP(torch.nn.Module):
     """
     def __init__(
         self,
-        cutoff: float,
         num_layers: int,
-        hidden_irreps: Union[o3.Irreps, str, None] = None,
-        edge_sh_irreps: Union[o3.Irreps, str, None] = None,
-        node_irreps: Union[o3.Irreps, str, None] = None,
-        MLP_irreps: Union[o3.Irreps, str, None] = None,
-        lmax: int = 2,
-        parity: bool = True,
-        num_channels: Optional[int] = None,
-        num_basis: int = 8,
-        power: int = 6,
-        resnet: bool = False,
-        nonlinearity_type: str = "gate",
-        nonlinearity_scalars: Dict[int, Callable] = {"e": "ssp", "o": "tanh"},
-        nonlinearity_gates: Dict[int, Callable] = {"e": "ssp", "o": "abs"},
-        convolution_kwargs: dict = {},
+        num_channels: int = 64,
         norm_data: bool = False,
         norm_per_atom: bool = False,
         data_stddev: float = 1.0,
@@ -651,30 +637,24 @@ class NequIP(torch.nn.Module):
     ) -> None:
         """
         Initialize the NequIP model.
-
-        Args:
-            cutoff (float): Cutoff radius
-            num_layers (int): Number of interaction blocks
-            hidden_irreps (Union[o3.Irreps, str, None], optional): Hidden irreps. Defaults to None.
-            edge_sh_irreps (Union[o3.Irreps, str, None], optional): Edge irreps. Defaults to None.
-            node_irreps (Union[o3.Irreps, str, None], optional): Node irreps. Defaults to None.
-            MLP_irreps (Union[o3.Irreps, str, None], optional): MLP irreps. Defaults to None.
-            lmax (int, optional): Maximum l value for spherical harmonics. Defaults to 2.
-            parity (bool, optional): Parity. Defaults to True.
-            num_channels (Optional[int], optional): Number of features. Defaults to None.
-            num_basis (int, optional): Number of basis. Defaults to 8.
-            power (int, optional): Power of radial basis. Defaults to 6.
-            resnet (bool, optional): ResNet. Defaults to False.
-            nonlinearity_type (str, optional): Type of nonlinearity. Defaults to "gate".
-            nonlinearity_scalars (Dict[int, Callable], optional): Nonlinearity for scalars. Defaults to {"e": "ssp", "o": "tanh"}.
-            nonlinearity_gates (Dict[int, Callable], optional): Nonlinearity for gates. Defaults to {"e": "ssp", "o": "abs"}.
-            convolution_kwargs (dict, optional): Convolution kwargs. Defaults to {}.
         """
         super().__init__()
-        self.cutoff = cutoff
-        self.num_channels = num_channels
-        self.lmax = lmax
-        self.parity = parity
+
+        self.cutoff:float = kwargs.get('cutoff', 5.5)
+        self.hidden_irreps:Union[o3.Irreps, str, None] = kwargs.get('hidden_irreps', None)
+        self.edge_sh_irreps:Union[o3.Irreps, str, None] = kwargs.get('edge_sh_irreps', None)
+        self.node_irreps:Union[o3.Irreps, str, None] = kwargs.get('node_irreps', None)
+        self.MLP_irreps:Union[o3.Irreps, str, None] = kwargs.get('MLP_irreps', None)
+        self.lmax:int = kwargs.get('lmax', 2)
+        self.parity:bool = kwargs.get('parity', True)
+        self.num_basis:int = kwargs.get('num_basis', 8)
+        self.power:int = kwargs.get('power', 6)
+        self.resnet:bool = kwargs.get('resnet', False)
+        self.nonlinearity_type:str = kwargs.get('nonlinearity_type', "gate")
+        self.nonlinearity_scalars:Dict[int, Callable] = kwargs.get('nonlinearity_scalars', {"e": "ssp", "o": "tanh"})
+        self.nonlinearity_gates:Dict[int, Callable] = kwargs.get('nonlinearity_gates', {"e": "ssp", "o": "abs"})
+        self.convolution_kwargs:dict = kwargs.get('convolution_kwargs', {})
+
         
         species: List[str] = kwargs.get('species', None)
         if bool(species):
@@ -684,45 +664,45 @@ class NequIP(torch.nn.Module):
         
         ## handling irreps
         # chemical embedding irreps
-        if node_irreps is None:
+        if self.node_irreps is None:
             self.node_irreps = o3.Irreps([(num_channels, o3.Irrep(0, 1))])
-        elif isinstance(node_irreps, str):
-            self.node_irreps = o3.Irreps(node_irreps)
+        elif isinstance(self.node_irreps, str):
+            self.node_irreps = o3.Irreps(self.node_irreps)
         else:
-            self.node_irreps = node_irreps
+            self.node_irreps = self.node_irreps
         # edge sphere harmonic irreps
-        if edge_sh_irreps is None:
-            self.edge_sh_irreps = o3.Irreps.spherical_harmonics(lmax, p=-1 if parity else 1)
-        elif isinstance(edge_sh_irreps, str):
-            self.edge_sh_irreps = o3.Irreps(edge_sh_irreps)
+        if self.edge_sh_irreps is None:
+            self.edge_sh_irreps = o3.Irreps.spherical_harmonics(self.lmax, p=-1 if self.parity else 1)
+        elif isinstance(self.edge_sh_irreps, str):
+            self.edge_sh_irreps = o3.Irreps(self.edge_sh_irreps)
         else:
-            self.edge_sh_irreps = edge_sh_irreps
+            self.edge_sh_irreps = self.edge_sh_irreps
         # hidden feature irreps
-        if hidden_irreps is None:
+        if self.hidden_irreps is None:
             self.hidden_irreps = o3.Irreps(
                 [
                     (num_channels, o3.Irrep(l, p))
-                    for p in ((1, -1) if parity else (1,))
-                    for l in range(lmax + 1)
+                    for p in ((1, -1) if self.parity else (1,))
+                    for l in range(self.lmax + 1)
                 ]
             )
-        elif isinstance(hidden_irreps, str):
-            self.hidden_irreps = o3.Irreps(hidden_irreps)
+        elif isinstance(self.hidden_irreps, str):
+            self.hidden_irreps = o3.Irreps(self.hidden_irreps)
         else:
-            self.hidden_irreps = hidden_irreps
+            self.hidden_irreps = self.hidden_irreps
         # MLP_irreps
-        if MLP_irreps is None:
+        if self.MLP_irreps is None:
             self.MLP_irreps = o3.Irreps([(max(1, num_channels // 2), o3.Irrep(0, 1))])
-        elif isinstance(MLP_irreps, str):
-            self.MLP_irreps = o3.Irreps(MLP_irreps)
+        elif isinstance(self.MLP_irreps, str):
+            self.MLP_irreps = o3.Irreps(self.MLP_irreps)
         else:
-            self.MLP_irreps = MLP_irreps
+            self.MLP_irreps = self.MLP_irreps
         
         self.embeddings = nn.ModuleDict()
         self.embeddings['onehot_embedding'] = OneHotAtomEncoding(num_elements=num_elements, species=species)
         self.embeddings['radial_basis'] = RadialBasisEdgeEncoding(
-            basis=BesselBasis(cutoff=cutoff, num_basis=num_basis),
-            cutoff_fn=PolynomialCutoff(cutoff=cutoff, power=power),
+            basis=BesselBasis(cutoff=self.cutoff, num_basis=self.num_basis),
+            cutoff_fn=PolynomialCutoff(cutoff=self.cutoff, power=self.power),
         )
         self.embeddings['sphere_harmonics'] = SphericalHarmonicEdgeAttrs(edge_sh_irreps=self.edge_sh_irreps)
         
@@ -743,11 +723,11 @@ class NequIP(torch.nn.Module):
             interaction = InteractionLayer(
                 irreps_in=self.irreps_in, 
                 feature_irreps_hidden=self.hidden_irreps,
-                convolution_kwargs=convolution_kwargs,
-                resnet=resnet,
-                nonlinearity_type=nonlinearity_type,
-                nonlinearity_scalars=nonlinearity_scalars,
-                nonlinearity_gates=nonlinearity_gates,
+                convolution_kwargs=self.convolution_kwargs,
+                resnet=self.resnet,
+                nonlinearity_type=self.nonlinearity_type,
+                nonlinearity_scalars=self.nonlinearity_scalars,
+                nonlinearity_gates=self.nonlinearity_gates,
             )
             self.interactions.append(interaction)
             self.irreps_in.update(interaction.irreps_out)
