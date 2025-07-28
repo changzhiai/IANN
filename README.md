@@ -125,6 +125,7 @@ config = {
     "output_dir": "output", # output directory
     "output_log": "output.log", # log file
     "output_model": "model.pt", # model file
+    "log_input": False, # log your costomized input config
     "debug": False, # debug mode
 }
 ```
