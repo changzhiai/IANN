@@ -48,6 +48,7 @@ DEFAULT_CONFIG = {
     "output_dir": "output", # output directory
     "output_log": "output.log", # log file
     "output_model": "model.pt", # model file
+    "log_input": False, # log input config
     "debug": False, # debug mode
 }
 
@@ -187,6 +188,9 @@ class Trainer:
         """
         # Initialize configuration with defaults
         self.config = DEFAULT_CONFIG.copy()
+
+        if self.config["log_input"]:
+            logging.info(f"Input config: {config}")
         
         # Update with user config if provided
         if config:
@@ -710,7 +714,8 @@ class Trainer:
         
         # Format: include injected %(rank)s
         fmt = "%(asctime)s [RANK%(rank)s] [%(levelname)-5.5s]  %(message)s"
-        formatter = logging.Formatter(fmt)
+        datefmt = "%Y-%m-%d %H:%M:%S"
+        formatter = logging.Formatter(fmt, datefmt)
         
         # Create and configure file handler
         log_file = os.path.join(self.config["output_dir"], self.config["output_log"])
@@ -838,8 +843,8 @@ class Trainer:
 
             # To do: log all default model parameters
             if self.config['debug']:
-                logging.info(f"All parameters: {self.config}") # log all default parameters except for other model default parameters
-                logging.info(f"Debug Mode (debug): {self.config['debug']}")
+                logging.debug(f"Debug Mode (debug): {self.config['debug']}")
+                logging.debug(f"All parameters: {self.config}") # log all default parameters except for other model default parameters
         
         # Initialize counters
         local_steps = 0
@@ -892,8 +897,8 @@ class Trainer:
                 self.optimizer.step()
 
                 # Update running loss
-                running_loss += total_loss.detach().cpu().numpy() * batch.energy.shape[0]
-                running_loss_count += batch.energy.shape[0]
+                running_loss += total_loss.detach().cpu().numpy() * device_batch.energy.shape[0]
+                running_loss_count += device_batch.energy.shape[0]
                 training_time += time.time() - train_start_time
 
                 if self.distributed:
