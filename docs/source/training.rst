@@ -83,7 +83,7 @@ Available configurations for ``config``:
    }
 
 .. note::
-   There are more adjustable parameters for each model, please refer to the :doc:`api` reference for details, or check the source code for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
+   There are more adjustable parameters for each model, please refer to the :doc:`api` in Models section  reference for details, or check the source code for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
 
 Directly run the training script in command line:
 
@@ -324,7 +324,7 @@ Here is a list of default parameters and their explanations in ``config``:
 * ``log_input``: whether to log your costomized input config
 * ``debug``: whether to use debug mode
 
-There are more adjustable parameters for each model, please refer to the :doc:`api` reference for details, or check the source code for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
+There are more adjustable parameters for each model, please refer to the :doc:`api` in Models section reference for details, or check the source code for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
 
 .. note::
    Choose either ``max_steps`` or ``max_epochs`` to setup the training process. If both are set, the ``max_steps`` will be ignored. Similarly, for ``norm_data`` and ``norm_per_atom``, if both are set, the ``norm_data`` will be ignored.
