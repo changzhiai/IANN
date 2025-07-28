@@ -96,6 +96,11 @@ class MLCalculator(Calculator):
             Device to use.
         verbose : bool
             Verbosity.
+        
+        Returns
+        -------
+        Dict[str, array]
+            Dictionary with keys 'energy', 'forces'.
         """
         super().__init__(**kwargs)
 
@@ -202,6 +207,11 @@ class EnsembleCalculator(Calculator):
             Device to use.
         verbose : bool
             Verbosity.
+
+        Returns
+        -------
+        Dict[str, array]
+            Dictionary with keys 'energy', 'forces', 'ensemble'.
         """
         super().__init__(**kwargs)
 
@@ -326,7 +336,7 @@ class AtomicEnsembleCalculator(Calculator):
 
         Returns
         -------
-        Dict[str, torch.Tensor]
+        Dict[str, array]
             Dictionary with keys 'energy', 'forces', 'ensemble'.
         """
         super().__init__(**kwargs)
