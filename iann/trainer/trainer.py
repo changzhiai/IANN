@@ -188,16 +188,17 @@ class Trainer:
         """
         # Initialize configuration with defaults
         self.config = DEFAULT_CONFIG.copy()
-
-        if self.config["log_input"]:
-            logging.info(f"Input config: {config}")
         
         # Update with user config if provided
         if config:
             self.config.update(config)
-            
+        
+        self.input_config = config
+        
         # Set model type
         self.model_type = model.lower()
+        if self.model_type not in ["painn", "nequip", "mace", "equiformerv2"]:
+            raise ValueError(f"Unknown model type: {self.model_type}")
         
         # Auto-detect SLURM to avoid spawning when SLURM is already managing processes
         self._under_slurm = 'SLURM_JOB_ID' in os.environ
@@ -246,6 +247,7 @@ class Trainer:
         
         # Logging is configured here, now that rank is set
         self._setup_logging()
+            
         # Set random seed
         setup_seed(self.config["random_seed"])
     
@@ -431,7 +433,10 @@ class Trainer:
         
         # Set model
         if self.model_type == "painn":
-            from iann.models.painn import PaiNN
+            try:
+                from iann.models.painn import PaiNN
+            except ImportError:
+                raise ImportError("PaiNN is not available")
             model = PaiNN(
                 num_layers=self.config["num_layers"], 
                 num_channels=self.config["num_channels"],
@@ -577,7 +582,8 @@ class Trainer:
         """Load model from checkpoint"""
         best_model = os.path.join(self.config["output_dir"], self.config["output_model"])
         if os.path.exists(best_model):
-            logging.info(f"Loading model from {best_model}")
+            if self.rank == 0:
+                logging.info(f"Loading model from {best_model}")
             if self.distributed:
                 if torch.cuda.is_available() and self.device.type == 'cuda':
                     if 'SLURM_LOCALID' in os.environ:
@@ -602,7 +608,8 @@ class Trainer:
                 
             self.scheduler.load_state_dict(state_dict["scheduler"])
         else:
-            logging.info(f"No model found at {best_model}")
+            if self.rank == 0:
+                logging.info(f"No model found at {best_model}")
             self.config["load_model"] = False
     
     def _save_model(self, filename, total_steps, best_val_loss):
@@ -841,6 +848,10 @@ class Trainer:
             logging.info(f"Output Log File (output_log): {self.config['output_log']}")
             logging.info(f"Output Model File (output_model): {self.config['output_model']}")
 
+            # Log input config after logging is set up
+            if self.config["log_input"]:
+                logging.info(f"Input config: {self.input_config}")
+
             # To do: log all default model parameters
             if self.config['debug']:
                 logging.debug(f"Debug Mode (debug): {self.config['debug']}")
@@ -982,7 +993,12 @@ def main():
     if bool(args.cfg):
         with open(args.cfg, 'r') as f:
             config = toml.load(f)
-    
+
+    if bool(args.model_type):
+        args.model_type = args.model_type
+    else:
+        args.model_type = "painn"
+        
     # Check if we're running under SLURM
     slurm_distributed = 'SLURM_JOB_NUM_NODES' in os.environ or 'SLURM_NTASKS' in os.environ
     
@@ -1018,10 +1034,9 @@ def main():
     else:
         # Detect if we have multiple GPUs
         num_gpus = torch.cuda.device_count()
-        
+
         if num_gpus > 1:
             # Multi-GPU training on a single node
-            logging.info(f"Starting multi-GPU training with {num_gpus} GPUs")
             mp.spawn(
                 process_function,
                 args=(num_gpus, args.model_type, config, args.dataset),
@@ -1030,7 +1045,6 @@ def main():
             )
         else:
             # Single-GPU or CPU training
-            logging.info("Starting single-GPU training")
             trainer = Trainer(model=args.model_type, config=config, distributed=False)
             trainer.train(args.dataset)
 
