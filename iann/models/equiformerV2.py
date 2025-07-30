@@ -558,8 +558,8 @@ class SO3_Embedding(nn.Module):
         grid_mapping     = SO3_grid[idx].mapping
 
         offset = 0
-        # Initialize x_grid on the same device as the input tensors
-        x_grid = torch.empty([], device=self.dummy_buffer.device, dtype=self.dummy_buffer.dtype)
+        # Build x_grid by collecting tensors and then concatenating at the end
+        x_grid_parts = []
 
         for i in range(self.num_resolutions):
             num_coefficients = int((self.lmax_list[i] + 1) ** 2)
@@ -569,8 +569,10 @@ class SO3_Embedding(nn.Module):
                 x_res = self.embedding[:, offset : offset + num_coefficients].contiguous()
             indices = grid_mapping.coefficient_idx(self.lmax_list[i], self.lmax_list[i])
             to_grid_mat = to_grid_mat_lmax[:, :, indices]
-            x_grid = torch.cat([x_grid, torch.einsum("bai, zic -> zbac", to_grid_mat, x_res)], dim=3)
+            x_grid_parts.append(torch.einsum("bai, zic -> zbac", to_grid_mat, x_res))
             offset = offset + num_coefficients
+
+        x_grid = torch.cat(x_grid_parts, dim=3)
 
         return x_grid
     
