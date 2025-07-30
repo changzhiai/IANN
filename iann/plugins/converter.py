@@ -169,7 +169,7 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
         results = {'energy': avg_energy, 'forces': avg_forces, 'energy_variance': energy_var, 'forces_variance': forces_var, 'atomic_energy_variance': atomic_energy_var}
         return results
 
-def convert_model_for_lammps(model_path, model_type, output_path=None, debug=False, atoms=None, **kwargs):
+def convert_model_for_lammps(model_path, model_type=None, output_path=None, debug=False, atoms=None, **kwargs):
     """Wrap a trained model in a TorchScript-compatible wrapper for LAMMPS.
     
     Args:
@@ -185,6 +185,23 @@ def convert_model_for_lammps(model_path, model_type, output_path=None, debug=Fal
     # Load the model checkpoint
     device = torch.device('cpu')
     state_dict = torch.load(model_path, map_location=device)
+
+    if model_type is None:
+        # Determine model type from state dict
+        if "model_type" in state_dict:
+            model_type = state_dict["model_type"]
+        else:
+            # Try to determine from model architecture
+            if "num_layers" in state_dict:
+                model_type = "painn"
+            elif "irreps" in state_dict:
+                model_type = "nequip"
+            elif "correlation" in state_dict:
+                model_type = "mace"
+            elif "transformer" in state_dict:
+                model_type = "equiformerv2"
+            else:
+                raise ValueError("Could not determine model type, please provide model type explicitly!")
     
     # Create appropriate model wrapper based on type
     if model_type.lower() == "painn":
@@ -290,6 +307,22 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=F
     for model_path in model_paths:
         print(f"Loading model from {model_path}")
         state_dict = torch.load(model_path, map_location=device)
+
+        if model_type is None:
+            # Determine model type from state dict
+            if "model_type" in state_dict:
+                model_type = state_dict["model_type"]
+            else:
+                if "num_layers" in state_dict:
+                    model_type = "painn"
+                elif "irreps" in state_dict:
+                    model_type = "nequip"
+                elif "correlation" in state_dict:
+                    model_type = "mace"
+                elif "transformer" in state_dict:
+                    model_type = "equiformerv2"
+                else:
+                    raise ValueError("Could not determine model type, please provide model type explicitly!")
         
         # Create appropriate model based on type
         if model_type.lower() == "painn":
