@@ -1961,12 +1961,6 @@ class FeedForwardNetwork(torch.nn.Module):
         assert isinstance(self.max_lmax, int)
         self.so3_linear_1 = SO3_LinearV2(self.atom_channels_all, self.hidden_channels, lmax=self.max_lmax, lmax_list=self.lmax_list)
         
-        # Always create gating_linear for TorchScript compatibility
-        if self.use_gate_act:
-            self.gating_linear = torch.nn.Linear(self.atom_channels_all, self.max_lmax * self.hidden_channels)
-        else:
-            self.gating_linear = torch.nn.Linear(self.atom_channels_all, self.hidden_channels)
-        
         if self.use_grid_mlp:
             if self.use_sep_s2_act:
                 self.scalar_mlp = nn.Sequential(
@@ -1985,11 +1979,13 @@ class FeedForwardNetwork(torch.nn.Module):
         else:
             if self.use_gate_act:
                 self.gate_act = GateActivation(self.max_lmax, self.max_lmax, self.hidden_channels)
+                self.gating_linear = torch.nn.Linear(self.atom_channels_all, self.max_lmax * self.hidden_channels)
+            elif self.use_sep_s2_act:
+                self.s2_act = SeparableS2Activation(self.max_lmax, self.max_lmax)
+                self.gating_linear = torch.nn.Linear(self.atom_channels_all, self.hidden_channels)
             else:
-                if self.use_sep_s2_act:
-                    self.s2_act = SeparableS2Activation(self.max_lmax, self.max_lmax)
-                else:
-                    self.s2_act = S2Activation(self.max_lmax, self.max_lmax)
+                self.s2_act = S2Activation(self.max_lmax, self.max_lmax)
+                self.gating_linear = None
         self.so3_linear_2 = SO3_LinearV2(self.hidden_channels, self.output_channels, lmax=self.max_lmax, lmax_list=self.lmax_list)
         
     
@@ -1999,7 +1995,7 @@ class FeedForwardNetwork(torch.nn.Module):
             if self.use_sep_s2_act and self.scalar_mlp is not None:
                 gating_scalars = self.scalar_mlp(input_embedding.embedding.narrow(1, 0, 1))    
         else:
-            if self.use_gate_act or self.use_sep_s2_act:
+            if (self.use_gate_act or self.use_sep_s2_act) and hasattr(self, 'gating_linear'):
                 gating_scalars = self.gating_linear(input_embedding.embedding.narrow(1, 0, 1))
 
         input_embedding = self.so3_linear_1(input_embedding)
@@ -2012,25 +2008,22 @@ class FeedForwardNetwork(torch.nn.Module):
             # Project back to spherical harmonic coefficients
             input_embedding._from_grid(input_embedding_grid, list(self.SO3_grid), lmax=self.max_lmax)
 
-            if self.use_sep_s2_act:
+            if self.use_sep_s2_act and gating_scalars is not None:
                 input_embedding.embedding = torch.cat(
                     (gating_scalars, input_embedding.embedding.narrow(1, 1, input_embedding.embedding.shape[1] - 1)), 
                     dim=1
                 )
         else:
-            if self.use_gate_act:
+            if self.use_gate_act and hasattr(self, 'gate_act'):
                 input_embedding.embedding = self.gate_act(gating_scalars, input_embedding.embedding)
+            elif self.use_sep_s2_act and hasattr(self, 's2_act'):
+                input_embedding.embedding = self.s2_act(gating_scalars, input_embedding.embedding, list(self.SO3_grid))
             else:
-                if self.use_sep_s2_act:
-                    if isinstance(self.s2_act, SeparableS2Activation) and isinstance(gating_scalars, torch.Tensor):
-                        input_embedding.embedding = self.s2_act(gating_scalars, input_embedding.embedding, list(self.SO3_grid))
-                    else:
-                        raise ValueError("Expected SeparableS2Activation with gating_scalars")
+                if hasattr(self, 's2_act'):
+                    input_embedding.embedding = self.s2_act(input_embedding.embedding, list(self.SO3_grid))
                 else:
-                    if isinstance(self.s2_act, S2Activation):
-                        input_embedding.embedding = self.s2_act(input_embedding.embedding, list(self.SO3_grid))
-                    else:
-                        raise ValueError("Expected S2Activation")
+                    raise ValueError("Expected S2Activation")
+
 
         input_embedding = self.so3_linear_2(input_embedding)
 
