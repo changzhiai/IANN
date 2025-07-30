@@ -125,6 +125,7 @@ class MLCalculator(Calculator):
         else:
             if "compute_forces" in kwargs:
                 self.compute_forces = kwargs["compute_forces"]
+                kwargs.pop("compute_forces")
             else:
                 self.compute_forces = None
 
@@ -229,6 +230,7 @@ class EnsembleCalculator(Calculator):
         else:
             if "compute_forces" in kwargs:
                 self.compute_forces = kwargs["compute_forces"]
+                kwargs.pop("compute_forces")
             else:
                 self.compute_forces = None
 
@@ -355,6 +357,7 @@ class AtomicEnsembleCalculator(Calculator):
         else:
             if "compute_forces" in kwargs:
                 self.compute_forces = kwargs["compute_forces"]
+                kwargs.pop("compute_forces")
             else:
                 self.compute_forces = None
 
