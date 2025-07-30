@@ -559,7 +559,7 @@ class SO3_Embedding(nn.Module):
 
         offset = 0
         # Initialize x_grid on the same device as the input tensors
-        x_grid = torch.tensor([], device=self.dummy_buffer.device)
+        x_grid = torch.empty([], device=self.dummy_buffer.device, dtype=self.dummy_buffer.dtype)
 
         for i in range(self.num_resolutions):
             num_coefficients = int((self.lmax_list[i] + 1) ** 2)
