@@ -3,7 +3,7 @@ from iann.data import AseDataReader
 import numpy as np
 import torch
 
-def _load_model(model_path, device, compute_forces):
+def _load_model(model_path, device, compute_forces, **kwargs):
     """Load model from path and determine its type."""
     state_dict = torch.load(model_path, map_location=device)
     
@@ -30,7 +30,8 @@ def _load_model(model_path, device, compute_forces):
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces
+            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
+            **kwargs,
         )
     elif model_type == "nequip":
         from iann.models.nequip import NequIP
@@ -38,7 +39,8 @@ def _load_model(model_path, device, compute_forces):
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces
+            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
+            **kwargs,
         )
     elif model_type == "mace":
         from iann.models.mace import MACE
@@ -46,7 +48,8 @@ def _load_model(model_path, device, compute_forces):
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces
+            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
+            **kwargs,
         )
     elif model_type == "equiformerv2":
         from iann.models.equiformerV2 import EquiformerV2
@@ -55,6 +58,7 @@ def _load_model(model_path, device, compute_forces):
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
             compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
+            **kwargs,
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, and equiformerV2!")
@@ -127,7 +131,7 @@ class MLCalculator(Calculator):
         if model is not None:
             self.model = model
         elif model_path is not None:
-            self.model = _load_model(model_path, self.device, self.compute_forces)
+            self.model = _load_model(model_path, self.device, self.compute_forces, **kwargs)
             self.compute_forces = self.model.compute_forces
         else:
             raise ValueError("Either model or model_path must be provided")
@@ -234,7 +238,7 @@ class EnsembleCalculator(Calculator):
             self.device = device
 
         if model_paths is not None:
-            self.models = [_load_model(model_path, self.device, self.compute_forces) for model_path in model_paths]
+            self.models = [_load_model(model_path, self.device, self.compute_forces, **kwargs) for model_path in model_paths]
         elif models is not None:
             self.models = models
         else:
@@ -360,7 +364,7 @@ class AtomicEnsembleCalculator(Calculator):
             self.device = device
 
         if model_paths is not None:
-            self.models = [_load_model(model_path, self.device, self.compute_forces) for model_path in model_paths]
+            self.models = [_load_model(model_path, self.device, self.compute_forces, **kwargs) for model_path in model_paths]
         elif models is not None:
             self.models = models
         else:
