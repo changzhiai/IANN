@@ -275,7 +275,20 @@ class CoefficientMappingModule(torch.nn.Module):
         rotate_inv_rescale = rotate_inv_rescale[:, :, self.mask_indices_cache]        
         self.rotate_inv_rescale_cache = rotate_inv_rescale
         return self.rotate_inv_rescale_cache
-    
+
+    def to(self, device):
+        """Move all internal tensors to the target device"""
+        # Update device attribute
+        self.device = torch.device(device)
+        
+        # Move other internal tensors
+        if hasattr(self, 'mask_indices_cache'):
+            self.mask_indices_cache = self.mask_indices_cache.to(device)
+        if hasattr(self, 'rotate_inv_rescale_cache'):
+            self.rotate_inv_rescale_cache = self.rotate_inv_rescale_cache.to(device)
+        
+        return self
+
     def __repr__(self):
         return f"{self.__class__.__name__}(lmax_list={self.lmax_list}, mmax_list={self.mmax_list})"
 
@@ -2315,8 +2328,6 @@ class EquiformerV2(nn.Module):
 
         self.device = torch.device(device)
         self.dtype = torch.float32 
-        # Ensure consistent floating point precision across all components
-        torch.set_default_dtype(torch.float32)
         self.num_resolutions = len(self.lmax_list)
         self.num_layers = num_layers
         
@@ -2532,19 +2543,6 @@ class EquiformerV2(nn.Module):
         AtomsData
             Output data after applying the model.
         """
-        # Ensure consistent numerical behavior between CPU and GPU
-        with torch.no_grad():
-            # Set environment variable for deterministic CuBLAS behavior
-            import os
-            os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
-            
-            # Set deterministic algorithms for consistent results
-            torch.use_deterministic_algorithms(True)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-            
-            # Ensure consistent floating point behavior
-            torch.set_default_dtype(torch.float32)
         
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
@@ -2711,8 +2709,13 @@ class EquiformerV2(nn.Module):
         for rotation in self.SO3_rotation:
             rotation.to(device)
         
-        # Move mappingReduced to the target device
-        self.mappingReduced.to(device)
+        # Move mappingReduced components to the target device
+        if hasattr(self, 'mappingReduced'):
+            self.mappingReduced.to(device)
+        
+        # Move edge_degree_embedding to the target device
+        if hasattr(self, 'edge_degree_embedding'):
+            self.edge_degree_embedding.to(device)
         
         return self
 
