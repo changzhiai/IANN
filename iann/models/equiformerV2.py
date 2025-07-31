@@ -628,7 +628,7 @@ def init_edge_rot_mat(edge_diff):
         
     norm_x = edge_vec_0 / (edge_vec_0_distance.view(-1, 1))
 
-    edge_vec_2 = torch.rand_like(edge_vec_0) - 0.5
+    edge_vec_2 = torch.rand_like(edge_vec_0, device=edge_vec_0.device) - 0.5
     edge_vec_2 = edge_vec_2 / (
         torch.sqrt(torch.sum(edge_vec_2**2, dim=1)).view(-1, 1)
     )
@@ -2529,6 +2529,7 @@ class EquiformerV2(nn.Module):
         AtomsData
             Output data after applying the model.
         """
+        print()
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
         else:
@@ -2579,6 +2580,7 @@ class EquiformerV2(nn.Module):
 
         # Edge-degree embedding
         edge_rot_mat = init_edge_rot_mat(edge_vectors) # Compute 3x3 rotation matrix per edge
+        
         edge_degree = self.edge_degree_embedding( # torchscript error
             atomic_numbers,
             edge_dist,

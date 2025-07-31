@@ -168,11 +168,9 @@ PairIANN::PairIANN(LAMMPS *lmp) : Pair(lmp),
       // Create a small test case with 20 atoms
       int ntest = 20;
       torch::Tensor test_positions = torch::zeros({ntest, 3}, torch::kFloat32);
-      torch::Tensor test_types = torch::ones({ntest}, torch::kInt64) * 6; // Carbon atoms
       
       // Try to move tensors to GPU
       test_positions = test_positions.cuda();
-      test_types = test_types.cuda();
       
       // Perform a simple operation on GPU
       test_positions = test_positions + 1.0;
@@ -500,112 +498,132 @@ void PairIANN::settings(int narg, char **arg)
   }
   
   // Load the model
-  try {
-    // First try loading on CPU
-    model = std::make_shared<torch::jit::Module>(torch::jit::load(model_path));
-    model->eval();  // Set to inference mode
-    
-    // Move model to GPU if available
-    if (use_gpu) {
-      try {
-        // Verify CUDA is still available
-        if (!torch::cuda::is_available()) {
-          throw std::runtime_error("[PAIR_IANN] CUDA is no longer available");
-        }
+  if (debug && comm->me == 0) {
+    try {
+      // First try loading on CPU
+      model = std::make_shared<torch::jit::Module>(torch::jit::load(model_path));
+      model->eval();  // Set to inference mode
+      
+      // Move model to GPU if available
+      if (use_gpu) {
+        try {
+          // Verify CUDA is still available
+          if (!torch::cuda::is_available()) {
+            throw std::runtime_error("[PAIR_IANN] CUDA is no longer available");
+          }
 
-        // Move model to GPU
-        model->to(device);
-        
-        // Test the model on GPU with a small system
-        if (comm->me == 0) {
-          // Create test data for 20 atoms
-          int ntest = 20;
-          torch::Tensor test_positions = torch::zeros({ntest, 3}, torch::kFloat32);
-          torch::Tensor test_types = torch::ones({ntest}, torch::kInt64) * 6; // Carbon atoms
-          torch::Tensor test_cell = torch::eye(3, torch::kFloat32) * 10.0; // 10Å cubic cell
+          // Move model to GPU
+          model->to(device);
           
-          // Create test edges (neighbor list)
-          std::vector<std::array<int64_t, 2>> test_edges;
-          for (int i = 0; i < ntest; i++) {
-            for (int j = i + 1; j < ntest; j++) {
-              test_edges.push_back({i, j});
+          // Test the model on GPU with a small system
+          if (comm->me == 0) {
+            // Create test data for 20 atoms
+            int ntest = 20;
+            torch::Tensor test_positions = torch::zeros({ntest, 3}, torch::kFloat32);
+            
+            // Use the most common element from the actual atoms, or default to Carbon
+            int test_element = 6; // Default to Carbon
+            if (atom->ntypes > 0) {
+              // Get the most common element from the system
+              std::map<int, int> element_counts;
+              for (int i = 1; i <= atom->ntypes; ++i) {
+                double mass = atom->mass[i];
+                int atomic_number = get_atomic_number(mass);
+                if (atomic_number > 0) {
+                  element_counts[atomic_number]++;
+                }
+              }
+              if (!element_counts.empty()) {
+                // Use the most common element
+                test_element = element_counts.begin()->first;
+              }
+            }
+            torch::Tensor test_types = torch::ones({ntest}, torch::kInt64) * test_element;
+            torch::Tensor test_cell = torch::eye(3, torch::kFloat32) * 10.0; // 10Å cubic cell
+            
+            // Create test edges (neighbor list)
+            std::vector<std::array<int64_t, 2>> test_edges;
+            for (int i = 0; i < ntest; i++) {
+              for (int j = i + 1; j < ntest; j++) {
+                test_edges.push_back({i, j});
+              }
+            }
+            torch::Tensor test_edge_indices = torch::zeros({(int64_t)test_edges.size(), 2}, torch::kInt64);
+            torch::Tensor test_edge_vectors = torch::zeros({(int64_t)test_edges.size(), 3}, torch::kFloat32);
+            
+            // Fill edge data
+            for (size_t i = 0; i < test_edges.size(); i++) {
+              test_edge_indices[i][0] = test_edges[i][0];
+              test_edge_indices[i][1] = test_edges[i][1];
+              test_edge_vectors[i][0] = 1.0; // Example edge vector
+              test_edge_vectors[i][1] = 0.0;
+              test_edge_vectors[i][2] = 0.0;
+            }
+            
+            torch::Tensor test_num_edges = torch::tensor((int64_t)test_edges.size(), torch::kInt64);
+            
+            // Print test tensor shapes
+            if (debug && comm->me == 0) {
+              std::cout << "[PAIR_IANN_DEBUG] Test tensor shapes:" << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Positions: " << test_positions.sizes() << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Types: " << test_types.sizes() << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Cell: " << test_cell.sizes() << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Edge indices: " << test_edge_indices.sizes() << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Edge vectors: " << test_edge_vectors.sizes() << std::endl;
+              std::cout << "[PAIR_IANN_DEBUG] Number of edges: " << test_num_edges.item<int64_t>() << std::endl;
+            }
+            
+            // Move test data to GPU
+            test_positions = test_positions.to(device);
+            test_types = test_types.to(device);
+            test_cell = test_cell.to(device);
+            test_edge_indices = test_edge_indices.to(device);
+            test_edge_vectors = test_edge_vectors.to(device);
+            test_num_edges = test_num_edges.to(device);
+            
+            // Try running the model
+            auto output = model->forward({
+                torch::tensor({ntest}, torch::kInt64).to(device),
+                test_types,
+                test_positions,
+                test_cell,
+                test_edge_indices,
+                test_edge_vectors,
+                test_num_edges
+            }).toGenericDict();
+            
+            // Move results back to CPU and verify
+            auto energy = output.at("energy").toTensor().cpu();
+            auto forces = output.at("forces").toTensor().cpu();
+            
+            if (!torch::any(torch::isnan(energy)).item<bool>() && 
+                !torch::any(torch::isnan(forces)).item<bool>()) {
+              error->message(FLERR, "[PAIR_IANN] GPU model test successful");
+            } else {
+              throw std::runtime_error("[PAIR_IANN] Model produced NaN values");
             }
           }
-          torch::Tensor test_edge_indices = torch::zeros({(int64_t)test_edges.size(), 2}, torch::kInt64);
-          torch::Tensor test_edge_vectors = torch::zeros({(int64_t)test_edges.size(), 3}, torch::kFloat32);
           
-          // Fill edge data
-          for (size_t i = 0; i < test_edges.size(); i++) {
-            test_edge_indices[i][0] = test_edges[i][0];
-            test_edge_indices[i][1] = test_edges[i][1];
-            test_edge_vectors[i][0] = 1.0; // Example edge vector
-            test_edge_vectors[i][1] = 0.0;
-            test_edge_vectors[i][2] = 0.0;
+          if (comm->me == 0) {
+            error->message(FLERR, "[PAIR_IANN] Using GPU acceleration");
           }
-          
-          torch::Tensor test_num_edges = torch::tensor((int64_t)test_edges.size(), torch::kInt64);
-          
-          // Print test tensor shapes
-          if (debug && comm->me == 0) {
-            std::cout << "[PAIR_IANN_DEBUG] Test tensor shapes:" << std::endl;
-            std::cout << "[PAIR_IANN_DEBUG] Positions: " << test_positions.sizes() << std::endl;
-            std::cout << "[PAIR_IANN_DEBUG] Types: " << test_types.sizes() << std::endl;
-            std::cout << "[PAIR_IANN_DEBUG] Cell: " << test_cell.sizes() << std::endl;
-            std::cout << "[PAIR_IANN_DEBUG] Edge indices: " << test_edge_indices.sizes() << std::endl;
-            std::cout << "[PAIR_IANN_DEBUG] Edge vectors: " << test_edge_vectors.sizes() << std::endl;
-            std::cout << "[PAIR_IANN_DEBUG] Number of edges: " << test_num_edges.item<int64_t>() << std::endl;
+        } catch (const c10::Error& e) {
+          // If GPU model loading or test fails, fall back to CPU
+          use_gpu = false;
+          device = torch::Device(torch::kCPU);
+          model->to(device);
+          if (comm->me == 0) {
+            std::string msg = "[PAIR_IANN] Failed to run model on GPU: ";
+            msg += e.what();
+            msg += "\n[PAIR_IANN] Falling back to CPU mode.";
+            error->warning(FLERR, msg.c_str());
           }
-          
-          // Move test data to GPU
-          test_positions = test_positions.to(device);
-          test_types = test_types.to(device);
-          test_cell = test_cell.to(device);
-          test_edge_indices = test_edge_indices.to(device);
-          test_edge_vectors = test_edge_vectors.to(device);
-          test_num_edges = test_num_edges.to(device);
-          
-          // Try running the model
-          auto output = model->forward({
-              torch::tensor({ntest}, torch::kInt64).to(device),
-              test_types,
-              test_positions,
-              test_cell,
-              test_edge_indices,
-              test_edge_vectors,
-              test_num_edges
-          }).toGenericDict();
-          
-          // Move results back to CPU and verify
-          auto energy = output.at("energy").toTensor().cpu();
-          auto forces = output.at("forces").toTensor().cpu();
-          
-          if (!torch::any(torch::isnan(energy)).item<bool>() && 
-              !torch::any(torch::isnan(forces)).item<bool>()) {
-            error->message(FLERR, "[PAIR_IANN] GPU model test successful");
-          } else {
-            throw std::runtime_error("[PAIR_IANN] Model produced NaN values");
-          }
-        }
-        
-        if (comm->me == 0) {
-          error->message(FLERR, "[PAIR_IANN] Using GPU acceleration");
-        }
-      } catch (const c10::Error& e) {
-        // If GPU model loading or test fails, fall back to CPU
-        use_gpu = false;
-        device = torch::Device(torch::kCPU);
-        model->to(device);
-        if (comm->me == 0) {
-          std::string msg = "[PAIR_IANN] Failed to run model on GPU: ";
-          msg += e.what();
-          msg += "\n[PAIR_IANN] Falling back to CPU mode.";
-          error->warning(FLERR, msg.c_str());
         }
       }
     }
-  }
-  catch (const c10::Error& e) {
-    error->all(FLERR, "[PAIR_IANN] Error loading ML model: " + std::string(e.what()));
+    catch (const c10::Error& e) {
+      error->all(FLERR, "[PAIR_IANN] Error loading ML model: " + std::string(e.what()));
+    }
   }
 }
 
