@@ -628,6 +628,7 @@ def init_edge_rot_mat(edge_diff):
         
     norm_x = edge_vec_0 / (edge_vec_0_distance.view(-1, 1))
 
+    torch.manual_seed(666)
     edge_vec_2 = torch.rand_like(edge_vec_0, device=edge_vec_0.device) - 0.5
     edge_vec_2 = edge_vec_2 / (
         torch.sqrt(torch.sum(edge_vec_2**2, dim=1)).view(-1, 1)
