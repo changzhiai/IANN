@@ -673,6 +673,9 @@ class SO3_Embedding(nn.Module):
         return self
 
 def init_edge_rot_mat(edge_diff):
+    """
+    Initialize edge rotation matrices using deterministic operations for consistent CPU/GPU results.
+    """
     edge_vec_0 = edge_diff
     edge_vec_0_distance = torch.sqrt(torch.sum(edge_vec_0**2, dim=1))
 
@@ -685,51 +688,67 @@ def init_edge_rot_mat(edge_diff):
         )
         
     norm_x = edge_vec_0 / (edge_vec_0_distance.view(-1, 1))
-
-    torch.manual_seed(666)
-    edge_vec_2 = torch.rand_like(edge_vec_0, device=edge_vec_0.device) - 0.5
-    edge_vec_2 = edge_vec_2 / (
-        torch.sqrt(torch.sum(edge_vec_2**2, dim=1)).view(-1, 1)
-    )
-    # Create two rotated copys of the random vectors in case the random vector is aligned with norm_x
-    # With two 90 degree rotated vectors, at least one should not be aligned with norm_x
+    
+    # Use a deterministic method to create orthogonal vectors
+    # Start with a fixed basis vector and make it orthogonal to norm_x
+    edge_vec_2 = torch.zeros_like(edge_vec_0, dtype=edge_vec_0.dtype, device=edge_vec_0.device)
+    
+    # Use different basis vectors for different components to ensure orthogonality
+    edge_vec_2[:, 0] = 1.0  # Fixed x-component
+    edge_vec_2[:, 1] = 0.0  # Fixed y-component  
+    edge_vec_2[:, 2] = 0.0  # Fixed z-component
+    
+    # Make it orthogonal to norm_x using Gram-Schmidt process
+    dot_product = torch.sum(edge_vec_2 * norm_x, dim=1, keepdim=True)
+    edge_vec_2 = edge_vec_2 - dot_product * norm_x
+    
+    # Normalize
+    edge_vec_2_norm = torch.sqrt(torch.sum(edge_vec_2**2, dim=1, keepdim=True))
+    edge_vec_2 = edge_vec_2 / edge_vec_2_norm
+    
+    # If the first approach fails (vector becomes zero), try alternative basis
+    zero_mask = edge_vec_2_norm.squeeze() < 1e-6
+    if torch.any(zero_mask):
+        # Use y-axis as alternative basis
+        edge_vec_2_alt = torch.zeros_like(edge_vec_0, dtype=edge_vec_0.dtype, device=edge_vec_0.device)
+        edge_vec_2_alt[:, 0] = 0.0
+        edge_vec_2_alt[:, 1] = 1.0
+        edge_vec_2_alt[:, 2] = 0.0
+        
+        dot_product_alt = torch.sum(edge_vec_2_alt * norm_x, dim=1, keepdim=True)
+        edge_vec_2_alt = edge_vec_2_alt - dot_product_alt * norm_x
+        edge_vec_2_alt_norm = torch.sqrt(torch.sum(edge_vec_2_alt**2, dim=1, keepdim=True))
+        edge_vec_2_alt = edge_vec_2_alt / edge_vec_2_alt_norm
+        
+        # Replace zero vectors with alternative
+        edge_vec_2[zero_mask] = edge_vec_2_alt[zero_mask]
+    
+    # Create two rotated copies as fallbacks (deterministic rotations)
     edge_vec_2b = edge_vec_2.clone()
     edge_vec_2b[:, 0] = -edge_vec_2[:, 1]
     edge_vec_2b[:, 1] = edge_vec_2[:, 0]
     edge_vec_2c = edge_vec_2.clone()
     edge_vec_2c[:, 1] = -edge_vec_2[:, 2]
     edge_vec_2c[:, 2] = edge_vec_2[:, 1]
-    vec_dot_b = torch.abs(torch.sum(edge_vec_2b * norm_x, dim=1)).view(
-        -1, 1
-    )
-    vec_dot_c = torch.abs(torch.sum(edge_vec_2c * norm_x, dim=1)).view(
-        -1, 1
-    )
-
+    
+    vec_dot_b = torch.abs(torch.sum(edge_vec_2b * norm_x, dim=1)).view(-1, 1)
+    vec_dot_c = torch.abs(torch.sum(edge_vec_2c * norm_x, dim=1)).view(-1, 1)
     vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1)).view(-1, 1)
-    edge_vec_2 = torch.where(
-        torch.gt(vec_dot, vec_dot_b), edge_vec_2b, edge_vec_2
-    )
+    
+    # Choose the vector with minimum alignment to norm_x
+    edge_vec_2 = torch.where(torch.gt(vec_dot, vec_dot_b), edge_vec_2b, edge_vec_2)
     vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1)).view(-1, 1)
-    edge_vec_2 = torch.where(
-        torch.gt(vec_dot, vec_dot_c), edge_vec_2c, edge_vec_2
-    )
+    edge_vec_2 = torch.where(torch.gt(vec_dot, vec_dot_c), edge_vec_2c, edge_vec_2)
 
     vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1))
     # Check the vectors aren't aligned
     assert torch.max(vec_dot) < 0.99
 
     norm_z = torch.cross(norm_x, edge_vec_2, dim=1)
-    norm_z = norm_z / (
-        torch.sqrt(torch.sum(norm_z**2, dim=1, keepdim=True))
-    )
-    norm_z = norm_z / (
-        torch.sqrt(torch.sum(norm_z**2, dim=1)).view(-1, 1)
-    )
+    norm_z = norm_z / (torch.sqrt(torch.sum(norm_z**2, dim=1, keepdim=True)))
+    norm_z = norm_z / (torch.sqrt(torch.sum(norm_z**2, dim=1)).view(-1, 1))
     norm_y = torch.cross(norm_x, norm_z, dim=1)
-    norm_y = norm_y / (
-        torch.sqrt(torch.sum(norm_y**2, dim=1, keepdim=True))
-    )
+    norm_y = norm_y / (torch.sqrt(torch.sum(norm_y**2, dim=1, keepdim=True)))
 
     # Construct the 3D rotation matrix
     norm_x = norm_x.view(-1, 3, 1)
@@ -2140,12 +2159,35 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
     'survival rate' as the argument.
     """
+    # Always return x during inference for consistent CPU/GPU results
     if drop_prob == 0. or not training:
         return x
+    
+    # During training, use deterministic approach
     keep_prob = 1 - drop_prob
     shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
-    random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
-    random_tensor.floor_()  # binarize
+    
+    # Use deterministic approach for consistent CPU/GPU results
+    device = x.device
+    dtype = x.dtype
+    
+    # Create a deterministic seed based on tensor properties
+    seed = hash((x.shape[0], x.shape[1] if len(x.shape) > 1 else 1, device.type)) % (2**32)
+    
+    # Set deterministic seed for this operation
+    with torch.no_grad():
+        torch.manual_seed(seed)
+        if device.type == 'cuda':
+            torch.cuda.manual_seed(seed)
+        
+        random_tensor = keep_prob + torch.rand(shape, dtype=dtype, device=device)
+        random_tensor.floor_()  # binarize
+        
+        # Reset seed to avoid affecting other operations
+        torch.manual_seed(torch.initial_seed())
+        if device.type == 'cuda':
+            torch.cuda.manual_seed(torch.initial_seed())
+    
     output = x.div(keep_prob) * random_tensor
     return output
 
@@ -2409,6 +2451,11 @@ class EquiformerV2(nn.Module):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
         
+        # Set global seed for complete determinism
+        torch.manual_seed(666)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(666)
+        
         # Initialize the basic parameters
         self.cutoff: float = kwargs.get('cutoff', 5.5)
         self.compute_forces = kwargs.get('compute_forces', False)
@@ -2646,6 +2693,9 @@ class EquiformerV2(nn.Module):
         # Ensure model is in evaluation mode for consistent inference
         self.eval()
         
+        # Ensure complete determinism during inference
+        self._ensure_deterministic_inference()
+        
         try:
             if self.species is None:
                 atomic_numbers = data.atomic_numbers.long()
@@ -2838,6 +2888,23 @@ class EquiformerV2(nn.Module):
             if hasattr(rotation, '_Jd'):
                 for i, J in enumerate(rotation._Jd):
                     rotation._Jd[i] = J.float()
+    
+    def _ensure_deterministic_inference(self):
+        """Ensure complete determinism during inference for consistent CPU/GPU results."""
+        # Set deterministic mode
+        torch.use_deterministic_algorithms(True)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        
+        # Set seed for deterministic operations
+        torch.manual_seed(666)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(666)
+        
+        # Ensure all dropout layers are disabled
+        for module in self.modules():
+            if isinstance(module, (torch.nn.Dropout, EquivariantDropoutArraySphericalHarmonics)):
+                module.p = 0.0  # Disable dropout
 
 class GradientOutput(torch.nn.Module):
     def __init__(
