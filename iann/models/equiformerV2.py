@@ -2636,7 +2636,7 @@ class EquiformerV2(nn.Module):
             num_atoms,
             self.x.num_coefficients,
             self.atom_channels,
-            device=self.device,
+            device=positions.device,
             dtype=positions.dtype,
         ))
         self.x.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
