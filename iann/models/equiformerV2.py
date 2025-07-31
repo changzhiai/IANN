@@ -878,7 +878,7 @@ class EquivariantLayerNormArray(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
 
 
-    @torch.amp.autocast('cuda', enabled=False)
+    # @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -973,7 +973,7 @@ class EquivariantLayerNormArraySphericalHarmonics(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, std_balance_degrees={self.std_balance_degrees})"
 
 
-    @torch.amp.autocast('cuda', enabled=False)
+    # @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -1053,7 +1053,7 @@ class EquivariantRMSNormArraySphericalHarmonics(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
 
 
-    @torch.amp.autocast('cuda', enabled=False)
+    # @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -1140,7 +1140,7 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nn.Module):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, centering={self.centering}, std_balance_degrees={self.std_balance_degrees})"
 
 
-    @torch.amp.autocast('cuda', enabled=False)
+    # @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -2678,6 +2678,27 @@ class EquiformerV2(nn.Module):
                 torch.nn.init.constant_(m.bias, 0)
             std = 1 / math.sqrt(m.in_features)
             torch.nn.init.uniform_(m.weight, -std, std)
+
+    def to(self, device):
+        """Override to method to ensure all components are moved to the target device"""
+        # Move the model to the target device
+        super().to(device)
+        
+        # Update the device attribute
+        self.device = torch.device(device)
+        
+        # Move SO3_Grid components to the target device
+        for grid in self.SO3_grid:
+            grid.to(device)
+        
+        # Move SO3_rotation components to the target device
+        for rotation in self.SO3_rotation:
+            rotation.to(device)
+        
+        # Move mappingReduced to the target device
+        self.mappingReduced.to(device)
+        
+        return self
 
 class GradientOutput(torch.nn.Module):
     def __init__(
