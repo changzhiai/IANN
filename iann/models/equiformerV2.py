@@ -2315,6 +2315,8 @@ class EquiformerV2(nn.Module):
 
         self.device = torch.device(device)
         self.dtype = torch.float32 
+        # Ensure consistent floating point precision across all components
+        torch.set_default_dtype(torch.float32)
         self.num_resolutions = len(self.lmax_list)
         self.num_layers = num_layers
         
@@ -2530,6 +2532,16 @@ class EquiformerV2(nn.Module):
         AtomsData
             Output data after applying the model.
         """
+        # Ensure consistent numerical behavior between CPU and GPU
+        with torch.no_grad():
+            # Set deterministic algorithms for consistent results
+            torch.use_deterministic_algorithms(True)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            
+            # Ensure consistent floating point behavior
+            torch.set_default_dtype(torch.float32)
+        
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
         else:
