@@ -2534,6 +2534,10 @@ class EquiformerV2(nn.Module):
         """
         # Ensure consistent numerical behavior between CPU and GPU
         with torch.no_grad():
+            # Set environment variable for deterministic CuBLAS behavior
+            import os
+            os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+            
             # Set deterministic algorithms for consistent results
             torch.use_deterministic_algorithms(True)
             torch.backends.cudnn.deterministic = True
