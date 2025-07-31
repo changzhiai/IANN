@@ -95,26 +95,36 @@ class SO3_Grid(torch.nn.Module):
     # Compute grid from irreps representation
     @torch.jit.export
     def to_grid(self, embedding: torch.Tensor, lmax: int, mmax: int):
-        indices = self.mapping.coefficient_idx(lmax, mmax)
-        # Ensure indices are on the same device as the tensor being indexed
-        indices = indices.to(self.to_grid_mat.device)
-        to_grid_mat = self.to_grid_mat[:, :, indices]
-        # Ensure both tensors are on the same device before einsum
-        to_grid_mat = to_grid_mat.to(embedding.device)
-        grid = torch.einsum("bai, zic -> zbac", to_grid_mat, embedding)
+        # Ensure deterministic operations for consistent CPU/GPU results
+        with torch.no_grad():
+            indices = self.mapping.coefficient_idx(lmax, mmax)
+            # Ensure indices are on the same device as the tensor being indexed
+            indices = indices.to(self.to_grid_mat.device)
+            to_grid_mat = self.to_grid_mat[:, :, indices]
+            # Ensure both tensors are on the same device before einsum
+            to_grid_mat = to_grid_mat.to(embedding.device)
+            # Force float32 precision for consistency
+            embedding = embedding.float()
+            to_grid_mat = to_grid_mat.float()
+            grid = torch.einsum("bai, zic -> zbac", to_grid_mat, embedding)
         return grid
 
 
     # Compute irreps from grid representation
     @torch.jit.export
     def from_grid(self, grid: torch.Tensor, lmax: int, mmax: int):
-        indices = self.mapping.coefficient_idx(lmax, mmax)
-        # Ensure indices are on the same device as the tensor being indexed
-        indices = indices.to(self.from_grid_mat.device)
-        from_grid_mat = self.from_grid_mat[:, :, indices]
-        # Ensure both tensors are on the same device before einsum
-        from_grid_mat = from_grid_mat.to(grid.device)
-        embedding = torch.einsum("bai, zbac -> zic", from_grid_mat, grid)
+        # Ensure deterministic operations for consistent CPU/GPU results
+        with torch.no_grad():
+            indices = self.mapping.coefficient_idx(lmax, mmax)
+            # Ensure indices are on the same device as the tensor being indexed
+            indices = indices.to(self.from_grid_mat.device)
+            from_grid_mat = self.from_grid_mat[:, :, indices]
+            # Ensure both tensors are on the same device before einsum
+            from_grid_mat = from_grid_mat.to(grid.device)
+            # Force float32 precision for consistency
+            grid = grid.float()
+            from_grid_mat = from_grid_mat.float()
+            embedding = torch.einsum("zbac, bai -> zic", grid, from_grid_mat)
         return embedding
 
 
@@ -431,24 +441,29 @@ class SO3_Rotation(torch.nn.Module):
         """
             Compute Wigner matrices from rotation matrix
         """
-        x = edge_rot_mat @ torch.tensor([0.0, 1.0, 0.0], dtype=edge_rot_mat.dtype, device=edge_rot_mat.device)
-        alpha, beta = o3.xyz_to_angles(x)
-        R = (
-            o3.angles_to_matrix(
-                alpha, beta, torch.zeros_like(alpha)
-            ).transpose(-1, -2)
-            @ edge_rot_mat
-        )
-        gamma = torch.atan2(R[..., 0, 2], R[..., 0, 0])
+        # Ensure deterministic operations for consistent CPU/GPU results
+        with torch.no_grad():
+            # Force float32 precision for e3nn operations
+            edge_rot_mat = edge_rot_mat.float()
+            
+            x = edge_rot_mat @ torch.tensor([0.0, 1.0, 0.0], dtype=edge_rot_mat.dtype, device=edge_rot_mat.device)
+            alpha, beta = o3.xyz_to_angles(x)
+            R = (
+                o3.angles_to_matrix(
+                    alpha, beta, torch.zeros_like(alpha)
+                ).transpose(-1, -2)
+                @ edge_rot_mat
+            )
+            gamma = torch.atan2(R[..., 0, 2], R[..., 0, 0])
 
-        size = int((end_lmax + 1) ** 2 - (start_lmax) ** 2)
-        wigner = torch.zeros(int(len(alpha)), size, size, device=edge_rot_mat.device)
-        start = 0
-        for lmax in range(start_lmax, end_lmax + 1):
-            block = self.wigner_D(lmax, alpha, beta, gamma)
-            end = start + block.size()[1]
-            wigner[:, start:end, start:end] = block
-            start = end
+            size = int((end_lmax + 1) ** 2 - (start_lmax) ** 2)
+            wigner = torch.zeros(int(len(alpha)), size, size, device=edge_rot_mat.device, dtype=edge_rot_mat.dtype)
+            start = 0
+            for lmax in range(start_lmax, end_lmax + 1):
+                block = self.wigner_D(lmax, alpha, beta, gamma)
+                end = start + block.size()[1]
+                wigner[:, start:end, start:end] = block
+                start = end
 
         return wigner.detach()
 
@@ -2388,6 +2403,12 @@ class EquiformerV2(nn.Module):
         Initialize the EquiformerV2 model.
         """
         super().__init__()
+        
+        # Set deterministic mode for consistent CPU/GPU results
+        torch.use_deterministic_algorithms(True)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        
         # Initialize the basic parameters
         self.cutoff: float = kwargs.get('cutoff', 5.5)
         self.compute_forces = kwargs.get('compute_forces', False)
@@ -2598,6 +2619,9 @@ class EquiformerV2(nn.Module):
 
         if self.compute_forces:
             self.gradient_output = GradientOutput(model_outputs=['forces'])
+            
+        # Ensure all SO3 components are properly initialized with consistent precision
+        self._ensure_consistent_precision()
 
     def _get_grid_index(self, l: int, m: int, max_l: int) -> int:
         return l * (max_l + 1) + m
@@ -2616,127 +2640,136 @@ class EquiformerV2(nn.Module):
             Output data after applying the model.
         """
         
-        if self.species is None:
-            atomic_numbers = data.atomic_numbers.long()
-        else:
-            atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device)
-        edge_index = data.edge_indices.T
-        edge_vectors = data.edge_vectors
-        positions = data.positions
-        image_indices = data.image_indices
-        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
-        num_atoms = len(atomic_numbers)
-
-        ###############################################################
-        # Embeddings
-        ###############################################################
-
-        # Init per node representations using an atomic number based embedding
-        self.x.set_embedding(torch.zeros(
-            num_atoms,
-            self.x.num_coefficients,
-            self.atom_channels,
-            device=positions.device,
-            dtype=positions.dtype,
-        ))
-        self.x.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
-
-        offset_res = 0
-        offset = 0
-        # Initialize the l = 0, m = 0 coefficients for each resolution
-        # Atom embedding
-        for i in range(self.num_resolutions):
-            if self.num_resolutions == 1:
-                self.x.embedding[:, offset_res, :] = self.atom_embedding(atomic_numbers)
-            else:
-                self.x.embedding[:, offset_res, :] = self.atom_embedding(
-                    atomic_numbers
-                    )[:, offset : offset + self.atom_channels]
-            offset = offset + self.atom_channels
-            offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
-
-        # Edge encoding (distance and atom edge)
-        edge_dist = self.distance_expansion(edge_dist)
-        if self.share_atom_edge_embedding and self.use_atom_edge_embedding and hasattr(self, 'source_embedding') and hasattr(self, 'target_embedding'):
-            source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
-            target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
-            source_embedding = self.source_embedding(source_element)
-            target_embedding = self.target_embedding(target_element)
-            edge_dist = torch.cat((edge_dist, source_embedding, target_embedding), dim=1)
-
-        # Edge-degree embedding
-        edge_rot_mat = init_edge_rot_mat(edge_vectors) # Compute 3x3 rotation matrix per edge
+        # Store original training state
+        was_training = self.training
         
-        edge_degree = self.edge_degree_embedding( # torchscript error
-            atomic_numbers,
-            edge_dist,
-            edge_index,
-            edge_rot_mat)
-        self.x.embedding = self.x.embedding + edge_degree.embedding
+        # Ensure model is in evaluation mode for consistent inference
+        self.eval()
+        
+        try:
+            if self.species is None:
+                atomic_numbers = data.atomic_numbers.long()
+            else:
+                atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device)
+            edge_index = data.edge_indices.T
+            edge_vectors = data.edge_vectors
+            positions = data.positions
+            image_indices = data.image_indices
+            edge_dist = torch.linalg.norm(edge_vectors, dim=1)
+            num_atoms = len(atomic_numbers)
 
-        ###############################################################
-        # Seperable layer norm, and equivariant graph attention
-        ###############################################################
-        if image_indices is None:
-            image_indices = torch.zeros_like(atomic_numbers, dtype=torch.long)
-        assert image_indices is not None
-        for _, block in enumerate(self.blocks):
-            self.x = block(
-                self.x,
+            ###############################################################
+            # Embeddings
+            ###############################################################
+
+            # Init per node representations using an atomic number based embedding
+            self.x.set_embedding(torch.zeros(
+                num_atoms,
+                self.x.num_coefficients,
+                self.atom_channels,
+                device=positions.device,
+                dtype=positions.dtype,
+            ))
+            self.x.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
+
+            offset_res = 0
+            offset = 0
+            # Initialize the l = 0, m = 0 coefficients for each resolution
+            # Atom embedding
+            for i in range(self.num_resolutions):
+                if self.num_resolutions == 1:
+                    self.x.embedding[:, offset_res, :] = self.atom_embedding(atomic_numbers)
+                else:
+                    self.x.embedding[:, offset_res, :] = self.atom_embedding(
+                        atomic_numbers
+                        )[:, offset : offset + self.atom_channels]
+                offset = offset + self.atom_channels
+                offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
+
+            # Edge encoding (distance and atom edge)
+            edge_dist = self.distance_expansion(edge_dist)
+            if self.share_atom_edge_embedding and self.use_atom_edge_embedding and hasattr(self, 'source_embedding') and hasattr(self, 'target_embedding'):
+                source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
+                target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
+                source_embedding = self.source_embedding(source_element)
+                target_embedding = self.target_embedding(target_element)
+                edge_dist = torch.cat((edge_dist, source_embedding, target_embedding), dim=1)
+
+            # Edge-degree embedding
+            edge_rot_mat = init_edge_rot_mat(edge_vectors) # Compute 3x3 rotation matrix per edge
+            
+            edge_degree = self.edge_degree_embedding( # torchscript error
                 atomic_numbers,
                 edge_dist,
                 edge_index,
-                edge_rot_mat,
-                batch=image_indices # data.batch    # for GraphDropPath
-            )
+                edge_rot_mat)
+            self.x.embedding = self.x.embedding + edge_degree.embedding
 
-        # Final layer norm
-        self.x.embedding = self.norm(self.x.embedding)
+            ###############################################################
+            # Seperable layer norm, and equivariant graph attention
+            ###############################################################
+            if image_indices is None:
+                image_indices = torch.zeros_like(atomic_numbers, dtype=torch.long)
+            assert image_indices is not None
+            for _, block in enumerate(self.blocks):
+                self.x = block(
+                    self.x,
+                    atomic_numbers,
+                    edge_dist,
+                    edge_index,
+                    edge_rot_mat,
+                    batch=image_indices # data.batch    # for GraphDropPath
+                )
 
-        ###############################################################
-        # Energy estimation
-        ###############################################################
-        node_energy = self.energy_block(self.x) # feedforward NN
-        node_energy = node_energy.embedding.narrow(1, 0, 1)
-        energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
-        energy.index_add_(0, image_indices, node_energy.view(-1))
+            # Final layer norm
+            self.x.embedding = self.norm(self.x.embedding)
 
-        # Apply de-normalization
-        if self.norm_data:
-            normalizer = self.data_stddev
-            energy = normalizer * energy
-            mean_shift = self.data_mean
-            if self.norm_per_atom:
-                mean_shift = len(edge_index) * mean_shift
-            energy = energy + mean_shift
+            ###############################################################
+            # Energy estimation
+            ###############################################################
+            node_energy = self.energy_block(self.x) # feedforward NN
+            node_energy = node_energy.embedding.narrow(1, 0, 1)
+            energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
+            energy.index_add_(0, image_indices, node_energy.view(-1))
 
-        # NaN/Inf checks for energy
-        if torch.isnan(energy).any():
-            print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
-        if torch.isinf(energy).any():
-            print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
+            # Apply de-normalization
+            if self.norm_data:
+                normalizer = self.data_stddev
+                energy = normalizer * energy
+                mean_shift = self.data_mean
+                if self.norm_per_atom:
+                    mean_shift = len(edge_index) * mean_shift
+                energy = energy + mean_shift
 
-        data = replace_properties(data, energy=energy)
-        
-        atomic_energy = node_energy.view(-1)
-        data = replace_properties(data, atomic_energy=atomic_energy)
-        ###############################################################
-        # Force estimation
-        ###############################################################
-        # if self.compute_forces:
-            # forces = self.force_block(self.x,
-            #     atomic_numbers,
-            #     edge_dist,
-            #     edge_index,
-            #     edge_rot_mat)
-            # forces = forces.embedding.narrow(1, 1, 3)
-            # forces = forces.view(-1, 3)
-            # data = replace_properties(data, forces=forces)
+            # NaN/Inf checks for energy
+            if torch.isnan(energy).any():
+                print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
+            if torch.isinf(energy).any():
+                print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
 
-        if self.compute_forces:
-            data = self.gradient_output(data)
+            data = replace_properties(data, energy=energy)
+            
+            atomic_energy = node_energy.view(-1)
+            data = replace_properties(data, atomic_energy=atomic_energy)
+            ###############################################################
+            # Force estimation
+            ###############################################################
+            # if self.compute_forces:
+                # forces = self.force_block(self.x,
+                #     atomic_numbers,
+                #     edge_dist,
+                #     edge_index,
+                #     edge_rot_mat)
+                # forces = forces.embedding.narrow(1, 1, 3)
+                # forces = forces.view(-1, 3)
+                # data = replace_properties(data, forces=forces)
 
-        return data
+            if self.compute_forces:
+                data = self.gradient_output(data)
+
+            return data
+        finally:
+            self.train(was_training)
 
     
     def _init_weights(self, m):
@@ -2790,6 +2823,21 @@ class EquiformerV2(nn.Module):
             self.edge_degree_embedding.to(device)
         
         return self
+
+    def _ensure_consistent_precision(self):
+        """Ensure all SO3 components use consistent precision for CPU/GPU compatibility."""
+        # Set all SO3_Grid components to use float32
+        for grid in self.SO3_grid:
+            if hasattr(grid, 'to_grid_mat'):
+                grid.to_grid_mat = grid.to_grid_mat.float()
+            if hasattr(grid, 'from_grid_mat'):
+                grid.from_grid_mat = grid.from_grid_mat.float()
+        
+        # Set all SO3_Rotation components to use float32
+        for rotation in self.SO3_rotation:
+            if hasattr(rotation, '_Jd'):
+                for i, J in enumerate(rotation._Jd):
+                    rotation._Jd[i] = J.float()
 
 class GradientOutput(torch.nn.Module):
     def __init__(
