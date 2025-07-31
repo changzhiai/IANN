@@ -2529,7 +2529,6 @@ class EquiformerV2(nn.Module):
         AtomsData
             Output data after applying the model.
         """
-        print()
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
         else:
