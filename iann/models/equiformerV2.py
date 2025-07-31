@@ -335,6 +335,20 @@ class SO3_Rotation(torch.nn.Module):
             weights_only=True,
         )
 
+    def to(self, device):
+        """Move all internal tensors to the target device"""
+        # Move the model to the target device
+        super().to(device)
+        
+        # Move _Jd tensor to the target device
+        self._Jd = [tensor.to(device) for tensor in self._Jd]
+        
+        # Move mapping component to the target device
+        if hasattr(self, 'mapping'):
+            self.mapping.to(device)
+        
+        return self
+
     @torch.jit.export
     def set_wigner(self, rot_mat3x3: torch.Tensor):
         wigner = self.RotationToWignerDMatrix(rot_mat3x3, 0, self.lmax)
@@ -627,6 +641,22 @@ class SO3_Embedding(nn.Module):
             offset = offset + num_coefficients
             offset_channel = offset_channel + self.num_channels
 
+    @torch.jit.export
+    def set_lmax_mmax(self, lmax_list: list[int], mmax_list: list[int]):
+        self.lmax_list = lmax_list
+        self.mmax_list = mmax_list
+
+    def to(self, device):
+        """Move all internal tensors to the target device"""
+        # Move the model to the target device
+        super().to(device)
+        
+        # Ensure embedding is on the target device
+        if hasattr(self, 'embedding'):
+            self.embedding = self.embedding.to(device)
+        
+        return self
+
 def init_edge_rot_mat(edge_diff):
     edge_vec_0 = edge_diff
     edge_vec_0_distance = torch.sqrt(torch.sum(edge_vec_0**2, dim=1))
@@ -865,6 +895,24 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 
         return self.x_edge_embedding
 
+    def to(self, device):
+        """Move all internal tensors to the target device"""
+        # Move the model to the target device
+        super().to(device)
+        
+        # Move SO3_rotation components to the target device
+        for rotation in self.SO3_rotation:
+            rotation.to(device)
+        
+        # Move mappingReduced to the target device
+        if hasattr(self, 'mappingReduced'):
+            self.mappingReduced.to(device)
+        
+        # Move x_edge_embedding to the target device
+        if hasattr(self, 'x_edge_embedding'):
+            self.x_edge_embedding.to(device)
+        
+        return self
 
 class EquivariantLayerNormArray(nn.Module):
     
@@ -1920,6 +1968,30 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
 
         return out_embedding
 
+    def to(self, device):
+        """Move all internal tensors to the target device"""
+        # Move the model to the target device
+        super().to(device)
+        
+        # Move SO3_rotation components to the target device
+        for rotation in self.SO3_rotation:
+            rotation.to(device)
+        
+        # Move mappingReduced to the target device
+        if hasattr(self, 'mappingReduced'):
+            self.mappingReduced.to(device)
+        
+        # Move SO3_grid components to the target device
+        for grid in self.SO3_grid:
+            grid.to(device)
+        
+        # Move SO3_Embedding components to the target device
+        if hasattr(self, 'clone'):
+            self.clone.to(device)
+        if hasattr(self, 'x_message'):
+            self.x_message.to(device)
+        
+        return self
 
 class FeedForwardNetwork(torch.nn.Module):
     """
