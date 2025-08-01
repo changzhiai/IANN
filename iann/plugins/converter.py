@@ -70,6 +70,7 @@ class LAMMPSModelWrapper(torch.nn.Module):
         )
         if self.compute_forces:
             model_inputs.edge_vectors.requires_grad_()
+        
         data = self.model(model_inputs)
         if not hasattr(self.model, 'compute_forces') or not self.model.compute_forces:
             raise RuntimeError("Model did not return forces. Make sure compute_forces=True")

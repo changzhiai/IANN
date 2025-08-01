@@ -169,6 +169,9 @@ class MLCalculator(Calculator):
         if self.device == 'cuda':
             model_inputs = model_inputs.to(self.device)
 
+        # Ensure model is in evaluation mode for deterministic inference
+        self.model.eval()
+        
         model_results = self.model(model_inputs)
 
         results = {}
@@ -287,6 +290,8 @@ class EnsembleCalculator(Calculator):
 
         predictions = {'energy': [], 'forces': [],}
         for model in self.models:
+            # Ensure model is in evaluation mode for deterministic inference
+            model.eval()
             model_results = model(model_inputs)
             predictions['energy'].append(model_results.energy[0].detach().cpu().numpy().item() * self.energy_scale)
             if self.compute_forces:
@@ -414,6 +419,8 @@ class AtomicEnsembleCalculator(Calculator):
 
         predictions = {'energy': [], 'forces': [], 'atomic_energy': []}
         for model in self.models:
+            # Ensure model is in evaluation mode for deterministic inference
+            model.eval()
             model_results = model(model_inputs)
             predictions['energy'].append(model_results.energy[0].detach().cpu().numpy().item() * self.energy_scale)
             predictions['atomic_energy'].append(model_results.atomic_energy.detach().cpu().numpy() * self.energy_scale)
