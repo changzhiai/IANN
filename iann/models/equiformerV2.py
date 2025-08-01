@@ -2689,7 +2689,7 @@ class EquiformerV2(nn.Module):
         
         
         # Ensure complete determinism during inference
-        # self._ensure_deterministic_inference()
+        self._ensure_deterministic_inference()
         
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
