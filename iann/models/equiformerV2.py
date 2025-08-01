@@ -2192,8 +2192,8 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     device = x.device
     dtype = x.dtype
     
-    # Create a deterministic seed based on tensor properties
-    seed = hash((x.shape[0], x.shape[1] if len(x.shape) > 1 else 1, device.type)) % (2**32)
+    # Create a deterministic seed based on tensor properties (ensure it's an integer)
+    seed = int(hash((x.shape[0], x.shape[1] if len(x.shape) > 1 else 1, device.type)) % (2**32))
     
     # Set deterministic seed for this operation
     with torch.no_grad():
