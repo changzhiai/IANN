@@ -259,7 +259,7 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
         raw_model.load_state_dict(state_dict["model"])
     else:
         raise ValueError(f"Unknown model type: {model_type}")
-
+    raw_model.eval()
     wrapped_model = LAMMPSModelWrapper(raw_model, compute_forces=kwargs.get("compute_forces", True))
     wrapped_model.eval()
     # Example test: verify the wrapper with dummy ASE atoms
