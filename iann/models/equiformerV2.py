@@ -2687,9 +2687,6 @@ class EquiformerV2(nn.Module):
             Output data after applying the model.
         """
         
-        # Ensure model is in evaluation mode for consistent inference
-        self.eval()
-        
         # Ensure complete determinism during inference
         self._ensure_deterministic_inference()
         
