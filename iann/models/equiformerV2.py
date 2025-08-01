@@ -2184,30 +2184,17 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
         return x
     
-    # During training, use deterministic approach
+    # During training, use deterministic approach with global seed
     keep_prob = 1 - drop_prob
     shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
     
-    # Use deterministic approach for consistent CPU/GPU results
+    # Use global deterministic environment (already set up)
     device = x.device
     dtype = x.dtype
     
-    # Create a deterministic seed based on tensor properties (ensure it's an integer)
-    seed = int(hash((x.shape[0], x.shape[1] if len(x.shape) > 1 else 1, device.type)) % (2**32))
-    
-    # Set deterministic seed for this operation
     with torch.no_grad():
-        torch.manual_seed(seed)
-        if device.type == 'cuda':
-            torch.cuda.manual_seed(seed)
-        
         random_tensor = keep_prob + torch.rand(shape, dtype=dtype, device=device)
         random_tensor.floor_()  # binarize
-        
-        # Reset seed to avoid affecting other operations
-        torch.manual_seed(torch.initial_seed())
-        if device.type == 'cuda':
-            torch.cuda.manual_seed(torch.initial_seed())
     
     output = x.div(keep_prob) * random_tensor
     return output
