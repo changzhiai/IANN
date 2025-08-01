@@ -2686,6 +2686,8 @@ class EquiformerV2(nn.Module):
         AtomsData
             Output data after applying the model.
         """
+        # Ensure deterministic environment for consistent CPU/GPU/TorchScript results
+        setup_deterministic_environment()
         
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
