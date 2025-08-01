@@ -8,6 +8,31 @@ from typing import List, Optional, Callable, Union
 from iann.data import AtomsData, replace_properties
 import iann
 
+# Set environment variable for deterministic CuBLAS operations
+os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+
+def setup_deterministic_environment():
+    """Setup deterministic environment for consistent CPU/GPU results."""
+    # Set CuBLAS workspace config
+    if 'CUBLAS_WORKSPACE_CONFIG' not in os.environ:
+        os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+    
+    # Set deterministic mode with fallback
+    try:
+        torch.use_deterministic_algorithms(True)
+    except RuntimeError as e:
+        print(f"Warning: Could not enable deterministic algorithms: {e}")
+        print("Falling back to basic deterministic settings...")
+    
+    # Set CUDNN settings
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    # Set seeds
+    torch.manual_seed(666)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(666)
+
 
 class SO3_Grid(torch.nn.Module):
     """
@@ -2446,15 +2471,8 @@ class EquiformerV2(nn.Module):
         """
         super().__init__()
         
-        # Set deterministic mode for consistent CPU/GPU results
-        torch.use_deterministic_algorithms(True)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        
-        # Set global seed for complete determinism
-        torch.manual_seed(666)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(666)
+        # Setup deterministic environment for consistent CPU/GPU results
+        setup_deterministic_environment()
         
         # Initialize the basic parameters
         self.cutoff: float = kwargs.get('cutoff', 5.5)
@@ -2891,15 +2909,8 @@ class EquiformerV2(nn.Module):
     
     def _ensure_deterministic_inference(self):
         """Ensure complete determinism during inference for consistent CPU/GPU results."""
-        # Set deterministic mode
-        torch.use_deterministic_algorithms(True)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        
-        # Set seed for deterministic operations
-        torch.manual_seed(666)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(666)
+        # Setup deterministic environment
+        setup_deterministic_environment()
         
         # Ensure all dropout layers are disabled
         for module in self.modules():
