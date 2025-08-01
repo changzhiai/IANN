@@ -2192,9 +2192,8 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     device = x.device
     dtype = x.dtype
     
-    with torch.no_grad():
-        random_tensor = keep_prob + torch.rand(shape, dtype=dtype, device=device)
-        random_tensor.floor_()  # binarize
+    random_tensor = keep_prob + torch.rand(shape, dtype=dtype, device=device)
+    random_tensor.floor_()  # binarize
     
     output = x.div(keep_prob) * random_tensor
     return output
