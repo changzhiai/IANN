@@ -2885,7 +2885,7 @@ class EquiformerV2(nn.Module):
         """Ensure complete determinism during inference for consistent CPU/GPU results."""
         # Ensure all dropout layers are disabled (TorchScript-compatible)
         for module in self.modules():
-            if isinstance(module, (torch.nn.Dropout, EquivariantDropoutArraySphericalHarmonics)):
+            if isinstance(module, torch.nn.Dropout):
                 module.p = 0.0  # Disable dropout
 
 class GradientOutput(torch.nn.Module):
