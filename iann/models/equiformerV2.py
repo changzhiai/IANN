@@ -17,12 +17,8 @@ def setup_deterministic_environment():
     if 'CUBLAS_WORKSPACE_CONFIG' not in os.environ:
         os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     
-    # Set deterministic mode with fallback
-    try:
-        torch.use_deterministic_algorithms(True)
-    except RuntimeError as e:
-        print(f"Warning: Could not enable deterministic algorithms: {e}")
-        print("Falling back to basic deterministic settings...")
+    # Set deterministic mode (without try-except for TorchScript compatibility)
+    torch.use_deterministic_algorithms(True)
     
     # Set CUDNN settings
     torch.backends.cudnn.deterministic = True
@@ -2705,139 +2701,133 @@ class EquiformerV2(nn.Module):
             Output data after applying the model.
         """
         
-        # Store original training state
-        was_training = self.training
-        
         # Ensure model is in evaluation mode for consistent inference
         self.eval()
         
         # Ensure complete determinism during inference
         self._ensure_deterministic_inference()
         
-        try:
-            if self.species is None:
-                atomic_numbers = data.atomic_numbers.long()
+        if self.species is None:
+            atomic_numbers = data.atomic_numbers.long()
+        else:
+            atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device)
+        edge_index = data.edge_indices.T
+        edge_vectors = data.edge_vectors
+        positions = data.positions
+        image_indices = data.image_indices
+        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
+        num_atoms = len(atomic_numbers)
+
+        ###############################################################
+        # Embeddings
+        ###############################################################
+
+        # Init per node representations using an atomic number based embedding
+        self.x.set_embedding(torch.zeros(
+            num_atoms,
+            self.x.num_coefficients,
+            self.atom_channels,
+            device=positions.device,
+            dtype=positions.dtype,
+        ))
+        self.x.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
+
+        offset_res = 0
+        offset = 0
+        # Initialize the l = 0, m = 0 coefficients for each resolution
+        # Atom embedding
+        for i in range(self.num_resolutions):
+            if self.num_resolutions == 1:
+                self.x.embedding[:, offset_res, :] = self.atom_embedding(atomic_numbers)
             else:
-                atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device)
-            edge_index = data.edge_indices.T
-            edge_vectors = data.edge_vectors
-            positions = data.positions
-            image_indices = data.image_indices
-            edge_dist = torch.linalg.norm(edge_vectors, dim=1)
-            num_atoms = len(atomic_numbers)
+                self.x.embedding[:, offset_res, :] = self.atom_embedding(
+                    atomic_numbers
+                    )[:, offset : offset + self.atom_channels]
+            offset = offset + self.atom_channels
+            offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
 
-            ###############################################################
-            # Embeddings
-            ###############################################################
+        # Edge encoding (distance and atom edge)
+        edge_dist = self.distance_expansion(edge_dist)
+        if self.share_atom_edge_embedding and self.use_atom_edge_embedding and hasattr(self, 'source_embedding') and hasattr(self, 'target_embedding'):
+            source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
+            target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
+            source_embedding = self.source_embedding(source_element)
+            target_embedding = self.target_embedding(target_element)
+            edge_dist = torch.cat((edge_dist, source_embedding, target_embedding), dim=1)
 
-            # Init per node representations using an atomic number based embedding
-            self.x.set_embedding(torch.zeros(
-                num_atoms,
-                self.x.num_coefficients,
-                self.atom_channels,
-                device=positions.device,
-                dtype=positions.dtype,
-            ))
-            self.x.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
+        # Edge-degree embedding
+        edge_rot_mat = init_edge_rot_mat(edge_vectors) # Compute 3x3 rotation matrix per edge
+        
+        edge_degree = self.edge_degree_embedding( # torchscript error
+            atomic_numbers,
+            edge_dist,
+            edge_index,
+            edge_rot_mat)
+        self.x.embedding = self.x.embedding + edge_degree.embedding
 
-            offset_res = 0
-            offset = 0
-            # Initialize the l = 0, m = 0 coefficients for each resolution
-            # Atom embedding
-            for i in range(self.num_resolutions):
-                if self.num_resolutions == 1:
-                    self.x.embedding[:, offset_res, :] = self.atom_embedding(atomic_numbers)
-                else:
-                    self.x.embedding[:, offset_res, :] = self.atom_embedding(
-                        atomic_numbers
-                        )[:, offset : offset + self.atom_channels]
-                offset = offset + self.atom_channels
-                offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
-
-            # Edge encoding (distance and atom edge)
-            edge_dist = self.distance_expansion(edge_dist)
-            if self.share_atom_edge_embedding and self.use_atom_edge_embedding and hasattr(self, 'source_embedding') and hasattr(self, 'target_embedding'):
-                source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
-                target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
-                source_embedding = self.source_embedding(source_element)
-                target_embedding = self.target_embedding(target_element)
-                edge_dist = torch.cat((edge_dist, source_embedding, target_embedding), dim=1)
-
-            # Edge-degree embedding
-            edge_rot_mat = init_edge_rot_mat(edge_vectors) # Compute 3x3 rotation matrix per edge
-            
-            edge_degree = self.edge_degree_embedding( # torchscript error
+        ###############################################################
+        # Seperable layer norm, and equivariant graph attention
+        ###############################################################
+        if image_indices is None:
+            image_indices = torch.zeros_like(atomic_numbers, dtype=torch.long)
+        assert image_indices is not None
+        for _, block in enumerate(self.blocks):
+            self.x = block(
+                self.x,
                 atomic_numbers,
                 edge_dist,
                 edge_index,
-                edge_rot_mat)
-            self.x.embedding = self.x.embedding + edge_degree.embedding
+                edge_rot_mat,
+                batch=image_indices # data.batch    # for GraphDropPath
+            )
 
-            ###############################################################
-            # Seperable layer norm, and equivariant graph attention
-            ###############################################################
-            if image_indices is None:
-                image_indices = torch.zeros_like(atomic_numbers, dtype=torch.long)
-            assert image_indices is not None
-            for _, block in enumerate(self.blocks):
-                self.x = block(
-                    self.x,
-                    atomic_numbers,
-                    edge_dist,
-                    edge_index,
-                    edge_rot_mat,
-                    batch=image_indices # data.batch    # for GraphDropPath
-                )
+        # Final layer norm
+        self.x.embedding = self.norm(self.x.embedding)
 
-            # Final layer norm
-            self.x.embedding = self.norm(self.x.embedding)
+        ###############################################################
+        # Energy estimation
+        ###############################################################
+        node_energy = self.energy_block(self.x) # feedforward NN
+        node_energy = node_energy.embedding.narrow(1, 0, 1)
+        energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
+        energy.index_add_(0, image_indices, node_energy.view(-1))
 
-            ###############################################################
-            # Energy estimation
-            ###############################################################
-            node_energy = self.energy_block(self.x) # feedforward NN
-            node_energy = node_energy.embedding.narrow(1, 0, 1)
-            energy = torch.zeros(len(data.num_atoms), device=node_energy.device, dtype=node_energy.dtype)
-            energy.index_add_(0, image_indices, node_energy.view(-1))
+        # Apply de-normalization
+        if self.norm_data:
+            normalizer = self.data_stddev
+            energy = normalizer * energy
+            mean_shift = self.data_mean
+            if self.norm_per_atom:
+                mean_shift = len(edge_index) * mean_shift
+            energy = energy + mean_shift
 
-            # Apply de-normalization
-            if self.norm_data:
-                normalizer = self.data_stddev
-                energy = normalizer * energy
-                mean_shift = self.data_mean
-                if self.norm_per_atom:
-                    mean_shift = len(edge_index) * mean_shift
-                energy = energy + mean_shift
+        # NaN/Inf checks for energy
+        if torch.isnan(energy).any():
+            print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
+        if torch.isinf(energy).any():
+            print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
 
-            # NaN/Inf checks for energy
-            if torch.isnan(energy).any():
-                print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
-            if torch.isinf(energy).any():
-                print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
+        data = replace_properties(data, energy=energy)
+        
+        atomic_energy = node_energy.view(-1)
+        data = replace_properties(data, atomic_energy=atomic_energy)
+        ###############################################################
+        # Force estimation
+        ###############################################################
+        # if self.compute_forces:
+            # forces = self.force_block(self.x,
+            #     atomic_numbers,
+            #     edge_dist,
+            #     edge_index,
+            #     edge_rot_mat)
+            # forces = forces.embedding.narrow(1, 1, 3)
+            # forces = forces.view(-1, 3)
+            # data = replace_properties(data, forces=forces)
 
-            data = replace_properties(data, energy=energy)
-            
-            atomic_energy = node_energy.view(-1)
-            data = replace_properties(data, atomic_energy=atomic_energy)
-            ###############################################################
-            # Force estimation
-            ###############################################################
-            # if self.compute_forces:
-                # forces = self.force_block(self.x,
-                #     atomic_numbers,
-                #     edge_dist,
-                #     edge_index,
-                #     edge_rot_mat)
-                # forces = forces.embedding.narrow(1, 1, 3)
-                # forces = forces.view(-1, 3)
-                # data = replace_properties(data, forces=forces)
+        if self.compute_forces:
+            data = self.gradient_output(data)
 
-            if self.compute_forces:
-                data = self.gradient_output(data)
-
-            return data
-        finally:
-            self.train(was_training)
+        return data
 
     
     def _init_weights(self, m):
@@ -2909,10 +2899,7 @@ class EquiformerV2(nn.Module):
     
     def _ensure_deterministic_inference(self):
         """Ensure complete determinism during inference for consistent CPU/GPU results."""
-        # Setup deterministic environment
-        setup_deterministic_environment()
-        
-        # Ensure all dropout layers are disabled
+        # Ensure all dropout layers are disabled (TorchScript-compatible)
         for module in self.modules():
             if isinstance(module, (torch.nn.Dropout, EquivariantDropoutArraySphericalHarmonics)):
                 module.p = 0.0  # Disable dropout
