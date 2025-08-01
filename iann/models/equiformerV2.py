@@ -2184,11 +2184,11 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
         return x
     
-    # During training, use deterministic approach with global seed
+    # During training, use deterministic approach
     keep_prob = 1 - drop_prob
     shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
     
-    # Use global deterministic environment (already set up)
+    # Use deterministic approach for consistent CPU/GPU results
     device = x.device
     dtype = x.dtype
     
@@ -2687,6 +2687,10 @@ class EquiformerV2(nn.Module):
             Output data after applying the model.
         """
         
+        
+        # Ensure complete determinism during inference
+        # self._ensure_deterministic_inference()
+        
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
         else:
@@ -2876,7 +2880,13 @@ class EquiformerV2(nn.Module):
             if hasattr(rotation, '_Jd'):
                 for i, J in enumerate(rotation._Jd):
                     rotation._Jd[i] = J.float()
-
+    
+    def _ensure_deterministic_inference(self):
+        """Ensure complete determinism during inference for consistent CPU/GPU results."""
+        # Ensure all dropout layers are disabled (TorchScript-compatible)
+        for module in self.modules():
+            if isinstance(module, (torch.nn.Dropout, EquivariantDropoutArraySphericalHarmonics)):
+                module.p = 0.0  # Disable dropout
 
 class GradientOutput(torch.nn.Module):
     def __init__(
