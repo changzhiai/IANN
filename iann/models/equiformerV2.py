@@ -2886,7 +2886,8 @@ class EquiformerV2(nn.Module):
         # Ensure all dropout layers are disabled (TorchScript-compatible)
         for module in self.modules():
             if isinstance(module, torch.nn.Dropout):
-                module.p = 0.0  # Disable dropout
+                if hasattr(module, 'p'):
+                    module.p = 0.0  # Disable dropout
 
 class GradientOutput(torch.nn.Module):
     def __init__(
