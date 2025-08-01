@@ -218,6 +218,12 @@ class AseDataReader:
         edge_indices = np.stack((pair_i_idx, pair_j_idx), axis=1)
         edge_vectors = np.concatenate(edge_vectors)
         
+        # Sort edges for deterministic ordering (important for equivariant models)
+        # Sort by source atom first, then by target atom
+        sort_idx = np.lexsort((edge_indices[:, 1], edge_indices[:, 0]))
+        edge_indices = edge_indices[sort_idx]
+        edge_vectors = edge_vectors[sort_idx]
+        
         return edge_indices, edge_vectors
     
     def get_neighborlist_simple(self, atoms):
@@ -227,6 +233,12 @@ class AseDataReader:
         np.fill_diagonal(mask, False)        
         edge_indices = np.argwhere(mask)
         edge_vectors = pos[edge_indices[:, 1]] - pos[edge_indices[:, 0]]
+        
+        # Sort edges for deterministic ordering (important for equivariant models)
+        # Sort by source atom first, then by target atom
+        sort_idx = np.lexsort((edge_indices[:, 1], edge_indices[:, 0]))
+        edge_indices = edge_indices[sort_idx]
+        edge_vectors = edge_vectors[sort_idx]
         
         return edge_indices, edge_vectors
 
