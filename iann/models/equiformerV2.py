@@ -2456,6 +2456,11 @@ class EquiformerV2(nn.Module):
         # Setup deterministic environment for consistent CPU/GPU results
         setup_deterministic_environment()
         
+        # Set seeds
+        torch.manual_seed(666)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(666)
+        
         # Initialize the basic parameters
         self.cutoff: float = kwargs.get('cutoff', 5.5)
         self.compute_forces = kwargs.get('compute_forces', False)
@@ -2687,7 +2692,10 @@ class EquiformerV2(nn.Module):
             Output data after applying the model.
         """
         # Ensure deterministic environment for consistent CPU/GPU/TorchScript results
-        setup_deterministic_environment()
+        # Set seeds directly in forward method for TorchScript compatibility
+        torch.manual_seed(666)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(666)
         
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
