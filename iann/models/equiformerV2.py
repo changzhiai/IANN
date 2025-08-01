@@ -2687,9 +2687,6 @@ class EquiformerV2(nn.Module):
             Output data after applying the model.
         """
         
-        # Ensure complete determinism during inference
-        self._ensure_deterministic_inference()
-        
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
         else:
@@ -2879,13 +2876,7 @@ class EquiformerV2(nn.Module):
             if hasattr(rotation, '_Jd'):
                 for i, J in enumerate(rotation._Jd):
                     rotation._Jd[i] = J.float()
-    
-    def _ensure_deterministic_inference(self):
-        """Ensure complete determinism during inference for consistent CPU/GPU results."""
-        # Ensure all dropout layers are disabled (TorchScript-compatible)
-        for module in self.modules():
-            if isinstance(module, (torch.nn.Dropout, EquivariantDropoutArraySphericalHarmonics)):
-                module.p = 0.0  # Disable dropout
+
 
 class GradientOutput(torch.nn.Module):
     def __init__(
