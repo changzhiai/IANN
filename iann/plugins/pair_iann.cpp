@@ -317,6 +317,10 @@ void PairIANN::compute(int eflag, int vflag)
   
   // Inference: call the scripted model with raw tensor inputs matching wrapper signature
   try {
+    // Ensure model is in evaluation mode for deterministic inference
+    // This disables dropout operations and matches ASE interface behavior
+    model->eval();
+    
     auto output = model->forward({
         num_atoms_tensor.to(torch::kInt64),
         atomic_numbers_tensor.to(torch::kInt64),
