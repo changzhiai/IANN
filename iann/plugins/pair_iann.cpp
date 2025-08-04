@@ -266,29 +266,29 @@ void PairIANN::compute(int eflag, int vflag)
       coord_acc[i][2] = x[i][2];
   }
 
-    // Convert box to tensor (3,3) for both orthogonal and non-orthogonal boxes
-    torch::Tensor cell_tensor = torch::zeros({3,3}, torch::kFloat64);
-    auto cell_acc = cell_tensor.accessor<double,2>();
-    
-    // Get box vectors
-    double *boxlo = domain->boxlo;
-    double *boxhi = domain->boxhi;
-    double xy = domain->xy;
-    double xz = domain->xz;
-    double yz = domain->yz;
-    
-    // Set cell matrix elements
-    cell_acc[0][0] = boxhi[0] - boxlo[0];  // a_x
-    cell_acc[0][1] = 0.0;
-    cell_acc[0][2] = 0.0;
+  // Convert box to tensor (3,3) for both orthogonal and non-orthogonal boxes
+  torch::Tensor cell_tensor = torch::zeros({3,3}, torch::kFloat64);
+  auto cell_acc = cell_tensor.accessor<double,2>();
+  
+  // Get box vectors
+  double *boxlo = domain->boxlo;
+  double *boxhi = domain->boxhi;
+  double xy = domain->xy;
+  double xz = domain->xz;
+  double yz = domain->yz;
+  
+  // Set cell matrix elements
+  cell_acc[0][0] = boxhi[0] - boxlo[0];  // a_x
+  cell_acc[0][1] = 0.0;
+  cell_acc[0][2] = 0.0;
 
-    cell_acc[1][0] = xy;                  // b_x
-    cell_acc[1][1] = boxhi[1] - boxlo[1]; // b_y
-    cell_acc[1][2] = 0.0;
+  cell_acc[1][0] = xy;                  // b_x
+  cell_acc[1][1] = boxhi[1] - boxlo[1]; // b_y
+  cell_acc[1][2] = 0.0;
 
-    cell_acc[2][0] = xz;                  // c_x
-    cell_acc[2][1] = yz;                  // c_y
-    cell_acc[2][2] = boxhi[2] - boxlo[2]; // c_z
+  cell_acc[2][0] = xz;                  // c_x
+  cell_acc[2][1] = yz;                  // c_y
+  cell_acc[2][2] = boxhi[2] - boxlo[2]; // c_z
 
   // Build edges based on neighborlist
   build_edges(list->inum, list->ilist, list->numneigh, list->firstneigh);
@@ -317,6 +317,17 @@ void PairIANN::compute(int eflag, int vflag)
   
   // Inference: call the scripted model with raw tensor inputs matching wrapper signature
   try {
+    // Set PyTorch seed for consistent RNG behavior between PyTorch and LAMMPS
+    // This ensures deterministic behavior when using random operations in the model
+
+    // if (debug) {
+    //   torch::manual_seed(666);
+    //   if (torch::cuda::is_available() && use_gpu) {
+    //     torch::cuda::manual_seed_all(666);
+    //   }
+    //   std::cout << "[PAIR_IANN] Seed set to 666" << std::endl;
+    // }
+    
     // Ensure model is in evaluation mode for deterministic inference
     // This disables dropout operations and matches ASE interface behavior
     model->eval();
