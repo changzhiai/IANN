@@ -54,7 +54,7 @@ Install GPU version LAMMPS with LibTorch:
    -D GPU_API=cuda -DGPU_ARCH=$GPU_ARCH \
    -D PKG_USER-MISC=ON -DBUILD_MPI=ON  \ 
    -D BUILD_OMP=ON   \
-   -D CMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch -ltorch_cpu -lc10" \
+   -D CMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch -ltorch_cpu -lc10"
    make -j 8
 
 If you want to make CPU version LAMMPS with LibTorch rather than GPU version, you can use the following command:
@@ -72,7 +72,7 @@ If you want to make CPU version LAMMPS with LibTorch rather than GPU version, yo
    -D GPU_API=cuda -DGPU_ARCH=$GPU_ARCH \
    -D PKG_USER-MISC=ON -DBUILD_MPI=ON   \
    -D BUILD_OMP=ON   \
-   -D CMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch -ltorch_cpu -lc10" \
+   -D CMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch -ltorch_cpu -lc10"
    make -j 8
 
 
