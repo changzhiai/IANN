@@ -50,10 +50,13 @@ Install GPU version LAMMPS with LibTorch:
    -D CMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
    -D CMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include"  \
    -D Torch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
-   -D CMAKE_BUILD_TYPE=Release -DPKG_GPU=yes  \
-   -D GPU_API=cuda -DGPU_ARCH=$GPU_ARCH \
-   -D PKG_USER-MISC=ON -DBUILD_MPI=ON  \ 
-   -D BUILD_OMP=ON   \
+   -D CMAKE_BUILD_TYPE=Release \
+   -D PKG_GPU=yes  \
+   -D GPU_API=cuda \
+   -DGPU_ARCH=$GPU_ARCH \
+   -D PKG_USER-MISC=ON \
+   -D BUILD_MPI=ON \ 
+   -D BUILD_OMP=ON \
    -D CMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch -ltorch_cpu -lc10"
    make -j 8
 
@@ -66,13 +69,12 @@ If you want to make CPU version LAMMPS with LibTorch rather than GPU version, yo
    module load GCC/11.3.0 CMake/3.23.1-GCCcore-11.3.0 OpenMPI # Load required modules on S3DF
    cmake ../cmake \
    -D CMAKE_PREFIX_PATH=$INSTALL_PATH/libtorch \
-   -D CMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include"   \
+   -D CMAKE_CXX_FLAGS="-I$INSTALL_PATH/libtorch/include/torch/csrc/api/include -I$INSTALL_PATH/libtorch/include" \
    -D Torch_DIR=$INSTALL_PATH/libtorch/share/cmake/Torch \
-   -D CMAKE_BUILD_TYPE=Release -DPKG_GPU=no  \
-   -D GPU_API=cuda -DGPU_ARCH=$GPU_ARCH \
-   -D PKG_USER-MISC=ON -DBUILD_MPI=ON   \
-   -D BUILD_OMP=ON   \
-   -D CMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch -ltorch_cpu -lc10"
+   -D PKG_USER-MISC=ON \
+   -D BUILD_MPI=ON \
+   -D BUILD_OMP=ON \
+   -D CMAKE_EXE_LINKER_FLAGS="-L$INSTALL_PATH/libtorch/lib -Wl,-rpath,$INSTALL_PATH/libtorch/lib -ltorch -ltorch_cpu -lc10" 
    make -j 8
 
 
