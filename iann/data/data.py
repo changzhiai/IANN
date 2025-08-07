@@ -165,8 +165,8 @@ class AseDataReader:
     def __call__(self, atoms):
         num_atoms = torch.tensor([atoms.get_global_number_of_atoms()])
         atomic_numbers = torch.tensor(atoms.numbers)
-        positions = torch.tensor(atoms.positions, dtype=torch.float)
-        cell = torch.tensor(atoms.cell[:], dtype=torch.float)
+        positions = torch.tensor(atoms.positions, dtype=torch.float32)
+        cell = torch.tensor(atoms.cell[:], dtype=torch.float32)
         
         if atoms.pbc.any():
             edge_indices, edge_vectors = self.get_neighborlist(atoms)
@@ -180,12 +180,12 @@ class AseDataReader:
         num_edges = torch.tensor([edge_indices.shape[0]])
         
         try:
-            energy = torch.tensor([atoms.get_potential_energy()], dtype=torch.float)
+            energy = torch.tensor([atoms.get_potential_energy()], dtype=torch.float32)
         except (AttributeError, RuntimeError):
             energy = None
 
         try: 
-            forces = torch.tensor(atoms.get_forces(apply_constraint=False), dtype=torch.float)
+            forces = torch.tensor(atoms.get_forces(apply_constraint=False), dtype=torch.float32)
         except (AttributeError, RuntimeError):
             forces = None
         
