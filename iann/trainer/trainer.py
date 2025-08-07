@@ -103,8 +103,8 @@ def forces_criterion(predicted, target, reduction="mean"):
     return scalar
 
 def get_norm_data(dataset, per_atom=True):
-    x_sum = torch.zeros(1, dtype=torch.double)
-    x_2 = torch.zeros(1, dtype=torch.double)
+    x_sum = torch.zeros(1, dtype=torch.float32)
+    x_2 = torch.zeros(1, dtype=torch.float32)
     num_objects = 0
     for i, sample in enumerate(dataset):
         if i == 0:
