@@ -258,17 +258,17 @@ void PairIANN::compute(int eflag, int vflag)
   torch::Tensor atomic_numbers_tensor = torch::from_blob(atomic_numbers.data(), {nlocal}, torch::TensorOptions().dtype(torch::kInt64)).clone();
 
   // Convert atom positions to tensor (nlocal, 3)
-  torch::Tensor positions_tensor = torch::zeros({nlocal, 3}, torch::kFloat64);
-  auto coord_acc = positions_tensor.accessor<double, 2>();
+  torch::Tensor positions_tensor = torch::zeros({nlocal, 3}, torch::kFloat32);
+  auto coord_acc = positions_tensor.accessor<float, 2>();
   for (int i = 0; i < nlocal; i++) {
-      coord_acc[i][0] = x[i][0];
-      coord_acc[i][1] = x[i][1];
-      coord_acc[i][2] = x[i][2];
+      coord_acc[i][0] = static_cast<float>(x[i][0]);
+      coord_acc[i][1] = static_cast<float>(x[i][1]);
+      coord_acc[i][2] = static_cast<float>(x[i][2]);
   }
 
   // Convert box to tensor (3,3) for both orthogonal and non-orthogonal boxes
-  torch::Tensor cell_tensor = torch::zeros({3,3}, torch::kFloat64);
-  auto cell_acc = cell_tensor.accessor<double,2>();
+  torch::Tensor cell_tensor = torch::zeros({3,3}, torch::kFloat32);
+  auto cell_acc = cell_tensor.accessor<float,2>();
   
   // Get box vectors
   double *boxlo = domain->boxlo;
@@ -278,17 +278,17 @@ void PairIANN::compute(int eflag, int vflag)
   double yz = domain->yz;
   
   // Set cell matrix elements
-  cell_acc[0][0] = boxhi[0] - boxlo[0];  // a_x
-  cell_acc[0][1] = 0.0;
-  cell_acc[0][2] = 0.0;
+  cell_acc[0][0] = static_cast<float>(boxhi[0] - boxlo[0]);  // a_x
+  cell_acc[0][1] = 0.0f;
+  cell_acc[0][2] = 0.0f;
 
-  cell_acc[1][0] = xy;                  // b_x
-  cell_acc[1][1] = boxhi[1] - boxlo[1]; // b_y
-  cell_acc[1][2] = 0.0;
+  cell_acc[1][0] = static_cast<float>(xy);                  // b_x
+  cell_acc[1][1] = static_cast<float>(boxhi[1] - boxlo[1]); // b_y
+  cell_acc[1][2] = 0.0f;
 
-  cell_acc[2][0] = xz;                  // c_x
-  cell_acc[2][1] = yz;                  // c_y
-  cell_acc[2][2] = boxhi[2] - boxlo[2]; // c_z
+  cell_acc[2][0] = static_cast<float>(xz);                  // c_x
+  cell_acc[2][1] = static_cast<float>(yz);                  // c_y
+  cell_acc[2][2] = static_cast<float>(boxhi[2] - boxlo[2]); // c_z
 
   // Build edges based on neighborlist
   build_edges(list->inum, list->ilist, list->numneigh, list->firstneigh);
@@ -320,13 +320,13 @@ void PairIANN::compute(int eflag, int vflag)
     // Set PyTorch seed for consistent RNG behavior between PyTorch and LAMMPS
     // This ensures deterministic behavior when using random operations in the model
 
-    // if (debug) {
-    //   torch::manual_seed(666);
-    //   if (torch::cuda::is_available() && use_gpu) {
-    //     torch::cuda::manual_seed_all(666);
-    //   }
-    //   std::cout << "[PAIR_IANN] Seed set to 666" << std::endl;
-    // }
+    if (comm->me == 0 && debug) {
+      torch::manual_seed(666);
+      if (torch::cuda::is_available() && use_gpu) {
+        torch::cuda::manual_seed_all(666);
+      }
+      std::cout << "[PAIR_IANN] Seed set to 666" << std::endl;
+    }
     
     // Ensure model is in evaluation mode for deterministic inference
     // This disables dropout operations and matches ASE interface behavior
@@ -729,17 +729,17 @@ void PairIANN::build_edges(int inum, int *ilist, int *numneigh, int **firstneigh
         j = local_j;
       }
       edge_indices.push_back({i, j});
-      edge_vectors.push_back({dx, dy, dz});
+      edge_vectors.push_back({static_cast<float>(dx), static_cast<float>(dy), static_cast<float>(dz)});
     }
   }
 
   // Now create tensors
   int num_edges = edge_indices.size();
   edge_indices_tensor = torch::empty({num_edges, 2}, torch::kInt64);
-  edge_vectors_tensor = torch::empty({num_edges, 3}, torch::kFloat64);
+  edge_vectors_tensor = torch::empty({num_edges, 3}, torch::kFloat32);
 
   auto edge_indices_accessor = edge_indices_tensor.accessor<int64_t, 2>();
-  auto edge_vectors_accessor = edge_vectors_tensor.accessor<double, 2>();
+  auto edge_vectors_accessor = edge_vectors_tensor.accessor<float, 2>();
 
   for (int k = 0; k < num_edges; k++) {
     edge_indices_accessor[k][0] = edge_indices[k][0];
