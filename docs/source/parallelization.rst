@@ -155,7 +155,7 @@ Here is an example of how to run **multi-GPU training on NERSC**:
    #SBATCH --cpus-per-task=1      # Number of CPUs per task
 
    # Load the environments, such as:   
-   export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN/:$PYTHONPATH
+   export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v3/IANN/:$PYTHONPATH
    module purge
    module load PrgEnv-nvidia; module load openmpi
 
@@ -187,7 +187,7 @@ Here is an example of how to run **multi-GPU training on S3DF**:
 
    # Load the environments, such as:
    conda activate /sdf/home/c/changzhi/softwares/anoconda3/envs/painn
-   export PYTHONPATH=/sdf/home/c/changzhi/changzhi/softwares/IANN_v2/IANN:$PYTHONPATH
+   export PYTHONPATH=/sdf/home/c/changzhi/changzhi/softwares/IANN_v3/IANN:$PYTHONPATH
 
    # GPUs per node and number of nodes
    export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
