@@ -1134,8 +1134,8 @@ class GradientOutput(torch.nn.Module):
 
                 # Initialize forces with proper strides
                 assert dE_ddiff is not None
-                i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=positions.dtype)
-                j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=positions.dtype)
+                i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
+                j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
                 i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
                 j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
                 forces = i_forces + j_forces

@@ -244,7 +244,7 @@ class PaiNN(nn.Module):
         
         node_vector = torch.zeros((positions.shape[0], 3, self.num_channels),
                                   device=positions.device,
-                                  dtype=positions.dtype)
+                                  dtype=torch.float32)
         
         # Message passing iterations
         for message_layer, update_layer in zip(self.message_layers, self.update_layers):
@@ -294,8 +294,8 @@ class PaiNN(nn.Module):
             dE_ddiff = self._make_contiguous(dE_ddiff)
             
             # Initialize forces with proper strides
-            i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=positions.dtype)
-            j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=positions.dtype)
+            i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
+            j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
             i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
             j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
             forces = self._make_contiguous(i_forces + j_forces)

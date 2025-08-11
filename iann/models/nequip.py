@@ -875,7 +875,7 @@ class GradientOutput(torch.nn.Module):
                 assert dE_ddiff is not None
                 
                 # diff = R_j - R_i, so -dE/dR_j = -dE/ddiff, -dE/R_i = dE/ddiff
-                i_forces = torch.zeros((forces_dim, 3), device=edge_vectors.device, dtype=edge_vectors.dtype)
+                i_forces = torch.zeros((forces_dim, 3), device=edge_vectors.device, dtype=torch.float32)
                 j_forces = torch.zeros_like(i_forces)
                 i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
                 j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
