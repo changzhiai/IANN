@@ -499,6 +499,10 @@ class Trainer:
         """Setup model, optimizer, and scheduler"""
         # Create model
         self.model = self._create_model()
+
+        # Load model if needed
+        if self.config["load_model"]:
+            self._load_model()
         
         # Move model to device
         self.model = self.model.to(self.device)
@@ -572,10 +576,6 @@ class Trainer:
         
         # Initialize steps
         self.init_steps = 0
-
-        # Load model if needed
-        if self.config["load_model"]:
-            self._load_model()
         
     
     def _load_model(self):
