@@ -4,9 +4,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 def export_models(export="painn"):
     if export == 'equiformerV2':
-        convert_model_for_lammps(model_path='test/equiformerV2/model_output/best_model.pth', 
+        convert_model_for_lammps(model_path='test/equiformerV2/output/model.pt', 
                                 model_type='equiformerV2', 
-                                output_path='test/lammps_plugin/export_equiformerV2.pth')
+                                species=['Pt'],
+                                output_path='test/lammps_plugin/export_equiformerV2.pt')
 
     elif export == 'mace':
         convert_model_for_lammps(model_path='test/mace/model_output/best_model.pth', 
