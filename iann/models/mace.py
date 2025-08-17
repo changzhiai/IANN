@@ -116,8 +116,6 @@ class OneHotAtomEncoding(torch.nn.Module):
         else:
             atomic_types = data.atomic_numbers - 1
     
-            # data = data._replace(atomic_types=data.atomic_numbers - 1)
-            # data = replace_properties(data, atomic_types=data.atomic_numbers - 1)
         onehot = torch.nn.functional.one_hot(
             atomic_types, num_classes=self.num_elements
         ).to(device=data.positions.device, dtype=data.positions.dtype)
