@@ -455,7 +455,7 @@ class SO3_Rotation(torch.nn.Module):
         return M
 
     @torch.jit.export
-    def RotationToWignerDMatrix_e3nn_backup(self, edge_rot_mat: torch.Tensor, start_lmax: int, end_lmax: int):
+    def RotationToWignerDMatrix(self, edge_rot_mat: torch.Tensor, start_lmax: int, end_lmax: int):
         """
             Compute Wigner matrices from rotation matrix
         """
@@ -483,97 +483,22 @@ class SO3_Rotation(torch.nn.Module):
 
         return wigner.detach()
 
-    @torch.jit.export
-    def RotationToWignerDMatrix(self, edge_rot_mat: torch.Tensor, start_lmax: int, end_lmax: int):
-        """
-            Compute Wigner matrices from rotation matrix using pure PyTorch operations
-            This replaces e3nn operations to ensure TorchScript compatibility
-        """
-        # Force float32 precision for consistency
-        edge_rot_mat = edge_rot_mat.float()
-        
-        # Extract Euler angles from rotation matrix using pure PyTorch
-        # This replaces o3.xyz_to_angles and o3.angles_to_matrix
-        batch_size = edge_rot_mat.shape[0]
-        
-        # Extract angles from rotation matrix
-        # For a rotation matrix R, we can extract Euler angles (ZYZ convention)
-        # R[2,2] = cos(beta)
-        # R[2,0] = sin(beta) * cos(alpha)
-        # R[2,1] = sin(beta) * sin(alpha)
-        # R[0,2] = -sin(beta) * cos(gamma)
-        # R[1,2] = sin(beta) * sin(gamma)
-        
-        # Extract beta (angle between z-axis and rotated z-axis)
-        cos_beta = edge_rot_mat[:, 2, 2]
-        cos_beta = torch.clamp(cos_beta, -1.0, 1.0)  # Ensure valid range
-        beta = torch.acos(cos_beta)
-        
-        # Extract alpha (rotation around z-axis)
-        sin_beta = torch.sin(beta)
-        # Avoid division by zero
-        sin_beta_safe = torch.where(sin_beta > 1e-8, sin_beta, torch.ones_like(sin_beta))
-        cos_alpha = edge_rot_mat[:, 2, 0] / sin_beta_safe
-        sin_alpha = edge_rot_mat[:, 2, 1] / sin_beta_safe
-        cos_alpha = torch.clamp(cos_alpha, -1.0, 1.0)
-        sin_alpha = torch.clamp(sin_alpha, -1.0, 1.0)
-        alpha = torch.atan2(sin_alpha, cos_alpha)
-        
-        # Extract gamma (rotation around rotated z-axis)
-        cos_gamma = -edge_rot_mat[:, 0, 2] / sin_beta_safe
-        sin_gamma = edge_rot_mat[:, 1, 2] / sin_beta_safe
-        cos_gamma = torch.clamp(cos_gamma, -1.0, 1.0)
-        sin_gamma = torch.clamp(sin_gamma, -1.0, 1.0)
-        gamma = torch.atan2(sin_gamma, cos_gamma)
-        
-        # Handle edge cases where sin_beta is very small (gimbal lock)
-        # In this case, we can only determine alpha + gamma
-        gimbal_lock_mask = sin_beta <= 1e-8
-        if torch.any(gimbal_lock_mask):
-            # For gimbal lock, set gamma to 0 and adjust alpha
-            gamma = torch.where(gimbal_lock_mask, torch.zeros_like(gamma), gamma)
-            # Extract alpha + gamma from R[0,1] and R[1,1]
-            cos_ag = edge_rot_mat[:, 0, 1]
-            sin_ag = edge_rot_mat[:, 1, 1]
-            alpha_plus_gamma = torch.atan2(sin_ag, cos_ag)
-            alpha = torch.where(gimbal_lock_mask, alpha_plus_gamma, alpha)
-
-        size = int((end_lmax + 1) ** 2 - (start_lmax) ** 2)
-        wigner = torch.zeros(batch_size, size, size, device=edge_rot_mat.device, dtype=edge_rot_mat.dtype)
-        start = 0
-        for lmax in range(start_lmax, end_lmax + 1):
-            block = self.wigner_D(lmax, alpha, beta, gamma)
-            end = start + block.size()[1]
-            wigner[:, start:end, start:end] = block
-            start = end
-
-        return wigner.detach()
-
-
 class SO3_Embedding(nn.Module):
     """
     Helper functions for performing operations on irreps embedding
 
     Args:
-        length (int):           Batch size
         lmax_list (list[int]):   List of maximum degree of the spherical harmonics
         num_channels (int):     Number of channels
-        device:                 Device of the output
-        dtype:                  type of the output tensors
     """
 
     def __init__(
         self,
-        length: int,
         lmax_list: List[int],
         num_channels: int,
-        device: torch.device,
-        dtype: torch.dtype,
     ):
         super().__init__()
         self.num_channels = num_channels
-        # self.device = device
-        # self.dtype = dtype
         self.num_resolutions = len(lmax_list)
 
         self.num_coefficients = 0
@@ -582,17 +507,38 @@ class SO3_Embedding(nn.Module):
                 (lmax_list[i] + 1) ** 2
             )
         # Register a dummy buffer for TorchScript compatibility
-        # Use a small non-empty tensor instead of torch.empty(0)
         self.register_buffer("dummy_buffer", torch.tensor([0.0], dtype=torch.float32), persistent=False)
+        
+        # Initialize lmax_list and mmax_list
+        self.lmax_list = lmax_list.copy()
+        self.mmax_list = lmax_list.copy()
+
+        self.length = 0
+        self.embedding = torch.zeros(0, self.num_coefficients, self.num_channels, device=self.dummy_buffer.device, dtype=self.dummy_buffer.dtype)
+
+    def forward(self, length: int, device: torch.device = 'cpu', dtype: torch.dtype = torch.float32):
+        """
+        Forward method to initialize the embedding tensor
+        
+        Args:
+            length (int): Batch size
+            device (torch.device): Device for the embedding tensor
+            dtype (torch.dtype): Data type for the embedding tensor
+            
+        Returns:
+            SO3_Embedding: Self with initialized embedding
+        """
+            
+        # Create embedding tensor
         embedding = torch.zeros(
             length,
             self.num_coefficients,
             self.num_channels,
-            device=self.dummy_buffer.device,
-            dtype=self.dummy_buffer.dtype,
+            device=device,
+            dtype=dtype,
         )
         self.set_embedding(embedding)
-        self.set_lmax_mmax(lmax_list, lmax_list.copy())
+        return self
 
     @torch.jit.export
     def set_embedding(self, embedding):
@@ -740,11 +686,6 @@ class SO3_Embedding(nn.Module):
             offset = offset + num_coefficients
             offset_channel = offset_channel + self.num_channels
 
-    @torch.jit.export
-    def set_lmax_mmax(self, lmax_list: list[int], mmax_list: list[int]):
-        self.lmax_list = lmax_list
-        self.mmax_list = mmax_list
-
     def to(self, device):
         """Move all internal tensors to the target device"""
         # Move the model to the target device
@@ -755,373 +696,6 @@ class SO3_Embedding(nn.Module):
             self.embedding = self.embedding.to(device)
         
         return self
-
-
-def init_edge_rot_mat_test(edge_diff):
-    edge_vec_0 = edge_diff.clone()
-    edge_vec_0_distance = torch.sqrt(torch.sum(edge_vec_0**2, dim=1))
-
-    # Make sure the atoms are far enough apart
-    assert torch.min(edge_vec_0_distance) > 0.0001, "Error edge_vec_0_distance: {}".format(torch.min(edge_vec_0_distance))
-        
-    norm_x = edge_vec_0 / (edge_vec_0_distance.view(-1, 1))
-    edge_vec_2 = torch.rand_like(edge_vec_0, device=edge_vec_0.device, dtype=edge_vec_0.dtype) - 0.5
-    # Force print output for debugging
-    print(f"[PYTHON_DEBUG] edge_vec_2 shape: {edge_vec_2.shape}", file=sys.stderr)
-    print(f"[PYTHON_DEBUG] edge_vec_2 first 3 values: {edge_vec_2[:3]}", file=sys.stderr)
-
-    edge_vec_2 = edge_vec_2 / (torch.sqrt(torch.sum(edge_vec_2**2, dim=1)).view(-1, 1))
-    # Create two rotated copys of the random vectors in case the random vector is aligned with norm_x
-    # With two 90 degree rotated vectors, at least one should not be aligned with norm_x
-    edge_vec_2b = edge_vec_2.clone()
-    edge_vec_2b[:, 0] = -edge_vec_2[:, 1]
-    edge_vec_2b[:, 1] = edge_vec_2[:, 0]
-    edge_vec_2c = edge_vec_2.clone()
-    edge_vec_2c[:, 1] = -edge_vec_2[:, 2]
-    edge_vec_2c[:, 2] = edge_vec_2[:, 1]
-    vec_dot_b = torch.abs(torch.sum(edge_vec_2b * norm_x, dim=1, keepdim=True))
-    vec_dot_c = torch.abs(torch.sum(edge_vec_2c * norm_x, dim=1, keepdim=True))
-
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1, keepdim=True))
-    edge_vec_2 = torch.where(
-        torch.gt(vec_dot, vec_dot_b), edge_vec_2b, edge_vec_2
-    )
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1, keepdim=True))
-    edge_vec_2 = torch.where(
-        torch.gt(vec_dot, vec_dot_c), edge_vec_2c, edge_vec_2
-    )
-
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1))
-    # Check the vectors aren't aligned
-    assert torch.max(vec_dot) < 0.99
-
-    norm_z = torch.cross(norm_x, edge_vec_2, dim=1)
-    norm_z = norm_z / (
-        torch.sqrt(torch.sum(norm_z**2, dim=1, keepdim=True))
-    )
-    norm_z = norm_z / (
-        torch.sqrt(torch.sum(norm_z**2, dim=1)).view(-1, 1)
-    )
-    norm_y = torch.cross(norm_x, norm_z, dim=1)
-    norm_y = norm_y / (
-        torch.sqrt(torch.sum(norm_y**2, dim=1, keepdim=True))
-    )
-
-    # Construct the 3D rotation matrix
-    norm_x = norm_x.view(-1, 3, 1)
-    norm_y = -norm_y.view(-1, 3, 1)
-    norm_z = norm_z.view(-1, 3, 1)
-
-    edge_rot_mat_inv = torch.cat([norm_z, norm_x, norm_y], dim=2)
-    edge_rot_mat = torch.transpose(edge_rot_mat_inv, 1, 2)
-
-    return edge_rot_mat.detach()
-
-def init_edge_rot_mat_original(edge_diff):
-    edge_vec_0 = edge_diff
-    edge_vec_0_distance = torch.sqrt(torch.sum(edge_vec_0**2, dim=1))
-
-    # Make sure the atoms are far enough apart
-    #assert torch.min(edge_vec_0_distance) < 0.0001
-    if torch.min(edge_vec_0_distance) < 0.0001:
-        print(
-            "Error edge_vec_0_distance: {}".format(
-                torch.min(edge_vec_0_distance)
-            )
-        )
-        
-    norm_x = edge_vec_0 / (edge_vec_0_distance.view(-1, 1))
-
-    edge_vec_2 = torch.rand_like(edge_vec_0) - 0.5
-    edge_vec_2 = edge_vec_2 / (
-        torch.sqrt(torch.sum(edge_vec_2**2, dim=1)).view(-1, 1)
-    )
-    # Create two rotated copys of the random vectors in case the random vector is aligned with norm_x
-    # With two 90 degree rotated vectors, at least one should not be aligned with norm_x
-    edge_vec_2b = edge_vec_2.clone()
-    edge_vec_2b[:, 0] = -edge_vec_2[:, 1]
-    edge_vec_2b[:, 1] = edge_vec_2[:, 0]
-    edge_vec_2c = edge_vec_2.clone()
-    edge_vec_2c[:, 1] = -edge_vec_2[:, 2]
-    edge_vec_2c[:, 2] = edge_vec_2[:, 1]
-    vec_dot_b = torch.abs(torch.sum(edge_vec_2b * norm_x, dim=1, keepdim=True))
-    vec_dot_c = torch.abs(torch.sum(edge_vec_2c * norm_x, dim=1, keepdim=True))
-
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1, keepdim=True))
-    edge_vec_2 = torch.where(
-        torch.gt(vec_dot, vec_dot_b), edge_vec_2b, edge_vec_2
-    )
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1, keepdim=True))
-    edge_vec_2 = torch.where(
-        torch.gt(vec_dot, vec_dot_c), edge_vec_2c, edge_vec_2
-    )
-
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1))
-    # Check the vectors aren't aligned
-    assert torch.max(vec_dot) < 0.99
-
-    norm_z = torch.cross(norm_x, edge_vec_2, dim=1)
-    norm_z = norm_z / (
-        torch.sqrt(torch.sum(norm_z**2, dim=1, keepdim=True))
-    )
-    norm_z = norm_z / (
-        torch.sqrt(torch.sum(norm_z**2, dim=1)).view(-1, 1)
-    )
-    norm_y = torch.cross(norm_x, norm_z, dim=1)
-    norm_y = norm_y / (
-        torch.sqrt(torch.sum(norm_y**2, dim=1, keepdim=True))
-    )
-
-    # Construct the 3D rotation matrix
-    norm_x = norm_x.view(-1, 3, 1)
-    norm_y = -norm_y.view(-1, 3, 1)
-    norm_z = norm_z.view(-1, 3, 1)
-
-    edge_rot_mat_inv = torch.cat([norm_z, norm_x, norm_y], dim=2)
-    edge_rot_mat = torch.transpose(edge_rot_mat_inv, 1, 2)
-
-    return edge_rot_mat.detach()
-
-def init_edge_rot_mat_old(edge_diff):
-    """
-    Initialize edge rotation matrices using deterministic operations for consistent CPU/GPU results.
-    """
-    edge_vec_0 = edge_diff
-    edge_vec_0_distance = torch.sqrt(torch.sum(edge_vec_0**2, dim=1))
-
-    # Make sure the atoms are far enough apart
-    if torch.min(edge_vec_0_distance) < 0.0001:
-        print(
-            "Error edge_vec_0_distance: {}".format(
-                torch.min(edge_vec_0_distance)
-            )
-        )
-
-    norm_x = edge_vec_0 / (edge_vec_0_distance.view(-1, 1))
-
-    # Use a deterministic method to create orthogonal vectors
-    # Start with a fixed basis vector and make it orthogonal to norm_x
-    edge_vec_2 = torch.zeros_like(edge_vec_0, dtype=torch.float32, device=edge_vec_0.device)
-
-    # Use different basis vectors for different components to ensure orthogonality
-    edge_vec_2[:, 0] = 1.0  # Fixed x-component
-    edge_vec_2[:, 1] = 0.0  # Fixed y-component  
-    edge_vec_2[:, 2] = 0.0  # Fixed z-component
-
-    # Make it orthogonal to norm_x using Gram-Schmidt process
-    dot_product = torch.sum(edge_vec_2 * norm_x, dim=1, keepdim=True)
-    edge_vec_2 = edge_vec_2 - dot_product * norm_x
-
-    # Normalize
-    edge_vec_2_norm = torch.sqrt(torch.sum(edge_vec_2**2, dim=1, keepdim=True))
-    edge_vec_2 = edge_vec_2 / edge_vec_2_norm
-
-    # If the first approach fails (vector becomes zero), try alternative basis
-    zero_mask = edge_vec_2_norm.squeeze() < 1e-6
-    if torch.any(zero_mask):
-        # Use y-axis as alternative basis
-        edge_vec_2_alt = torch.zeros_like(edge_vec_0, dtype=torch.float32, device=edge_vec_0.device)
-        edge_vec_2_alt[:, 0] = 0.0
-        edge_vec_2_alt[:, 1] = 1.0
-        edge_vec_2_alt[:, 2] = 0.0
-
-        dot_product_alt = torch.sum(edge_vec_2_alt * norm_x, dim=1, keepdim=True)
-        edge_vec_2_alt = edge_vec_2_alt - dot_product_alt * norm_x
-        edge_vec_2_alt_norm = torch.sqrt(torch.sum(edge_vec_2_alt**2, dim=1, keepdim=True))
-        edge_vec_2_alt = edge_vec_2_alt / edge_vec_2_alt_norm
-
-        # Replace zero vectors with alternative
-        edge_vec_2[zero_mask] = edge_vec_2_alt[zero_mask]
-
-    # Create two rotated copies as fallbacks (deterministic rotations)
-    edge_vec_2b = edge_vec_2.clone()
-    edge_vec_2b[:, 0] = -edge_vec_2[:, 1]
-    edge_vec_2b[:, 1] = edge_vec_2[:, 0]
-    edge_vec_2c = edge_vec_2.clone()
-    edge_vec_2c[:, 1] = -edge_vec_2[:, 2]
-    edge_vec_2c[:, 2] = edge_vec_2[:, 1]
-
-    vec_dot_b = torch.abs(torch.sum(edge_vec_2b * norm_x, dim=1)).view(-1, 1)
-    vec_dot_c = torch.abs(torch.sum(edge_vec_2c * norm_x, dim=1)).view(-1, 1)
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1)).view(-1, 1)
-
-    # Choose the vector with minimum alignment to norm_x
-    edge_vec_2 = torch.where(torch.gt(vec_dot, vec_dot_b), edge_vec_2b, edge_vec_2)
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1)).view(-1, 1)
-    edge_vec_2 = torch.where(torch.gt(vec_dot, vec_dot_c), edge_vec_2c, edge_vec_2)
-
-    vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1))
-    # Check the vectors aren't aligned
-    assert torch.max(vec_dot) < 0.99
-
-    norm_z = torch.cross(norm_x, edge_vec_2, dim=1)
-    norm_z = norm_z / (torch.sqrt(torch.sum(norm_z**2, dim=1, keepdim=True)))
-    norm_z = norm_z / (torch.sqrt(torch.sum(norm_z**2, dim=1)).view(-1, 1))
-    norm_y = torch.cross(norm_x, norm_z, dim=1)
-    norm_y = norm_y / (torch.sqrt(torch.sum(norm_y**2, dim=1, keepdim=True)))
-
-    # Construct the 3D rotation matrix
-    norm_x = norm_x.view(-1, 3, 1)
-    norm_y = -norm_y.view(-1, 3, 1)
-    norm_z = norm_z.view(-1, 3, 1)
-
-    edge_rot_mat_inv = torch.cat([norm_z, norm_x, norm_y], dim=2)
-    edge_rot_mat = torch.transpose(edge_rot_mat_inv, 1, 2)
-
-    return edge_rot_mat.detach()
-
-
-def init_edge_rot_mat_torchscript(edge_diff):
-    """
-    Initialize edge rotation matrices using simplified TorchScript-compatible operations.
-    This version maintains mathematical correctness while being compatible with TorchScript.
-    """
-    # Get edge vectors and compute distances
-    edge_vec_0 = edge_diff
-    edge_vec_0_distance = torch.sqrt(torch.sum(edge_vec_0**2, dim=1))
-    
-    # Ensure minimum distance to avoid division by zero
-    edge_vec_0_distance = torch.clamp(edge_vec_0_distance, min=1e-6)
-    
-    # Normalize the first vector (x-direction)
-    norm_x = edge_vec_0 / edge_vec_0_distance.view(-1, 1)
-    
-    # Create a simple orthogonal vector using cross product with a fixed vector
-    # Use [1, 0, 0] as the reference vector
-    ref_vector = torch.tensor([1.0, 0.0, 0.0], dtype=edge_diff.dtype, device=edge_diff.device)
-    ref_vector = ref_vector.unsqueeze(0).expand(edge_diff.shape[0], 3)
-    
-    # Use cross product to get orthogonal vector
-    edge_vec_2 = torch.cross(norm_x, ref_vector, dim=1)
-    edge_vec_2_norm = torch.sqrt(torch.sum(edge_vec_2**2, dim=1, keepdim=True))
-    edge_vec_2_norm = torch.clamp(edge_vec_2_norm, min=1e-6)
-    edge_vec_2 = edge_vec_2 / edge_vec_2_norm
-    
-    # If the cross product gives a zero vector (when norm_x is parallel to ref_vector),
-    # use a different reference vector
-    zero_mask = edge_vec_2_norm.squeeze() < 1e-6
-    
-    # Use [0, 1, 0] as alternative reference
-    ref_vector_alt = torch.tensor([0.0, 1.0, 0.0], dtype=edge_diff.dtype, device=edge_diff.device)
-    ref_vector_alt = ref_vector_alt.unsqueeze(0).expand(edge_diff.shape[0], 3)
-    
-    edge_vec_2_alt = torch.cross(norm_x, ref_vector_alt, dim=1)
-    edge_vec_2_alt_norm = torch.sqrt(torch.sum(edge_vec_2_alt**2, dim=1, keepdim=True))
-    edge_vec_2_alt_norm = torch.clamp(edge_vec_2_alt_norm, min=1e-6)
-    edge_vec_2_alt = edge_vec_2_alt / edge_vec_2_alt_norm
-    
-    # Replace zero vectors with alternative
-    edge_vec_2 = torch.where(zero_mask.unsqueeze(1), edge_vec_2_alt, edge_vec_2)
-    
-    # Compute the third vector using cross product to ensure orthogonality
-    norm_z = torch.cross(norm_x, edge_vec_2, dim=1)
-    norm_z_norm = torch.sqrt(torch.sum(norm_z**2, dim=1, keepdim=True))
-    norm_z_norm = torch.clamp(norm_z_norm, min=1e-6)
-    norm_z = norm_z / norm_z_norm
-    
-    # Ensure y-direction is orthogonal to both x and z
-    norm_y = torch.cross(norm_x, norm_z, dim=1)
-    norm_y_norm = torch.sqrt(torch.sum(norm_y**2, dim=1, keepdim=True))
-    norm_y_norm = torch.clamp(norm_y_norm, min=1e-6)
-    norm_y = norm_y / norm_y_norm
-    
-    # Construct the rotation matrix
-    # Reshape vectors for matrix construction
-    norm_x = norm_x.view(-1, 3, 1)
-    norm_y = norm_y.view(-1, 3, 1)
-    norm_z = norm_z.view(-1, 3, 1)
-    
-    # Build the rotation matrix: [norm_x, norm_y, norm_z]
-    edge_rot_mat = torch.cat([norm_x, norm_y, norm_z], dim=2)
-    
-    return edge_rot_mat.detach()
-
-def init_edge_rot_mat_static(edge_diff):
-    """
-    TEST VERSION: Return identity matrices for TorchScript compatibility testing.
-    This replaces the complex rotation matrix computation with simple identity matrices.
-    """
-    # Get the number of edges from the input tensor
-    num_edges = edge_diff.shape[0]
-    
-    # Create identity matrices for each edge
-    # Shape: (num_edges, 3, 3) - identity matrix for each edge
-    identity_matrices = torch.eye(3, dtype=edge_diff.dtype, device=edge_diff.device)
-    identity_matrices = identity_matrices.unsqueeze(0).expand(num_edges, 3, 3)
-    
-    return identity_matrices.detach()
-
-
-
-class DynamicEdgeRotation(torch.nn.Module):
-    """
-    A torch.nn.Module wrapper for edge rotation matrix computation.
-    This version uses completely deterministic, single-reference operations for TorchScript compatibility.
-    """
-    def __init__(self):
-        super().__init__()
-        # Register only the essential reference vectors
-        self.register_buffer('ref_x', torch.tensor([1.0, 0.0, 0.0]))
-        self.register_buffer('ref_y', torch.tensor([0.0, 1.0, 0.0]))
-    
-    def forward(self, edge_diff):
-        """
-        Compute edge rotation matrices using deterministic, single-reference operations.
-        This version matches the proven TorchScript-compatible approach.
-        """
-        edge_vec_0 = edge_diff
-        edge_vec_0_distance = torch.sqrt(torch.sum(edge_vec_0**2, dim=1))
-        edge_vec_0_distance = torch.clamp(edge_vec_0_distance, min=1e-6)
-        
-        norm_x = edge_vec_0 / (edge_vec_0_distance.view(-1, 1))
-        
-        # Use single, fixed reference vector (proven to work with TorchScript)
-        num_edges = edge_diff.shape[0]
-        ref_vector = self.ref_x.unsqueeze(0).expand(num_edges, 3)
-        
-        # Use cross product to get orthogonal vector
-        edge_vec_2 = torch.cross(norm_x, ref_vector, dim=1)
-        edge_vec_2_norm = torch.sqrt(torch.sum(edge_vec_2**2, dim=1, keepdim=True))
-        edge_vec_2_norm = torch.clamp(edge_vec_2_norm, min=1e-6)
-        edge_vec_2 = edge_vec_2 / edge_vec_2_norm
-        
-        # If the cross product gives a zero vector (when norm_x is parallel to ref_vector),
-        # use a different reference vector
-        zero_mask = edge_vec_2_norm.squeeze() < 1e-6
-        
-        # Use [0, 1, 0] as alternative reference
-        ref_vector_alt = self.ref_y.unsqueeze(0).expand(num_edges, 3)
-        
-        edge_vec_2_alt = torch.cross(norm_x, ref_vector_alt, dim=1)
-        edge_vec_2_alt_norm = torch.sqrt(torch.sum(edge_vec_2_alt**2, dim=1, keepdim=True))
-        edge_vec_2_alt_norm = torch.clamp(edge_vec_2_alt_norm, min=1e-6)
-        edge_vec_2_alt = edge_vec_2_alt / edge_vec_2_alt_norm
-        
-        # Replace zero vectors with alternative
-        edge_vec_2 = torch.where(zero_mask.unsqueeze(1), edge_vec_2_alt, edge_vec_2)
-        
-        # Compute the third vector using cross product to ensure orthogonality
-        norm_z = torch.cross(norm_x, edge_vec_2, dim=1)
-        norm_z_norm = torch.sqrt(torch.sum(norm_z**2, dim=1, keepdim=True))
-        norm_z_norm = torch.clamp(norm_z_norm, min=1e-6)
-        norm_z = norm_z / norm_z_norm
-        
-        # Ensure y-direction is orthogonal to both x and z
-        norm_y = torch.cross(norm_x, norm_z, dim=1)
-        norm_y_norm = torch.sqrt(torch.sum(norm_y**2, dim=1, keepdim=True))
-        norm_y_norm = torch.clamp(norm_y_norm, min=1e-6)
-        norm_y = norm_y / norm_y_norm
-        
-        # Construct the rotation matrix
-        # Reshape vectors for matrix construction
-        norm_x = norm_x.view(-1, 3, 1)
-        norm_y = norm_y.view(-1, 3, 1)
-        norm_z = norm_z.view(-1, 3, 1)
-        
-        # Build the rotation matrix: [norm_x, norm_y, norm_z]
-        edge_rot_mat = torch.cat([norm_x, norm_y, norm_z], dim=2)
-        
-        return edge_rot_mat.detach()
 
 
 class GaussianSmearing(torch.nn.Module):
@@ -1242,11 +816,8 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 
         self.rescale_factor = rescale_factor
         self.x_edge_embedding = SO3_Embedding(
-            0, 
             self.lmax_list.copy(), 
-            self.atom_channels, 
-            device=self.m_0_num_coefficients.device, 
-            dtype=self.m_0_num_coefficients.dtype
+            self.atom_channels
         )
         self.m_0_num_coefficients = self.m_0_num_coefficients.item() # convert tensor to static integer
 
@@ -1278,13 +849,16 @@ class EdgeDegreeEmbedding(torch.nn.Module):
             device=x_edge_m_0.device)
         x_edge_m_all = torch.cat((x_edge_m_0, x_edge_m_pad), dim=1)
         
-        # Create a fresh SO3_Embedding to avoid state mutation issues
-        x_edge_embedding = SO3_Embedding(
+        # RESET the x_edge_embedding before use to avoid state mutation
+        self.x_edge_embedding.set_embedding(
+            torch.zeros(0, self.x_edge_embedding.num_coefficients, self.x_edge_embedding.num_channels)
+        )
+        
+        # Use the new SO3_Embedding forward method
+        x_edge_embedding = self.x_edge_embedding(
             x_edge_m_all.shape[0],
-            self.lmax_list.copy(),
-            self.atom_channels,
             x_edge_m_all.device,
-            x_edge_m_all.dtype,
+            x_edge_m_all.dtype
         )
         x_edge_embedding.set_embedding(x_edge_m_all)
         x_edge_embedding.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
@@ -1435,12 +1009,9 @@ class EquivariantLayerNormArraySphericalHarmonics(nn.Module):
         else:
             self.balance_degree_weight = None
 
-
     def __repr__(self):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, std_balance_degrees={self.std_balance_degrees})"
 
-
-    # @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -1519,8 +1090,6 @@ class EquivariantRMSNormArraySphericalHarmonics(nn.Module):
     def __repr__(self):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps})"
 
-
-    # @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -1606,8 +1175,6 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nn.Module):
     def __repr__(self):
         return f"{self.__class__.__name__}(lmax={self.lmax}, num_channels={self.num_channels}, eps={self.eps}, centering={self.centering}, std_balance_degrees={self.std_balance_degrees})"
 
-
-    # @torch.amp.autocast('cuda', enabled=False)
     def forward(self, node_input):
         '''
             Assume input is of shape [N, atom_basis, C]
@@ -1815,14 +1382,9 @@ class SO2_Convolution(torch.nn.Module):
             self.edge_channels_list.append(int(num_channels_rad))
             self.rad_func = RadialFunction(self.edge_channels_list)
         
-        # Create a dummy tensor for device/dtype reference (don't register as buffer)
-        dummy_tensor = torch.tensor([0.0])
         self.out_embedding = SO3_Embedding(
-            0, 
             self.lmax_list.copy(), 
-            self.m_output_channels, 
-            device=dummy_tensor.device, 
-            dtype=dummy_tensor.dtype
+            self.m_output_channels
         )
 
 
@@ -1881,13 +1443,16 @@ class SO2_Convolution(torch.nn.Module):
 
         out = torch.cat(out, dim=1)
         
-        # Create a fresh SO3_Embedding to avoid state mutation issues
-        out_embedding = SO3_Embedding(
+        # RESET the out_embedding before use to avoid state mutation
+        self.out_embedding.set_embedding(
+            torch.zeros(0, self.out_embedding.num_coefficients, self.out_embedding.num_channels)
+        )
+        
+        # Use the new SO3_Embedding forward method
+        out_embedding = self.out_embedding(
             out.shape[0],
-            self.lmax_list.copy(),
-            self.m_output_channels,
             out.device,
-            out.dtype,
+            out.dtype
         )
         out_embedding.set_embedding(out)
         out_embedding.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
@@ -2012,14 +1577,9 @@ class SO3_LinearV2(torch.nn.Module):
             expand_index[start_idx : (start_idx + length)] = l
         self.register_buffer('expand_index', expand_index, persistent=False)
 
-        # Create a dummy tensor for device/dtype reference (don't register as buffer)
-        dummy_tensor = torch.tensor([0.0])
         self.out_embedding = SO3_Embedding(
-            0, 
-            self.lmax_list.copy(), 
-            self.out_features, 
-            device=dummy_tensor.device, 
-            dtype=dummy_tensor.dtype
+            lmax_list.copy(),
+            self.out_features
         )
 
     def forward(self, input_embedding: SO3_Embedding):
@@ -2029,13 +1589,16 @@ class SO3_LinearV2(torch.nn.Module):
         bias = self.bias.view(1, 1, self.out_features)
         out[:, 0:1, :] = out.narrow(1, 0, 1) + bias
         
-        # Create a fresh SO3_Embedding to avoid state mutation issues
-        out_embedding = SO3_Embedding(
+        # RESET the out_embedding before use to avoid state mutation
+        self.out_embedding.set_embedding(
+            torch.zeros(0, self.out_embedding.num_coefficients, self.out_embedding.num_channels)
+        )
+        
+        # Create SO3_Embedding with the new design
+        out_embedding = self.out_embedding(
             out.shape[0],
-            input_embedding.lmax_list.copy(),
-            self.out_features,
             out.device,
-            out.dtype,
+            out.dtype
         )
         out_embedding.set_embedding(out)
         out_embedding.set_lmax_mmax(input_embedding.lmax_list.copy(), input_embedding.lmax_list.copy())
@@ -2254,22 +1817,19 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
 
         self.proj = SO3_LinearV2(self.num_heads * self.attn_value_channels, self.output_channels, lmax=self.lmax_list[0], lmax_list=self.lmax_list)
 
-        # Create a dummy tensor for device/dtype reference (don't register as buffer)
-        dummy_tensor = torch.tensor([0.0])
-        self.clone = SO3_Embedding(
-            0,
-            self.lmax_list.copy(),
-            self.atom_channels,
-            dummy_tensor.device,
-            dummy_tensor.dtype,
+        self.clone1 = SO3_Embedding(
+            self.lmax_list.copy(), 
+            self.atom_channels
+        )
+
+        self.clone2 = SO3_Embedding(
+            self.lmax_list.copy(), 
+            self.atom_channels
         )
         
         self.x_message = SO3_Embedding(
-            0,
             self.lmax_list.copy(), 
-            self.atom_channels * 2, 
-            device=dummy_tensor.device, 
-            dtype=dummy_tensor.dtype
+            self.atom_channels * 2
         )
         
         
@@ -2293,17 +1853,41 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
         else:
             x_edge = edge_distance  
 
-        # x_source = x.clone()
-        # x_target = x.clone()
-        x_source = self.clone
+        # RESET all clone embeddings before use to avoid state mutation
+        self.clone1.set_embedding(
+            torch.zeros(0, self.clone1.num_coefficients, self.clone1.num_channels)
+        )
+        self.clone2.set_embedding(
+            torch.zeros(0, self.clone2.num_coefficients, self.clone2.num_channels)
+        )
+        self.x_message.set_embedding(
+            torch.zeros(0, self.x_message.num_coefficients, self.x_message.num_channels)
+        )
+        
+        # Now use them safely
+        x_source = self.clone1(
+            x.embedding.shape[0],
+            x.embedding.device,
+            x.embedding.dtype
+        )
         x_source.set_embedding(x.embedding.clone())
-        x_target = self.clone
+        
+        x_target = self.clone2(
+            x.embedding.shape[0],
+            x.embedding.device,
+            x.embedding.dtype
+        )
         x_target.set_embedding(x.embedding.clone())
 
         x_source._expand_edge(edge_index[0])
         x_target._expand_edge(edge_index[1])
         
         x_message_data = torch.cat((x_source.embedding, x_target.embedding), dim=2)
+        self.x_message(
+            x_message_data.shape[0],
+            x_message_data.device,
+            x_message_data.dtype
+        )
         self.x_message.set_embedding(x_message_data)
         self.x_message.set_lmax_mmax(self.lmax_list.copy(), self.mmax_list.copy())
 
@@ -2374,9 +1958,8 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
         alpha = torch_geometric.utils.softmax(alpha, edge_index[1])
 
         alpha = alpha.reshape(alpha.shape[0], 1, self.num_heads, 1)
-        # Comment out dropout for testing consistency between Python and C++ TorchScript
-        # if self.alpha_dropout is not None:
-        #     alpha = self.alpha_dropout(alpha)
+        if self.alpha_dropout is not None:
+            alpha = self.alpha_dropout(alpha)
         
         # Attention weights * non-linear messages
         attn = self.x_message.embedding
@@ -2466,6 +2049,7 @@ class FeedForwardNetwork(torch.nn.Module):
         self.use_gate_act = use_gate_act
         self.use_grid_mlp = use_grid_mlp
         self.use_sep_s2_act = use_sep_s2_act
+        self.activation = activation
 
         self.max_lmax = max(self.lmax_list)
         
@@ -2514,6 +2098,14 @@ class FeedForwardNetwork(torch.nn.Module):
             if (self.use_gate_act or self.use_sep_s2_act) and hasattr(self, 'gating_linear'):
                 gating_scalars = self.gating_linear(input_embedding.embedding.narrow(1, 0, 1))
 
+        # RESET so3_linear embeddings before use to avoid state mutation
+        self.so3_linear_1.out_embedding.set_embedding(
+            torch.zeros(0, self.so3_linear_1.out_embedding.num_coefficients, self.so3_linear_1.out_embedding.num_channels)
+        )
+        self.so3_linear_2.out_embedding.set_embedding(
+            torch.zeros(0, self.so3_linear_2.out_embedding.num_coefficients, self.so3_linear_2.out_embedding.num_channels)
+        )
+        
         input_embedding = self.so3_linear_1(input_embedding)
         
         if self.use_grid_mlp:
@@ -2577,8 +2169,7 @@ class GraphDropPath(nn.Module):
     '''
     def __init__(self, drop_prob=None):
         super(GraphDropPath, self).__init__()
-        self.drop_prob = drop_prob
-        
+        self.drop_prob = drop_prob  
 
     def forward(self, x: torch.Tensor, batch: torch.Tensor):
         # Convert batch_size tensor to integer
@@ -2589,7 +2180,6 @@ class GraphDropPath(nn.Module):
         out = x * drop[batch]
         return out
     
-    
     def extra_repr(self):
         return 'drop_prob={}'.format(self.drop_prob)
 
@@ -2599,7 +2189,6 @@ class EquivariantDropoutArraySphericalHarmonics(nn.Module):
         self.drop_prob = drop_prob
         self.drop = torch.nn.Dropout(drop_prob, True)
         self.drop_graph = drop_graph
-        
         
     def forward(self, x, batch=None):
         if not self.training or self.drop_prob == 0.0:
@@ -2621,7 +2210,6 @@ class EquivariantDropoutArraySphericalHarmonics(nn.Module):
             out = x * mask
 
         return out
-    
     
     def extra_repr(self):
         return 'drop_prob={}, drop_graph={}'.format(self.drop_prob, self.drop_graph)
@@ -2751,6 +2339,11 @@ class TransBlockV2(torch.nn.Module):
 
         if atom_channels != output_channels:
             self.ffn_shortcut = SO3_LinearV2(atom_channels, output_channels, lmax=max_lmax, lmax_list=lmax_list)
+
+            self.shortcut_embedding = SO3_Embedding(
+                lmax_list.copy(),
+                self.ffn_shortcut.in_features
+            )
         else:
             self.ffn_shortcut = None
     
@@ -2790,12 +2383,14 @@ class TransBlockV2(torch.nn.Module):
             output_embedding.embedding = self.proj_drop(output_embedding.embedding, batch)
 
         if self.ffn_shortcut is not None:
-            shortcut_embedding = SO3_Embedding(
-                0, 
-                output_embedding.lmax_list.copy(), 
-                self.ffn_shortcut.in_features, 
-                device=output_embedding.device, 
-                dtype=output_embedding.dtype
+            # Reset the stored embedding first
+            self.shortcut_embedding.set_embedding(
+                torch.zeros(0, self.shortcut_embedding.num_coefficients, self.shortcut_embedding.num_channels)
+            )
+            shortcut_embedding = self.shortcut_embedding(
+                x_res.shape[0],
+                x_res.device,
+                x_res.dtype
             )
             shortcut_embedding.set_embedding(x_res)
             shortcut_embedding.set_lmax_mmax(output_embedding.lmax_list.copy(), output_embedding.lmax_list.copy())
@@ -2825,10 +2420,11 @@ class EquiformerV2(nn.Module):
         Initialize the EquiformerV2 model.
         """
         super().__init__()
-        
-        # Setup deterministic environment for consistent CPU/GPU results
-        setup_deterministic_environment()
-        
+
+        self.random_seed: int = kwargs.get('random_seed', 666)
+        torch.manual_seed(self.random_seed)
+        if device == 'cuda':
+            torch.cuda.manual_seed_all(self.random_seed)
         
         # Initialize the basic parameters
         self.cutoff: float = kwargs.get('cutoff', 5.5)
@@ -2914,9 +2510,6 @@ class EquiformerV2(nn.Module):
 
         # Initialize the module that compute WignerD matrices and other values for spherical harmonic calculations
         self.SO3_rotation = nn.ModuleList()
-        
-        # Add DynamicEdgeRotation module for TorchScript-compatible edge rotation matrices
-        # self.dynamic_edge_rotation = DynamicEdgeRotation()
         for i in range(self.num_resolutions):
             self.SO3_rotation.append(SO3_Rotation(self.lmax_list[i], self.device))
 
@@ -3023,16 +2616,13 @@ class EquiformerV2(nn.Module):
                 alpha_drop=0.0
             )
             
-        # self.apply(self._init_weights)
-        # self.apply(self._uniform_init_rad_func_linear_weights)
+        self.apply(self._init_weights)
+        self.apply(self._uniform_init_rad_func_linear_weights)
 
         # Initialize SO3_Embedding
         self.x = SO3_Embedding(
-            0,  # Will be set in forward pass
             self.lmax_list,
-            self.atom_channels,
-            self.device,
-            self.dtype,
+            self.atom_channels
         )
 
         # Normalisation constants
@@ -3043,17 +2633,6 @@ class EquiformerV2(nn.Module):
 
         if self.compute_forces:
             self.gradient_output = GradientOutput(model_outputs=['forces'])
-            
-        # Ensure all SO3 components are properly initialized with consistent precision
-        # self._ensure_consistent_precision()
-        # if not self.training:
-        #     torch.manual_seed(666)
-            # if self.device.type == 'cuda':
-            #     torch.cuda.manual_seed_all(666)
-
-        # Apply deterministic weight initialization for consistent results
-        # self.apply(self._init_weights)
-        # self.apply(self._uniform_init_rad_func_linear_weights)
 
     def _get_grid_index(self, l: int, m: int, max_l: int) -> int:
         return l * (max_l + 1) + m
@@ -3064,15 +2643,6 @@ class EquiformerV2(nn.Module):
         TorchScript-compatible version of edge rotation matrix computation.
         This function maintains the original logic while being compatible with C++ TorchScript.
         """
-        # Get the number of edges
-        num_edges = edge_diff.shape[0]
-        
-        # Use constant rotation matrix as backup for testing
-        # Uncomment the following lines to use constant matrix instead
-        # return self._init_edge_rot_mat_constant(edge_diff)
-        
-        # Ensure consistent precision with C++ interface (float32)
-        edge_diff = edge_diff.to(torch.float32)
         
         # Original logic adapted for TorchScript compatibility
         edge_vec_0 = edge_diff.clone()
@@ -3081,58 +2651,51 @@ class EquiformerV2(nn.Module):
         # Replace assert with conditional check
         min_distance = torch.min(edge_vec_0_distance)
         if min_distance < 0.0001:
-            # Use constant matrix as fallback for very small distances
-            return self._init_edge_rot_mat_constant(edge_diff)
+            raise ValueError("Edge distance is too small")
         
         norm_x = edge_vec_0 / edge_vec_0_distance
         
-        # Use deterministic random generation for TorchScript compatibility
-        # Create a deterministic seed based on edge indices to ensure consistency
-        edge_indices = torch.arange(num_edges, device=edge_diff.device, dtype=edge_diff.dtype)
-        torch.manual_seed(666)  # Fixed seed for consistency with main forward method
+        # Use Gram-Schmidt orthogonalization for mathematically rigorous orthonormal basis
+        # This creates a perfect orthonormal coordinate system for each edge
+        num_edges = edge_diff.shape[0]
         
-        # Generate random vectors deterministically
-        edge_vec_2 = torch.rand_like(edge_vec_0, device=edge_vec_0.device, dtype=torch.float32) - 0.5
+        # Step 1: Choose initial candidate vector (use axis with minimum component)
+        # This ensures the candidate is never parallel to norm_x
+        abs_norm_x = torch.abs(norm_x)
+        min_indices = torch.argmin(abs_norm_x, dim=1)  # Shape: [num_edges]
+        
+        # Create candidate vectors for Gram-Schmidt orthogonalization
+        candidate = torch.zeros_like(norm_x)  # Shape: [num_edges, 3]
+        candidate[torch.arange(num_edges), min_indices] = 1.0
+        
+        # Step 2: Gram-Schmidt orthogonalization
+        # Remove the component of candidate that's parallel to norm_x
+        # Formula: v2 = candidate - proj_norm_x(candidate)
+        # where proj_norm_x(candidate) = (candidate · norm_x) * norm_x
+        proj_coeff = torch.sum(candidate * norm_x, dim=1, keepdim=True)
+        edge_vec_2 = candidate - proj_coeff * norm_x  # Remove parallel component
+        
+        # Step 3: Normalize the orthogonal component
         edge_vec_2_norm = torch.norm(edge_vec_2, dim=1, keepdim=True)
+        edge_vec_2_norm = torch.clamp(edge_vec_2_norm, min=1e-6)  # Numerical stability
         edge_vec_2 = edge_vec_2 / edge_vec_2_norm
         
-        # Create two rotated copies of the random vectors in case the random vector is aligned with norm_x
-        # With two 90 degree rotated vectors, at least one should not be aligned with norm_x
-        edge_vec_2b = edge_vec_2.clone()
-        edge_vec_2b[:, 0] = -edge_vec_2[:, 1]
-        edge_vec_2b[:, 1] = edge_vec_2[:, 0]
-        edge_vec_2c = edge_vec_2.clone()
-        edge_vec_2c[:, 1] = -edge_vec_2[:, 2]
-        edge_vec_2c[:, 2] = edge_vec_2[:, 1]
-        
-        vec_dot_b = torch.abs(torch.sum(edge_vec_2b * norm_x, dim=1, keepdim=True))
-        vec_dot_c = torch.abs(torch.sum(edge_vec_2c * norm_x, dim=1, keepdim=True))
-        
-        vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1, keepdim=True))
-        edge_vec_2 = torch.where(
-            torch.gt(vec_dot, vec_dot_b), edge_vec_2b, edge_vec_2
-        )
-        vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1, keepdim=True))
-        edge_vec_2 = torch.where(
-            torch.gt(vec_dot, vec_dot_c), edge_vec_2c, edge_vec_2
-        )
-        
+        # Final safety check: verify vectors are sufficiently orthogonal
         vec_dot = torch.abs(torch.sum(edge_vec_2 * norm_x, dim=1))
-        # Replace assert with conditional check
         max_dot = torch.max(vec_dot)
         if max_dot >= 0.99:
             # Use constant matrix as fallback if vectors are too aligned
             return self._init_edge_rot_mat_constant(edge_diff)
         
+        # Step 4: Create third orthogonal vector using cross product
+        # norm_z = norm_x × edge_vec_2 (guaranteed orthogonal to both)
         norm_z = torch.cross(norm_x, edge_vec_2, dim=1)
-        norm_z_norm = torch.norm(norm_z, dim=1, keepdim=True)
-        norm_z = norm_z / norm_z_norm
-        norm_z_norm = torch.norm(norm_z, dim=1, keepdim=True)
-        norm_z = norm_z / norm_z_norm
+        norm_z = norm_z / torch.norm(norm_z, dim=1, keepdim=True)  # Normalize
         
-        norm_y = torch.cross(norm_x, norm_z, dim=1)
-        norm_y_norm = torch.norm(norm_y, dim=1, keepdim=True)
-        norm_y = norm_y / norm_y_norm
+        # Step 5: Create final orthogonal vector to complete the orthonormal basis
+        # norm_y = norm_z × norm_x (completes right-handed coordinate system)
+        norm_y = torch.cross(norm_z, norm_x, dim=1)
+        norm_y = norm_y / torch.norm(norm_y, dim=1, keepdim=True)  # Normalize
         
         # Construct the 3D rotation matrix
         norm_x = norm_x.view(-1, 3, 1)
@@ -3151,14 +2714,9 @@ class EquiformerV2(nn.Module):
         Backup function that returns a constant rotation matrix for testing consistency.
         This is used as a fallback when the main function encounters issues.
         """
-        # Get the number of edges
         num_edges = edge_diff.shape[0]
         
-        # Ensure consistent precision with C++ interface (float32)
-        edge_diff = edge_diff.to(torch.float32)
-        
         # Create a constant rotation matrix (identity matrix rotated by 45 degrees around z-axis)
-        # This is a valid rotation matrix that should work for all edges
         constant_rot_mat = torch.tensor([
             [0.7071068, -0.7071068, 0.0],
             [0.7071068,  0.7071068, 0.0],
@@ -3184,49 +2742,32 @@ class EquiformerV2(nn.Module):
             Output data after applying the model.
         """
          
-        # Ensure deterministic environment for consistent CPU/GPU/TorchScript results
-        # Set seeds directly in forward method for TorchScript compatibility
-        torch.manual_seed(666)  # Always set seed for consistent results
-        # if self.device.type == 'cuda':
-        #     torch.cuda.manual_seed_all(666)
+        # Reset all embeddings at the start of each forward pass to avoid state mutation
+        self._reset_all_embeddings()
         
         if self.species is None:
             atomic_numbers = data.atomic_numbers.long()
         else:
             atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device, dtype=torch.long)
         edge_index = data.edge_indices.transpose(0, 1)
-        edge_vectors = data.edge_vectors.to(torch.float32)  # Ensure float32 precision
-        positions = data.positions.to(torch.float32)  # Ensure float32 precision
+        edge_vectors = data.edge_vectors
+        positions = data.positions
         image_indices = data.image_indices
         edge_dist = torch.norm(edge_vectors, dim=1, dtype=torch.float32)
         num_atoms = len(atomic_numbers)
 
-        ###############################################################
-        # Embeddings
-        ###############################################################
-
         # Create a fresh SO3_Embedding for each forward pass to avoid state mutation issues
-        # This ensures consistent behavior between Python and C++ TorchScript execution
-        x = SO3_Embedding(
-            num_atoms,
-            self.lmax_list.copy(),
-            self.atom_channels,
-            positions.device,
-            torch.float32,
-        )
-
-        # Init per node representations using an atomic number based embedding
+        self.x.set_embedding(torch.zeros(0, self.x.num_coefficients, self.x.num_channels))
+        x = self.x(num_atoms, positions.device, torch.float32)
+        
+        # Atom embedding
         offset_res = 0
         offset = 0
-        # Initialize the l = 0, m = 0 coefficients for each resolution
-        # Atom embedding
         for i in range(self.num_resolutions):
             if self.num_resolutions == 1:
                 x.embedding[:, offset_res, :] = self.atom_embedding(atomic_numbers).to(torch.float32)
             else:
-                x.embedding[:, offset_res, :] = self.atom_embedding(
-                    atomic_numbers
-                    )[:, offset : offset + self.atom_channels].to(torch.float32)
+                x.embedding[:, offset_res, :] = self.atom_embedding(atomic_numbers)[:, offset : offset + self.atom_channels].to(torch.float32)
             offset = offset + self.atom_channels
             offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
 
@@ -3240,25 +2781,16 @@ class EquiformerV2(nn.Module):
             edge_dist = torch.cat((edge_dist, source_embedding, target_embedding), dim=1)
 
         # Edge-degree embedding
-        # edge_rot_mat = init_edge_rot_mat(edge_vectors) # Compute 3x3 rotation matrix per edge
-        # edge_rot_mat = self.dynamic_edge_rotation(edge_vectors) # Compute 3x3 rotation matrix per edge using module
-        # edge_rot_mat = torch.eye(3, device=edge_vectors.device).repeat(edge_vectors.shape[0], 1, 1)
-        # edge_rot_mat = self.init_edge_rot_mat_script(edge_vectors)
-        # edge_rot_mat = init_edge_rot_mat_original(edge_vectors)
-        # edge_rot_mat = init_edge_rot_mat_test(edge_vectors)
-        edge_rot_mat = self._init_edge_rot_mat_constant(edge_vectors)
-
-        
-        edge_degree = self.edge_degree_embedding( # torchscript error
+        edge_rot_mat = self.init_edge_rot_mat_script(edge_vectors)
+        # edge_rot_mat = self._init_edge_rot_mat_constant(edge_vectors)
+        edge_degree = self.edge_degree_embedding(
             atomic_numbers,
             edge_dist,
             edge_index,
             edge_rot_mat)
         x.embedding = x.embedding + edge_degree.embedding
 
-        ###############################################################
         # Seperable layer norm, and equivariant graph attention
-        ###############################################################
         if image_indices is None:
             image_indices = torch.zeros_like(atomic_numbers, dtype=torch.long)
         assert image_indices is not None
@@ -3269,18 +2801,16 @@ class EquiformerV2(nn.Module):
                 edge_dist,
                 edge_index,
                 edge_rot_mat,
-                batch=image_indices, # data.batch    # for GraphDropPath
+                batch=image_indices,
             )
 
         # Final layer norm
         x.embedding = self.norm(x.embedding)
 
-        ###############################################################
         # Energy estimation
-        ###############################################################
         node_energy = self.energy_block(x) # feedforward NN
         node_energy = node_energy.embedding.narrow(1, 0, 1)
-        energy = torch.zeros(data.num_atoms.shape[0], device=node_energy.device, dtype=torch.float32)  # Ensure float32 precision
+        energy = torch.zeros(data.num_atoms.shape[0], device=node_energy.device, dtype=torch.float32) 
         energy.index_add_(0, image_indices, node_energy.view(-1))
 
         # Apply de-normalization
@@ -3291,20 +2821,16 @@ class EquiformerV2(nn.Module):
             if self.norm_per_atom:
                 mean_shift = data.num_atoms * mean_shift
             energy = energy + mean_shift
-
         # NaN/Inf checks for energy
         if torch.isnan(energy).any():
             print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
         if torch.isinf(energy).any():
             print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
-
         data = replace_properties(data, energy=energy)
-        
         atomic_energy = node_energy.view(-1)
         data = replace_properties(data, atomic_energy=atomic_energy)
-        ###############################################################
+
         # Force estimation
-        ###############################################################
         # if self.compute_forces:
             # forces = self.force_block(self.x,
             #     atomic_numbers,
@@ -3329,13 +2855,9 @@ class EquiformerV2(nn.Module):
                 torch.nn.init.constant_(m.bias, 0)
             if self.weight_init == 'normal':
                 std = 1 / math.sqrt(m.in_features)
-                # Set deterministic seed for consistent initialization
-                torch.manual_seed(666)
                 torch.nn.init.normal_(m.weight, 0, std)
             elif self.weight_init == 'uniform':
                 std = 1 / math.sqrt(m.in_features)
-                # Set deterministic seed for consistent initialization
-                torch.manual_seed(666)
                 torch.nn.init.uniform_(m.weight, -std, std)
 
         elif isinstance(m, torch.nn.LayerNorm):
@@ -3352,8 +2874,6 @@ class EquiformerV2(nn.Module):
             if m.bias is not None:
                 torch.nn.init.constant_(m.bias, 0)
             std = 1 / math.sqrt(m.in_features)
-            # Set deterministic seed for consistent initialization
-            torch.manual_seed(666)
             torch.nn.init.uniform_(m.weight, -std, std)
 
     def to(self, device):
@@ -3382,20 +2902,94 @@ class EquiformerV2(nn.Module):
         
         return self
 
-    def _ensure_consistent_precision(self):
-        """Ensure all SO3 components use consistent precision for CPU/GPU compatibility."""
-        # Set all SO3_Grid components to use float32
-        for grid in self.SO3_grid:
-            if hasattr(grid, 'to_grid_mat'):
-                grid.to_grid_mat = grid.to_grid_mat.float()
-            if hasattr(grid, 'from_grid_mat'):
-                grid.from_grid_mat = grid.from_grid_mat.float()
+    def _reset_all_embeddings(self):
+        """Reset all SO3_Embedding objects to avoid state mutation"""
+        # Reset main embedding
+        self.x.set_embedding(
+            torch.zeros(0, self.x.num_coefficients, self.x.num_channels)
+        )
         
-        # Set all SO3_Rotation components to use float32
-        for rotation in self.SO3_rotation:
-            if hasattr(rotation, '_Jd'):
-                for i, J in enumerate(rotation._Jd):
-                    rotation._Jd[i] = J.float()
+        # Reset edge degree embedding
+        if hasattr(self, 'edge_degree_embedding'):
+            self.edge_degree_embedding.x_edge_embedding.set_embedding(
+                torch.zeros(0, self.edge_degree_embedding.x_edge_embedding.num_coefficients, self.edge_degree_embedding.x_edge_embedding.num_channels)
+            )
+        
+        # Reset all TransBlock embeddings
+        for block in self.blocks:
+            # Reset shortcut embedding
+            if hasattr(block, 'shortcut_embedding') and block.ffn_shortcut is not None:
+                block.shortcut_embedding.set_embedding(
+                    torch.zeros(0, block.shortcut_embedding.num_coefficients, block.shortcut_embedding.num_channels)
+                )
+            
+            # Reset attention embeddings
+            if hasattr(block.ga, 'clone1'):
+                block.ga.clone1.set_embedding(
+                    torch.zeros(0, block.ga.clone1.num_coefficients, block.ga.clone1.num_channels)
+                )
+            if hasattr(block.ga, 'clone2'):
+                block.ga.clone2.set_embedding(
+                    torch.zeros(0, block.ga.clone2.num_coefficients, block.ga.clone2.num_channels)
+                )
+            if hasattr(block.ga, 'x_message'):
+                block.ga.x_message.set_embedding(
+                    torch.zeros(0, block.ga.x_message.num_coefficients, block.ga.x_message.num_channels)
+                )
+            
+            # Reset SO2_Convolution embeddings
+            if hasattr(block.ga, 'so2_conv_1'):
+                block.ga.so2_conv_1.out_embedding.set_embedding(
+                    torch.zeros(0, block.ga.so2_conv_1.out_embedding.num_coefficients, block.ga.so2_conv_1.out_embedding.num_channels)
+                )
+            if hasattr(block.ga, 'so2_conv_2'):
+                block.ga.so2_conv_2.out_embedding.set_embedding(
+                    torch.zeros(0, block.ga.so2_conv_2.out_embedding.num_coefficients, block.ga.so2_conv_2.out_embedding.num_channels)
+                )
+            
+            # Reset FFN embeddings
+            if hasattr(block.ffn, 'so3_linear_1'):
+                block.ffn.so3_linear_1.out_embedding.set_embedding(
+                    torch.zeros(0, block.ffn.so3_linear_1.out_embedding.num_coefficients, block.ffn.so3_linear_1.out_embedding.num_channels)
+                )
+            if hasattr(block.ffn, 'so3_linear_2'):
+                block.ffn.so3_linear_2.out_embedding.set_embedding(
+                    torch.zeros(0, block.ffn.so3_linear_2.out_embedding.num_coefficients, block.ffn.so3_linear_2.out_embedding.num_channels)
+                )
+        
+        # Reset energy block embeddings
+        if hasattr(self, 'energy_block'):
+            if hasattr(self.energy_block, 'so3_linear_1'):
+                self.energy_block.so3_linear_1.out_embedding.set_embedding(
+                    torch.zeros(0, self.energy_block.so3_linear_1.out_embedding.num_coefficients, self.energy_block.so3_linear_1.out_embedding.num_channels)
+                )
+            if hasattr(self.energy_block, 'so3_linear_2'):
+                self.energy_block.so3_linear_2.out_embedding.set_embedding(
+                    torch.zeros(0, self.energy_block.so3_linear_2.out_embedding.num_coefficients, self.energy_block.so3_linear_2.out_embedding.num_channels)
+                )
+        
+        # Reset force block embeddings if they exist
+        if hasattr(self, 'force_block'):
+            if hasattr(self.force_block, 'clone1'):
+                self.force_block.clone1.set_embedding(
+                    torch.zeros(0, self.force_block.clone1.num_coefficients, self.force_block.clone1.num_channels)
+                )
+            if hasattr(self.force_block, 'clone2'):
+                self.force_block.clone2.set_embedding(
+                    torch.zeros(0, self.force_block.clone2.num_coefficients, self.force_block.clone2.num_channels)
+                )
+            if hasattr(self.force_block, 'x_message'):
+                self.force_block.x_message.set_embedding(
+                    torch.zeros(0, self.force_block.x_message.num_coefficients, self.force_block.x_message.num_channels)
+                )
+            if hasattr(self.force_block, 'so2_conv_1'):
+                self.force_block.so2_conv_1.out_embedding.set_embedding(
+                    torch.zeros(0, self.force_block.so2_conv_1.out_embedding.num_coefficients, self.force_block.so2_conv_1.out_embedding.num_channels)
+                )
+            if hasattr(self.force_block, 'so2_conv_2'):
+                self.force_block.so2_conv_2.out_embedding.set_embedding(
+                    torch.zeros(0, self.force_block.so2_conv_2.out_embedding.num_coefficients, self.force_block.so2_conv_2.out_embedding.num_channels)
+                )
 
 class GradientOutput(torch.nn.Module):
     def __init__(
