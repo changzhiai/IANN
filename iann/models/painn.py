@@ -4,14 +4,14 @@ from torch import nn
 from typing import List, Optional
 from torch import Tensor
 
-def sinc_expansion(edge_dist: torch.Tensor, edge_size: int, cutoff: float):
+def sinc_expansion(edge_dist: torch.Tensor, edge_channels: int, cutoff: float):
     """
     calculate sinc radial basis function:
     
     sin(n *pi*d/d_cut)/d
     """
     # n tensor
-    n = torch.arange(edge_size, device=edge_dist.device, dtype=edge_dist.dtype) + 1
+    n = torch.arange(edge_channels, device=edge_dist.device, dtype=edge_dist.dtype) + 1
     
     # Compute expansion
     expanded = edge_dist.unsqueeze(-1) * n * torch.pi / cutoff
@@ -35,10 +35,10 @@ def cosine_cutoff(edge_dist: torch.Tensor, cutoff: float):
 
 class PainnMessage(nn.Module):
     """Message function"""
-    def __init__(self, num_channels: int, edge_size: int, cutoff: float):
+    def __init__(self, num_channels: int, edge_channels: int, cutoff: float):
         super().__init__()
         
-        self.edge_size = edge_size
+        self.edge_channels = edge_channels
         self.num_channels = num_channels
         self.cutoff = cutoff
         
@@ -48,11 +48,11 @@ class PainnMessage(nn.Module):
             nn.Linear(num_channels, num_channels * 3),
         )
         
-        self.filter_layer = nn.Linear(edge_size, num_channels * 3)
+        self.filter_layer = nn.Linear(edge_channels, num_channels * 3)
         
     def forward(self, node_scalar, node_vector, edge_indices, edge_vectors, edge_dist):
         # remember to use v_j, s_j but not v_i, s_i        
-        filter_weight = self.filter_layer(sinc_expansion(edge_dist, self.edge_size, self.cutoff))
+        filter_weight = self.filter_layer(sinc_expansion(edge_dist, self.edge_channels, self.cutoff))
         filter_weight = filter_weight * cosine_cutoff(edge_dist, self.cutoff).unsqueeze(-1)
         scalar_out = self.scalar_message_mlp(node_scalar)      
         filter_out = filter_weight * scalar_out[edge_indices[:, 1]]
@@ -142,7 +142,7 @@ class PaiNN(nn.Module):
         self.cutoff = kwargs.get('cutoff', 5.5)
         self.num_layers = num_layers
         self.num_channels = num_channels
-        self.edge_embedding_size = kwargs.get('edge_embedding_size', 20)
+        self.edge_channels = kwargs.get('edge_channels', 20)
         
         # Setup atom embeddings
         self.atom_embedding = nn.Embedding(num_embedding, num_channels)
@@ -150,7 +150,7 @@ class PaiNN(nn.Module):
         # Setup message-passing layers
         self.message_layers = nn.ModuleList(
             [
-                PainnMessage(self.num_channels, self.edge_embedding_size, self.cutoff)
+                PainnMessage(self.num_channels, self.edge_channels, self.cutoff)
                 for _ in range(self.num_layers)
             ]
         )
