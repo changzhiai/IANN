@@ -55,5 +55,7 @@ def __getattr__(name):
         return _load_nequip()
     elif name == "EquiformerV2":
         return _load_equiformerV2()
+    elif name == "HOTMEM":
+        return _load_hotmem()
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
