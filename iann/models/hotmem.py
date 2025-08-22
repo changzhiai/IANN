@@ -4,17 +4,16 @@ from torch import nn
 from typing import List, Optional, Tuple
 from torch import Tensor
 from e3nn import o3
-from e3nn.o3 import Linear, TensorProduct, FullyConnectedTensorProduct
-from e3nn.nn import FullyConnectedNet, Gate, NormActivation
 import math
 import abc
+
+
 def sinc_expansion(edge_dist: torch.Tensor, edge_size: int, cutoff: float):
     """
     Calculate sinc radial basis function:
     
     sin(n *pi*d/d_cut)/d
     """
-    # n tensor
     n = torch.arange(edge_size, device=edge_dist.device, dtype=edge_dist.dtype) + 1
     
     # Compute expansion
@@ -35,63 +34,6 @@ def cosine_cutoff(edge_dist: torch.Tensor, cutoff: float):
         0.5 * (torch.cos(torch.pi * edge_dist / cutoff) + 1),
         torch.tensor(0.0, device=edge_dist.device, dtype=edge_dist.dtype),
     )
-
-def get_triplet_indices(edge_indices: torch.Tensor, num_atoms: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Generate triplet indices for 3-body interactions.
-    Returns (i, j, k) indices where i is the central atom.
-    """
-    # Create all possible triplets
-    triplets = []
-    
-    # For each atom i, find all pairs of neighbors (j, k)
-    for i in range(num_atoms):
-        # Find all edges where i is the central atom
-        i_edges = torch.where(edge_indices[:, 0] == i)[0]
-        
-        if len(i_edges) >= 2:  # Need at least 2 neighbors for 3-body
-            for j_idx in range(len(i_edges)):
-                for k_idx in range(j_idx + 1, len(i_edges)):
-                    j = edge_indices[i_edges[j_idx], 1]
-                    k = edge_indices[i_edges[k_idx], 1]
-                    triplets.append([i, j, k])
-    
-    if len(triplets) == 0:
-        # Return empty tensors if no triplets
-        return torch.empty((0,), dtype=torch.long, device=edge_indices.device), \
-               torch.empty((0,), dtype=torch.long, device=edge_indices.device), \
-               torch.empty((0,), dtype=torch.long, device=edge_indices.device)
-    
-    triplets = torch.tensor(triplets, device=edge_indices.device)
-    return triplets[:, 0], triplets[:, 1], triplets[:, 2]
-
-class HOTMEMRadialBasis(nn.Module):
-    """HOTMEM-style radial basis functions"""
-    def __init__(self, num_basis: int, cutoff: float, power: int = 6):
-        super().__init__()
-        self.num_basis = num_basis
-        self.cutoff = cutoff
-        self.power = power
-        
-        # Learnable basis parameters
-        self.basis_params = nn.Parameter(torch.randn(num_basis))
-        
-    def forward(self, edge_dist: torch.Tensor) -> torch.Tensor:
-        # Bessel basis functions
-        n = torch.arange(1, self.num_basis + 1, device=edge_dist.device, dtype=edge_dist.dtype)
-        basis = torch.sin(n * torch.pi * edge_dist.unsqueeze(-1) / self.cutoff) / edge_dist.unsqueeze(-1)
-        
-        # Apply learnable weights
-        basis = basis * self.basis_params.unsqueeze(0)
-        
-        # Apply cutoff
-        cutoff_fn = torch.where(
-            edge_dist < self.cutoff,
-            torch.pow(1 - edge_dist / self.cutoff, self.power),
-            torch.zeros_like(edge_dist)
-        )
-        
-        return basis * cutoff_fn.unsqueeze(-1)
 
 class Message(nn.Module):
     """Enhanced message function with O3NN features for 2-body interactions"""
@@ -124,9 +66,9 @@ class Message(nn.Module):
         )
 
         
-    def forward(self, scalar_features, vector_features, edge_features, angular_features, global_features, edge_indices, edge_vectors, edge_dist):
+    def forward(self, node_features, edge_features, angular_features, global_features, edge_indices):
 
-        node_in = self.scalar_message_mlp(scalar_features[edge_indices[:, 1]])  
+        node_in = self.scalar_message_mlp(node_features[edge_indices[:, 1]])  
 
         edge_mlp = self.edge_message_mlp(edge_features)
 
@@ -134,11 +76,6 @@ class Message(nn.Module):
 
         global_in = global_features[edge_indices[:, 1]]
 
-        
-        # Weight spherical harmonics by edge magnitude (equivariant)
-        # angular_mlp = angular_mlp * edge_dist.unsqueeze(-1) # [num_edges, sh_dim] x [num_edges, 1]
-        
-        # edge_mix = angular_in * edge_dist.unsqueeze(-1) / 5.5
         edge_in = angular_mlp * edge_mlp  # [num_edges, sh_dim, 3]
 
         global_pass = global_in * edge_in * node_in
@@ -147,32 +84,9 @@ class Message(nn.Module):
 
         node_pass = global_pass * edge_pass * node_in
 
-        residual_scalar = torch.zeros_like(scalar_features)
+        residual_scalar = torch.zeros_like(node_features, device=edge_indices.device)
         residual_scalar.index_add_(0, edge_indices[:, 0], node_pass)
 
-        # edge_mix = edge_mix * node_in
-        
-
-        # gate_state_vector, gate_edge_vector, message_scalar = torch.split(
-        #     edge_mix, 
-        #     self.num_channels,
-        #     dim = 1,
-        # )
-
-        # message_vector = vector_features[edge_indices[:, 1]] * gate_state_vector.unsqueeze(1)
-        # edge_vector = gate_edge_vector.unsqueeze(1) * (edge_vectors / edge_dist.unsqueeze(-1)).unsqueeze(-1)
-        # message_vector = message_vector + edge_vector
-        
-        # residual_scalar = torch.zeros_like(scalar_features)
-        # residual_vector = torch.zeros_like(vector_features)
-        # residual_scalar.index_add_(0, edge_indices[:, 0], message_scalar)
-        # residual_vector.index_add_(0, edge_indices[:, 0], message_vector)
-        
-        # # new node state
-        # new_node_scalar = scalar_features + residual_scalar
-        # new_node_vector = vector_features + residual_vector
-        
-        # return new_node_scalar, new_node_vector
         return residual_scalar
 
 class Update(nn.Module):
@@ -180,47 +94,7 @@ class Update(nn.Module):
     def __init__(self, num_channels: int):
         super().__init__()
         
-        # Update MLPs
-        # self.update_U = nn.Linear(num_channels, num_channels)
-        
-        # self.update_V = nn.Linear(num_channels, num_channels)
-        
-        # self.update_mlp = nn.Sequential(
-        #     nn.Linear(num_channels * 2, num_channels),
-        #     nn.SiLU(),
-        #     nn.Linear(num_channels, num_channels * 3),
-        # )
-        
-        # # Combine features for final update
-        # self.combine_update = nn.Sequential(
-        #     nn.Linear(num_channels * 2, num_channels),
-        #     nn.SiLU(),
-        #     nn.Linear(num_channels, num_channels),
-        # )
-        
     def forward(self, node_features, node_pass):
-        # Linear transformations
-        # Uv = self.update_U(force_vector)
-        # Vv = self.update_V(force_vector)
-        
-        # # Compute norm
-        # Vv_norm = torch.linalg.norm(Vv, dim=1)
-        # mlp_input = torch.cat((Vv_norm, node_features), dim=1)
-        # mlp_output = self.update_mlp(mlp_input)
-        
-        # a_vv, a_sv, a_ss = torch.split(
-        #     mlp_output,                                        
-        #     force_vector.shape[-1],                                       
-        #     dim = 1,
-        # )
-        
-        # # Compute updates
-        # delta_v = a_vv.unsqueeze(1) * Uv
-        # inner_prod = torch.sum(Uv * Vv, dim=1)
-        # delta_s = a_sv * inner_prod + a_ss
-        
-        # Return updated states
-        # return node_features + delta_s, force_vector + delta_v
 
         return node_features + node_pass
     
@@ -363,8 +237,6 @@ class AngularEmbedding(nn.Module):
         super().__init__()
         self.sh = o3.SphericalHarmonics(edge_sh_irreps, edge_sh_normalize, edge_sh_normalization)
         self.num_channels = edge_sh_irreps.dim
-        # output edge diff irreps
-        self.irreps_out = edge_sh_irreps
 
     def forward(self, data: AtomsData) -> AtomsData:
         edge_diff_embedding = self.sh(data.edge_vectors)
@@ -469,13 +341,6 @@ class HOTMEM(nn.Module):
             for _ in range(self.num_layers)
         ])
         
-        # Setup multi-body message layers
-        # if self.use_multi_body:
-        #     self.multi_body_layers = nn.ModuleList([
-        #         MultiBodyMessage(self.embeddings, self.num_channels)
-        #         for _ in range(self.num_layers)
-        #     ])
-        
         self.update_layers = nn.ModuleList([
             Update(self.num_channels)
             for _ in range(self.num_layers)
@@ -546,9 +411,7 @@ class HOTMEM(nn.Module):
         # Message passing iterations
         for layer_idx in range(self.num_layers):
             # 2-body interactions
-            node_pass = self.message_layers[layer_idx](
-                node_features, force_vector, edge_features, angular_features, global_features, edge_indices, edge_vectors, edge_dist
-            )
+            node_pass = self.message_layers[layer_idx](node_features, edge_features, angular_features, global_features, edge_indices)
             
             # Update step
             node_features = self.update_layers[layer_idx](node_features, node_pass)
