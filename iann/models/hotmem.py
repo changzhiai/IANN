@@ -47,11 +47,11 @@ class Message(nn.Module):
         self.global_dim = embeddings['global'].num_channels
         self.num_channels = num_channels
 
-        self.scalar_message_mlp = nn.Sequential(
-            nn.Linear(self.node_dim, self.num_channels),
-            nn.SiLU(),
-            nn.Linear(self.num_channels, self.num_channels * 1),
-        )
+        # self.scalar_message_mlp = nn.Sequential(
+        #     nn.Linear(self.node_dim, self.num_channels),
+        #     nn.SiLU(),
+        #     nn.Linear(self.num_channels, self.num_channels * 1),
+        # )
         
         self.edge_message_mlp = nn.Sequential(
             nn.Linear(self.edge_dim, self.num_channels),
