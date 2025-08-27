@@ -54,10 +54,6 @@ class TypeMapper(Transform):
             raise ValueError("`species` or `symbol_to_type` should be given!")
         
     def forward(self, data: AtomsData) -> torch.Tensor:
-        if data.atomic_types is not None:
-            warnings.warn("Data already contains mapped types. This will be overwrited.")
-        
-        # data = replace_properties(data, atomic_types=self.transform(data.atomic_numbers))
         atomic_types = self.transform(data.atomic_numbers)
         assert torch.all(atomic_types >= 0), "Provided data contains species not defined in TypeMapper!"
         return atomic_types
@@ -104,8 +100,6 @@ class OneHotAtomEncoding(torch.nn.Module):
             self.irreps_out['node_feat'] = self.irreps_out['node_attr']
             
     def forward(self, data: AtomsData) -> AtomsData:
-        # atomic_types: torch.Tensor
-
         if self.type_mapper is not None:
             atomic_types = self.type_mapper(data)
         else:
