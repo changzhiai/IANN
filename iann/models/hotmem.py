@@ -205,8 +205,6 @@ class NodeEmbedding(nn.Module):
 
         self.atom_embedding = nn.Embedding(self.num_embedding, self.num_channels)
 
-        self.irreps_out = o3.Irreps(f"{self.num_embedding}x0e")
-
     def forward(self, data: AtomsData) -> AtomsData:
         node_attr = self.atom_embedding(data.atomic_numbers)
         data = replace_properties(data, node_attr=node_attr)
@@ -220,9 +218,6 @@ class EdgeEmbedding(nn.Module):
         self.basis = basis
         self.cutoff_fn = cutoff_fn
         self.num_channels = basis.num_basis
-
-        # output edge dist irreps
-        self.irreps_out = self.basis.irreps_out
 
     def forward(self, data: AtomsData) -> AtomsData:
         edge_dist = torch.linalg.norm(data.edge_vectors, dim=1)
@@ -393,9 +388,7 @@ class HOTMEM(nn.Module):
         num_edges = data.num_edges
         positions = data.positions
         edge_indices = data.edge_indices
-        atomic_numbers = data.atomic_numbers
         edge_vectors = data.edge_vectors
-        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
         
         # Process embeddings following MACE pattern
         for embedding in self.embeddings.values():
@@ -406,7 +399,6 @@ class HOTMEM(nn.Module):
         edge_features = data.edge_dist_embedding  # Radial basis features
         angular_features = data.edge_diff_embedding  # Spherical harmonics features
         global_features = data.global_embedding  # Global features
-        force_vector = torch.zeros((positions.shape[0], 3, self.num_channels), device=positions.device, dtype=torch.float32)
         
         # Message passing iterations
         for layer_idx in range(self.num_layers):
