@@ -68,21 +68,21 @@ class Message(nn.Module):
         
     def forward(self, node_features, edge_features, angular_features, global_features, edge_indices):
 
-        node_in = self.scalar_message_mlp(node_features[edge_indices[:, 1]])  
+        # node_in = self.scalar_message_mlp(node_features[edge_indices[:, 1]])  
+        node_in = node_features[edge_indices[:, 1]] 
 
         edge_mlp = self.edge_message_mlp(edge_features)
-
         angular_mlp = self.angular_message_mlp(angular_features)
+        edge_in = angular_mlp * edge_mlp  # [num_edges, sh_dim, 3]
 
         global_in = global_features[edge_indices[:, 1]]
 
-        edge_in = angular_mlp * edge_mlp  # [num_edges, sh_dim, 3]
+        # global_pass = global_in * edge_in * node_in
 
-        global_pass = global_in * edge_in * node_in
+        # edge_pass = global_pass * edge_in * node_in
 
-        edge_pass = global_pass * edge_in * node_in
-
-        node_pass = global_pass * edge_pass * node_in
+        # node_pass = global_pass * edge_pass * node_in
+        node_pass = node_in * edge_in * global_in
 
         residual_scalar = torch.zeros_like(node_features, device=edge_indices.device)
         residual_scalar.index_add_(0, edge_indices[:, 0], node_pass)
