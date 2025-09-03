@@ -4,6 +4,7 @@ from typing import List, Optional, NamedTuple, Dict, Any, Union
 import asap3
 import numpy as np
 from scipy.spatial import distance_matrix
+from ase.geometry import cell_to_cellpar
 
 class AtomsData(NamedTuple):
     """
@@ -33,8 +34,6 @@ class AtomsData(NamedTuple):
         The image indices of the atoms in the system.
     atomic_energy : Optional[torch.Tensor]
         The atomic energy of the system.
-    atomic_types : Optional[torch.Tensor]
-        The atomic types of the atoms in the system.
     node_attr : Optional[torch.Tensor]
         The node attributes of the atoms in the system.
     node_feat : Optional[torch.Tensor]
@@ -47,7 +46,10 @@ class AtomsData(NamedTuple):
         The energy variance of the system.
     forces_variance : Optional[torch.Tensor]
         The forces variance of the system.
-
+    global_attr: Optional[torch.Tensor]
+        The global attributes of the system.
+    global_embedding: Optional[torch.Tensor]
+        The global embedding of the system.
     """
     num_atoms: torch.Tensor
     atomic_numbers: torch.Tensor
@@ -56,13 +58,13 @@ class AtomsData(NamedTuple):
     edge_indices: torch.Tensor
     edge_vectors: torch.Tensor
     num_edges: torch.Tensor
+    global_attr: torch.Tensor
     energy: Optional[torch.Tensor] = None
     forces: Optional[torch.Tensor] = None
     image_indices: Optional[torch.Tensor] = None
     atomic_energy: Optional[torch.Tensor] = None
 
     # nequip and mace
-    atomic_types: Optional[torch.Tensor] = None
     node_attr: Optional[torch.Tensor] = None
     node_feat: Optional[torch.Tensor] = None
     edge_dist_embedding: Optional[torch.Tensor] = None
@@ -71,6 +73,9 @@ class AtomsData(NamedTuple):
     # ensemble
     energy_variance: Optional[torch.Tensor] = None
     forces_variance: Optional[torch.Tensor] = None
+
+    # global
+    global_embedding: Optional[torch.Tensor] = None
 
 
     def to(self, device):
@@ -110,13 +115,14 @@ def replace_properties(
     forces: Optional[torch.Tensor] = None,
     image_indices: Optional[torch.Tensor] = None,
     atomic_energy: Optional[torch.Tensor] = None,
-    atomic_types: Optional[torch.Tensor] = None,
     node_attr: Optional[torch.Tensor] = None,
     node_feat: Optional[torch.Tensor] = None,
     edge_dist_embedding: Optional[torch.Tensor] = None,
     edge_diff_embedding: Optional[torch.Tensor] = None,
     energy_variance: Optional[torch.Tensor] = None,
     forces_variance: Optional[torch.Tensor] = None,
+    global_embedding: Optional[torch.Tensor] = None,
+
 ) -> AtomsData:
     """
     Replace the properties of the AtomsData object.
@@ -133,13 +139,14 @@ def replace_properties(
         forces=forces if forces is not None else data.forces,
         image_indices=image_indices if image_indices is not None else data.image_indices,
         atomic_energy=atomic_energy if atomic_energy is not None else data.atomic_energy,
-        atomic_types=atomic_types if atomic_types is not None else data.atomic_types,
         node_attr=node_attr if node_attr is not None else data.node_attr,
         node_feat=node_feat if node_feat is not None else data.node_feat,
         edge_dist_embedding=edge_dist_embedding if edge_dist_embedding is not None else data.edge_dist_embedding,
         edge_diff_embedding=edge_diff_embedding if edge_diff_embedding is not None else data.edge_diff_embedding,
         energy_variance=energy_variance if energy_variance is not None else data.energy_variance,
         forces_variance=forces_variance if forces_variance is not None else data.forces_variance,
+        global_attr=data.global_attr,
+        global_embedding=global_embedding if global_embedding is not None else data.global_embedding,
     )
 
 class AseDataReader:
@@ -178,6 +185,8 @@ class AseDataReader:
         if self.compute_forces:
             edge_vectors.requires_grad_()
         num_edges = torch.tensor([edge_indices.shape[0]])
+
+        global_attr = self.get_global_attr(atoms)
         
         try:
             energy = torch.tensor([atoms.get_potential_energy()], dtype=torch.float32)
@@ -201,6 +210,7 @@ class AseDataReader:
             energy=energy,
             forces=forces,
             image_indices=None,
+            global_attr=global_attr,
         ).contiguous()
     
     def get_neighborlist(self, atoms):        
@@ -229,7 +239,20 @@ class AseDataReader:
         edge_vectors = pos[edge_indices[:, 1]] - pos[edge_indices[:, 0]]
         
         return edge_indices, edge_vectors
-
+    
+    def get_global_attr(self, atoms):
+        cellpar = cell_to_cellpar(atoms.cell)  
+        a, b, c, alpha, beta, gamma = cellpar
+        volume = atoms.get_volume()
+        density = atoms.get_masses().sum() / volume
+        global_attr = torch.tensor(
+            [a, b, c, alpha, beta, gamma, volume, density],
+            dtype=torch.float32
+        )
+        # Standardization
+        global_attr = (global_attr - global_attr.mean()) / (global_attr.std() + 1e-8)
+        return global_attr
+    
 class AseDataset(torch.utils.data.Dataset):
     """
     A class to read the data from the ASE Atoms object.

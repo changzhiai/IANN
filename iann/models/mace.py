@@ -62,10 +62,7 @@ class TypeMapper(Transform):
         else:
             raise ValueError("`species` or `symbol_to_type` should be given!")
         
-    def forward(self, data):
-        if hasattr(data, 'atomic_types'):
-            warnings.warn("Data already contains mapped types. This will be overwrited.")
-        
+    def forward(self, data):      
         data.atomic_types = self.transform(data.atomic_numbers)
         assert torch.all(data.atomic_types >= 0), "Provided data contains species not defined in TypeMapper!"
         return data

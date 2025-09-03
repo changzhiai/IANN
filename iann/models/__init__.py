@@ -19,11 +19,17 @@ def _load_equiformerV2():
     from .equiformerV2 import EquiformerV2
     return EquiformerV2
 
+def _load_hotmem():
+    """Lazy load HOTMEM model"""
+    from .hotmem import HOTMEM
+    return HOTMEM
+
 __all__ = [
     "MACE",
     "PaiNN", 
     "NequIP",
     "EquiformerV2",
+    "HOTMEM",
     "get_model_class",
 ]
 
@@ -33,6 +39,7 @@ MODEL_REGISTRY = {
     "painn": _load_painn,
     "nequip": _load_nequip,
     "equiformerV2": _load_equiformerV2,
+    "hotmem": _load_hotmem,
 }
 
 # Convenience function for direct access (lazy loaded)
@@ -55,5 +62,7 @@ def __getattr__(name):
         return _load_nequip()
     elif name == "EquiformerV2":
         return _load_equiformerV2()
+    elif name == "HOTMEM":
+        return _load_hotmem()
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
