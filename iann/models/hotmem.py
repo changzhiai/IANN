@@ -8,33 +8,6 @@ import math
 import abc
 
 
-def sinc_expansion(edge_dist: torch.Tensor, edge_size: int, cutoff: float):
-    """
-    Calculate sinc radial basis function:
-    
-    sin(n *pi*d/d_cut)/d
-    """
-    n = torch.arange(edge_size, device=edge_dist.device, dtype=edge_dist.dtype) + 1
-    
-    # Compute expansion
-    expanded = edge_dist.unsqueeze(-1) * n * torch.pi / cutoff
-    result = torch.sin(expanded) / edge_dist.unsqueeze(-1)
-    
-    return result
-
-def cosine_cutoff(edge_dist: torch.Tensor, cutoff: float):
-    """
-    Calculate cutoff value based on distance.
-    This uses the cosine Behler-Parinello cutoff function:
-
-    f(d) = 0.5*(cos(pi*d/d_cut)+1) for d < d_cut and 0 otherwise
-    """
-    return torch.where(
-        edge_dist < cutoff,
-        0.5 * (torch.cos(torch.pi * edge_dist / cutoff) + 1),
-        torch.tensor(0.0, device=edge_dist.device, dtype=edge_dist.dtype),
-    )
-
 class Message(nn.Module):
     """Enhanced message function with O3NN features for 2-body interactions"""
     def __init__(self, embeddings: dict, num_channels: int):
@@ -47,45 +20,36 @@ class Message(nn.Module):
         self.global_dim = embeddings['global'].num_channels
         self.num_channels = num_channels
 
-        # self.scalar_message_mlp = nn.Sequential(
-        #     nn.Linear(self.node_dim, self.num_channels),
-        #     nn.SiLU(),
-        #     nn.Linear(self.num_channels, self.num_channels * 1),
-        # )
-        
-        self.edge_message_mlp = nn.Sequential(
-            nn.Linear(self.edge_dim, self.num_channels),
+        self.scalar_message_mlp = nn.Sequential(
+            nn.Linear(self.node_dim, self.num_channels),
             nn.SiLU(),
             nn.Linear(self.num_channels, self.num_channels * 1),
         )
 
-        self.angular_message_mlp = nn.Sequential(
-            nn.Linear(self.sh_dim, self.num_channels),
-            nn.SiLU(),
-            nn.Linear(self.num_channels, self.num_channels * 1),
-        )
+        self.edge_linear = nn.Linear(self.edge_dim, self.num_channels * 1)
+        self.angular_linear = nn.Linear(self.sh_dim, self.num_channels * 1)
+        self.cutoff = 5.5
 
         
-    def forward(self, node_features, edge_features, angular_features, global_features, edge_indices):
+    def forward(self, node_features, edge_features, angular_features, global_features, edge_indices, edge_vectors):
 
-        # node_in = self.scalar_message_mlp(node_features[edge_indices[:, 1]])  
-        node_in = node_features[edge_indices[:, 1]] 
+        node_in = self.scalar_message_mlp(node_features[edge_indices[:, 1]]) 
 
-        edge_mlp = self.edge_message_mlp(edge_features)
-        angular_mlp = self.angular_message_mlp(angular_features)
-        edge_in = angular_mlp * edge_mlp  # [num_edges, sh_dim, 3]
+        edge_mlp = self.edge_linear(edge_features)
+        angular_mlp = self.angular_linear(angular_features)
+        edge_in = angular_mlp * edge_mlp 
 
         global_in = global_features[edge_indices[:, 1]]
-
-        # global_pass = global_in * edge_in * node_in
-
-        # edge_pass = global_pass * edge_in * node_in
-
-        # node_pass = global_pass * edge_pass * node_in
         node_pass = node_in * edge_in * global_in
+
+        # Ensure node_pass is contiguous for proper gradient flow
+        node_pass = node_pass.contiguous()
 
         residual_scalar = torch.zeros_like(node_features, device=edge_indices.device)
         residual_scalar.index_add_(0, edge_indices[:, 0], node_pass)
+
+        # Ensure residual is contiguous
+        residual_scalar = residual_scalar.contiguous()
 
         return residual_scalar
 
@@ -96,7 +60,7 @@ class Update(nn.Module):
         
     def forward(self, node_features, node_pass):
 
-        return node_features + node_pass
+        return node_features.contiguous() + node_pass.contiguous()
     
 class RadialBasis(torch.nn.Module, metaclass=abc.ABCMeta):
     @abc.abstractmethod
@@ -245,11 +209,7 @@ class GlobalEmbedding(nn.Module):
         super().__init__()
         self.num_channels = num_channels
         self.batch_size = batch_size
-        self.global_embedding = nn.Sequential(
-            nn.Linear(8, num_channels),
-            nn.SiLU(),
-            nn.Linear(num_channels, num_channels),
-        )
+        self.global_embedding = nn.Linear(8, num_channels * 1)
         
     def forward(self, data: AtomsData) -> AtomsData:
         global_attr = data.global_attr
@@ -264,6 +224,8 @@ class GlobalEmbedding(nn.Module):
 class HOTMEM(nn.Module):
     """
     HOTMEM: High-Order Tensor Multi-body Equivariant Message passing neural network.
+    
+    HOTPOT
     
     An enhanced neural network model that combines the power of PaiNN with O3NN features
     and multi-body interactions beyond traditional 2-body approaches.
@@ -309,10 +271,10 @@ class HOTMEM(nn.Module):
         self.cutoff = kwargs.get('cutoff', 5.5)
         self.num_layers = num_layers
         self.num_channels = num_channels
-        self.lmax = kwargs.get('lmax', 2)
+        self.lmax = kwargs.get('lmax', 5)
         self.use_multi_body = kwargs.get('use_multi_body', False)
         self.species = kwargs.get('species', None)
-        self.num_basis: int = kwargs.get('num_basis', 8)
+        self.num_basis: int = kwargs.get('num_basis', num_channels)
         self.power: int = kwargs.get('power', 6)
         self.batch_size = kwargs.get('batch_size', 12)
         
@@ -403,7 +365,7 @@ class HOTMEM(nn.Module):
         # Message passing iterations
         for layer_idx in range(self.num_layers):
             # 2-body interactions
-            node_pass = self.message_layers[layer_idx](node_features, edge_features, angular_features, global_features, edge_indices)
+            node_pass = self.message_layers[layer_idx](node_features, edge_features, angular_features, global_features, edge_indices, edge_vectors)
             
             # Update step
             node_features = self.update_layers[layer_idx](node_features, node_pass)
@@ -411,6 +373,9 @@ class HOTMEM(nn.Module):
         # Readout
         node_features = self.readout_mlp(node_features)
         node_features = node_features.squeeze()
+        
+        # Ensure node_features is contiguous
+        node_features = node_features.contiguous()
 
         # Aggregate atomic energies
         image_idx = torch.arange(num_atoms.shape[0], device=edge_indices.device)
@@ -418,6 +383,9 @@ class HOTMEM(nn.Module):
         
         energy = torch.zeros(num_atoms.shape[0], device=num_atoms.device, dtype=torch.float32)
         energy.index_add_(0, image_idx, node_features)
+        
+        # Ensure energy is contiguous
+        energy = energy.contiguous()
 
         atomic_energy = node_features
         data = replace_properties(data, atomic_energy=atomic_energy)
@@ -436,8 +404,9 @@ class HOTMEM(nn.Module):
         # Force computation
         if self.compute_forces:
             outputs_list = torch.jit.annotate(List[Tensor], [energy])
-            inputs_list = torch.jit.annotate(List[Tensor], [edge_vectors])
+            inputs_list = torch.jit.annotate(List[Tensor], [edge_vectors.contiguous()])
             grad_outputs_list = torch.jit.annotate(Optional[List[Optional[Tensor]]], [torch.ones_like(energy)])
+            
             dE_ddiff = torch.autograd.grad(
                 outputs=outputs_list,
                 inputs=inputs_list,
@@ -446,12 +415,18 @@ class HOTMEM(nn.Module):
                 create_graph=True,
             )[0]
             
+            # Ensure gradients are contiguous
+            dE_ddiff = dE_ddiff.contiguous()
+            
             # Initialize forces
             i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
             j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
             i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
             j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
             forces = i_forces + j_forces
+            
+            # Ensure forces are contiguous
+            forces = forces.contiguous()
             
             data = replace_properties(data, forces=forces)
 
