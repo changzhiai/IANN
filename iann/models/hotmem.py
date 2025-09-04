@@ -26,13 +26,11 @@ class Message(nn.Module):
             nn.Linear(self.num_channels, self.num_channels * 1),
         )
 
-        self.edge_linear = nn.Linear(self.edge_dim, self.num_channels * 1)
-        self.angular_linear = nn.Linear(self.sh_dim, self.num_channels * 1)
-        self.cutoff = 5.5
+        self.edge_linear = nn.Linear(self.edge_dim, self.num_channels)
+        self.angular_linear = nn.Linear(self.sh_dim, self.num_channels)
 
         
-    def forward(self, node_features, edge_features, angular_features, global_features, edge_indices, edge_vectors):
-
+    def forward(self, node_features, edge_features, angular_features, global_features, edge_indices):
         node_in = self.scalar_message_mlp(node_features[edge_indices[:, 1]]) 
 
         edge_mlp = self.edge_linear(edge_features)
@@ -42,16 +40,10 @@ class Message(nn.Module):
         global_in = global_features[edge_indices[:, 1]]
         node_pass = node_in * edge_in * global_in
 
-        # Ensure node_pass is contiguous for proper gradient flow
-        node_pass = node_pass.contiguous()
-
         residual_scalar = torch.zeros_like(node_features, device=edge_indices.device)
-        residual_scalar.index_add_(0, edge_indices[:, 0], node_pass)
+        residual_scalar.index_add_(0, edge_indices[:, 0], node_pass.contiguous())
 
-        # Ensure residual is contiguous
-        residual_scalar = residual_scalar.contiguous()
-
-        return residual_scalar
+        return residual_scalar.contiguous()
 
 class Update(nn.Module):
     """Enhanced update function with O3NN and spherical harmonics"""
@@ -209,7 +201,7 @@ class GlobalEmbedding(nn.Module):
         super().__init__()
         self.num_channels = num_channels
         self.batch_size = batch_size
-        self.global_embedding = nn.Linear(8, num_channels * 1)
+        self.global_embedding = nn.Linear(8, num_channels)
         
     def forward(self, data: AtomsData) -> AtomsData:
         global_attr = data.global_attr
@@ -365,7 +357,7 @@ class HOTMEM(nn.Module):
         # Message passing iterations
         for layer_idx in range(self.num_layers):
             # 2-body interactions
-            node_pass = self.message_layers[layer_idx](node_features, edge_features, angular_features, global_features, edge_indices, edge_vectors)
+            node_pass = self.message_layers[layer_idx](node_features, edge_features, angular_features, global_features, edge_indices)
             
             # Update step
             node_features = self.update_layers[layer_idx](node_features, node_pass)
