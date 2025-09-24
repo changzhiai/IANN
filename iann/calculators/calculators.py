@@ -60,9 +60,9 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
             **kwargs,
         )
-    elif model_type == "hotmem":
-        from iann.models.hotmem import HOTMEM
-        model = HOTMEM(
+    elif model_type == "fastpot":
+        from iann.models.fastpot import FastPot
+        model = FastPot(
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
@@ -70,7 +70,7 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             **kwargs,
         )
     else:
-        raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, equiformerV2, and hotmem!")
+        raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, equiformerV2, and fastpot!")
     
     model.load_state_dict(state_dict["model"])
     model.to(device)

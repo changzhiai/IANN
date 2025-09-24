@@ -7,8 +7,7 @@ from e3nn import o3
 import math
 import abc
 
-
-class Message(nn.Module):
+class Interaction(nn.Module):
     """Enhanced message function with O3NN features for 2-body interactions"""
     def __init__(self, embeddings: dict, num_channels: int):
         super().__init__()
@@ -17,10 +16,10 @@ class Message(nn.Module):
         self.node_dim = embeddings['node'].num_channels
         self.edge_dim = embeddings['edge'].num_channels
         self.sh_dim = embeddings['angular'].num_channels
-        self.global_dim = embeddings['global'].num_channels
+        # self.global_dim = embeddings['global'].num_channels
         self.num_channels = num_channels
 
-        self.scalar_message_mlp = nn.Sequential(
+        self.msg_mlp = nn.Sequential(
             nn.Linear(self.node_dim, self.num_channels),
             nn.SiLU(),
             nn.Linear(self.num_channels, self.num_channels * 1),
@@ -28,39 +27,48 @@ class Message(nn.Module):
 
         self.edge_linear = nn.Linear(self.edge_dim, self.num_channels * 1)
         self.angular_linear = nn.Linear(self.sh_dim, self.num_channels * 1)
-        self.cutoff = 5.5
 
-        
-    def forward(self, node_features, edge_features, angular_features, global_features, edge_indices, edge_vectors):
+        self.node_mlp = nn.Sequential(
+            nn.Linear(self.num_channels * 2, self.num_channels * 1),
+            nn.SiLU(), 
+            nn.Linear(self.num_channels * 1, self.num_channels * 3),
+        )
 
-        node_in = self.scalar_message_mlp(node_features[edge_indices[:, 1]]) 
+        self.linear_1 = nn.Linear(self.num_channels * 1, self.num_channels * 1)
+        self.linear_2 = nn.Linear(self.num_channels * 1, self.num_channels * 1)
 
+    def forward(self, node_features, edge_features, angular_features, edge_indices, edge_vectors, force_vector):
+        node_in = self.msg_mlp(node_features[edge_indices[:, 1]]) 
         edge_mlp = self.edge_linear(edge_features)
         angular_mlp = self.angular_linear(angular_features)
-        edge_in = angular_mlp * edge_mlp 
-
-        global_in = global_features[edge_indices[:, 1]]
-        node_pass = node_in * edge_in * global_in
-
-        # Ensure node_pass is contiguous for proper gradient flow
-        node_pass = node_pass.contiguous()
-
-        residual_scalar = torch.zeros_like(node_features, device=edge_indices.device)
-        residual_scalar.index_add_(0, edge_indices[:, 0], node_pass)
-
-        # Ensure residual is contiguous
-        residual_scalar = residual_scalar.contiguous()
-
-        return residual_scalar
-
-class Update(nn.Module):
-    """Enhanced update function with O3NN and spherical harmonics"""
-    def __init__(self, num_channels: int):
-        super().__init__()
+        edge_in = angular_mlp * edge_mlp
         
-    def forward(self, node_features, node_pass):
+        edge_pass = node_in * edge_in
 
-        return node_features.contiguous() + node_pass.contiguous()
+        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
+        edge_norm = (edge_vectors / edge_dist.unsqueeze(-1)).unsqueeze(-1)
+        edge_pass = edge_pass.unsqueeze(1) * edge_norm
+
+        edge_msg = torch.zeros_like(force_vector, device=edge_indices.device)
+        edge_msg.index_add_(0, edge_indices[:, 0], edge_pass.contiguous())
+        edge_msg += force_vector
+        
+        edge_msg_1 = self.linear_1(edge_msg)
+        edge_msg_2 = self.linear_2(edge_msg)
+        edge_msg_norm1 = torch.linalg.norm(edge_msg_1, dim=1)
+        edge_msg_norm2 = torch.linalg.norm(edge_msg_2, dim=1)
+        edge_msg_prod = edge_msg_norm1 * edge_msg_norm2
+
+        node_msg = torch.cat((edge_msg_norm1, node_features), dim=1)
+        node_msg = self.node_mlp(node_msg)
+        node_msg1, node_msg2, node_msg3 = torch.split(node_msg, self.num_channels, dim=1)
+        residual_node = node_msg1 * edge_msg_prod + node_msg2
+        residual_edge = node_msg3.unsqueeze(1) * edge_msg_2 + force_vector
+
+        node_features = node_features + residual_node
+        force_vector = force_vector + residual_edge
+
+        return node_features.contiguous(), force_vector.contiguous()
     
 class RadialBasis(torch.nn.Module, metaclass=abc.ABCMeta):
     @abc.abstractmethod
@@ -69,8 +77,8 @@ class RadialBasis(torch.nn.Module, metaclass=abc.ABCMeta):
 
 class BesselBasis(RadialBasis):
     def __init__(self, cutoff: float, num_basis: int=8, trainable: bool=True):
-        r"""Radial Bessel Basis, as proposed in DimeNet: https://arxiv.org/abs/2003.03123
-
+        r"""
+        Radial Bessel Basis, as proposed in DimeNet: https://arxiv.org/abs/2003.03123
 
         Parameters
         ----------
@@ -221,14 +229,12 @@ class GlobalEmbedding(nn.Module):
         return data
 
 
-class HOTMEM(nn.Module):
+class FastPot(nn.Module):
     """
-    HOTMEM: High-Order Tensor Multi-body Equivariant Message passing neural network.
+    FastPot: Fast Potential (High-Order Tensor Equivariant Message Passing Neural Network).
     
-    HOTPOT
-    
-    An enhanced neural network model that combines the power of PaiNN with O3NN features
-    and multi-body interactions beyond traditional 2-body approaches.
+    A high-performance neural network model that combines the power of high-order tensor features
+    and equivariant message passing for fast and accurate potential energy surface prediction.
     """
     def __init__(
         self, 
@@ -263,7 +269,6 @@ class HOTMEM(nn.Module):
             - cutoff: Interaction cutoff distance (default: 5.5)
             - edge_embedding_size: Size of edge embeddings (default: 20)
             - lmax: Maximum spherical harmonic degree (default: 2)
-            - use_multi_body: Enable multi-body interactions (default: True)
             - compute_forces: Compute forces during inference (default: False)
         """
         super().__init__()
@@ -271,12 +276,13 @@ class HOTMEM(nn.Module):
         self.cutoff = kwargs.get('cutoff', 5.5)
         self.num_layers = num_layers
         self.num_channels = num_channels
-        self.lmax = kwargs.get('lmax', 5)
+        self.lmax = kwargs.get('lmax', 7)
         self.use_multi_body = kwargs.get('use_multi_body', False)
         self.species = kwargs.get('species', None)
         self.num_basis: int = kwargs.get('num_basis', num_channels)
         self.power: int = kwargs.get('power', 6)
         self.batch_size = kwargs.get('batch_size', 12)
+        self.forces_scale = kwargs.get('forces_scale', 1.0)
         
 
         self.embeddings = nn.ModuleDict()
@@ -290,19 +296,12 @@ class HOTMEM(nn.Module):
         self.edge_sh_irreps = o3.Irreps.spherical_harmonics(self.lmax, p=-1)
         self.embeddings['angular'] = AngularEmbedding(self.edge_sh_irreps)
         # global embedding
-        self.embeddings['global'] = GlobalEmbedding(self.batch_size, self.num_channels)
+        # self.embeddings['global'] = GlobalEmbedding(self.batch_size, self.num_channels)
 
         # Setup message-passing layers
-        self.message_layers = nn.ModuleList([
-            Message(self.embeddings, self.num_channels)
-            for _ in range(self.num_layers)
-        ])
-        
-        self.update_layers = nn.ModuleList([
-            Update(self.num_channels)
-            for _ in range(self.num_layers)
-        ]            
-        )
+        self.interaction_layers = nn.ModuleList([
+            Interaction(self.embeddings, self.num_channels) for _ in range(self.num_layers)
+        ])     
         
         # Setup readout function
         self.readout_mlp = nn.Sequential(
@@ -310,6 +309,14 @@ class HOTMEM(nn.Module):
             nn.SiLU(),
             nn.Linear(self.num_channels, 1),
         )
+
+        # self.force_mlp = nn.Sequential(
+        #     nn.Linear(self.num_channels, self.num_channels),
+        #     nn.SiLU(),
+        #     nn.Linear(self.num_channels, self.num_channels // 2),
+        #     nn.SiLU(),
+        #     nn.Linear(self.num_channels // 2, 1),
+        # )
 
         # Normalisation constants
         self.norm_data = torch.nn.Parameter(
@@ -360,16 +367,14 @@ class HOTMEM(nn.Module):
         node_features = data.node_attr  # One-hot atomic features
         edge_features = data.edge_dist_embedding  # Radial basis features
         angular_features = data.edge_diff_embedding  # Spherical harmonics features
-        global_features = data.global_embedding  # Global features
+        # global_features = data.global_embedding  # Global features
+        
+        force_vector = torch.zeros((positions.shape[0], 3, self.num_channels), device=positions.device, dtype=torch.float32)
         
         # Message passing iterations
         for layer_idx in range(self.num_layers):
-            # 2-body interactions
-            node_pass = self.message_layers[layer_idx](node_features, edge_features, angular_features, global_features, edge_indices, edge_vectors)
-            
-            # Update step
-            node_features = self.update_layers[layer_idx](node_features, node_pass)
-
+            node_features, force_vector = self.interaction_layers[layer_idx](node_features, edge_features, angular_features, edge_indices, edge_vectors, force_vector)
+        
         # Readout
         node_features = self.readout_mlp(node_features)
         node_features = node_features.squeeze()
@@ -401,6 +406,11 @@ class HOTMEM(nn.Module):
 
         data = replace_properties(data, energy=energy)
         
+        # if self.compute_forces:
+        #     forces = self.force_mlp(force_vector)
+        #     forces = forces.squeeze() * self.forces_scale
+        #     data = replace_properties(data, forces=forces)
+
         # Force computation
         if self.compute_forces:
             outputs_list = torch.jit.annotate(List[Tensor], [energy])

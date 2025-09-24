@@ -80,7 +80,7 @@ def get_arguments(arg_list=None):
     parser.add_argument(
         "--model_type",
         type=str,
-        choices=["painn", "nequip", "mace", "equiformer2", "hotmem"],
+        choices=["painn", "nequip", "mace", "equiformer2", "fastpot"],
         help="Type of model to use"
     )
     parser.add_argument(
@@ -197,7 +197,7 @@ class Trainer:
         
         # Set model type
         self.model_type = model.lower()
-        if self.model_type not in ["painn", "nequip", "mace", "equiformerv2", "hotmem"]:
+        if self.model_type not in ["painn", "nequip", "mace", "equiformerv2", "fastpot"]:
             raise ValueError(f"Unknown model type: {self.model_type}")
         
         # Auto-detect SLURM to avoid spawning when SLURM is already managing processes
@@ -490,12 +490,12 @@ class Trainer:
                 norm_per_atom=self.config["norm_per_atom"],
                 **model_params
             )
-        elif self.model_type == "hotmem":
+        elif self.model_type == "fastpot":
             try:
-                from iann.models.hotmem import HOTMEM
+                from iann.models.fastpot import FastPot
             except ImportError:
-                raise ImportError("HOTMEM is not available")
-            model = HOTMEM(
+                raise ImportError("FastPot is not available")
+            model = FastPot(
                 num_layers=self.config["num_layers"],
                 num_channels=self.config["num_channels"],
                 norm_data=self.config["norm_data"],
