@@ -42,6 +42,7 @@
 IANN (InterAtomic Neural Network) is an equivariant interatomic neural network potential framework package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [FastPot](https://github.com/changzhiai/IANN), [PaiNN](https://arxiv.org/abs/2102.03150), [Nequip](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), and [EquiformerV2](https://arxiv.org/abs/2306.12059), focusing on predicting energies and forces with high accuracy. 
 
 Key features:
+- Easy to use and to switch models
 - Multiple equivariant interatomic neural network models implementation
 - High-accuracy energy and force predictions
 - Distributed training on multiple GPUs and multiple server nodes
