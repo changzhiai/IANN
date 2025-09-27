@@ -24,12 +24,18 @@ def _load_fastpot():
     from .fastpot import FastPot
     return FastPot
 
+def _load_demo():
+    """Lazy load Demo model"""
+    from .demo import Demo
+    return Demo
+
 __all__ = [
     "MACE",
     "PaiNN", 
     "NequIP",
     "EquiformerV2",
     "FastPot",
+    "Demo",
     "get_model_class",
 ]
 
@@ -40,6 +46,7 @@ MODEL_REGISTRY = {
     "nequip": _load_nequip,
     "equiformerV2": _load_equiformerV2,
     "fastpot": _load_fastpot,
+    "demo": _load_demo,
 }
 
 # Convenience function for direct access (lazy loaded)
@@ -64,5 +71,7 @@ def __getattr__(name):
         return _load_equiformerV2()
     elif name == "FastPot":
         return _load_fastpot()
+    elif name == "Demo":
+        return _load_demo()
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
