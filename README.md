@@ -1,10 +1,48 @@
-# IANN: InterAtomic Neural Network
+# IANN (InterAtomic Neural Network Framework)
+
+
+- [1. Introductions](#1-introductions)
+  - [Documentation](#documentation)
+- [2. Installation](#2-installation)
+  - [Prerequisites](#prerequisites)
+  - [Installing IANN](#installing-iann)
+  - [GPU Support](#gpu-support)
+- [3. Quickstart: Examples](#3-quickstart-examples)
+- [4. Training](#4-training)
+  - [Preparing your dataset](#preparing-your-dataset)
+  - [Training](#training)
+  - [Monitoring Training Progress](#monitoring-training-progress)
+- [5. Predicting](#5-predicting)
+  - [Making Predictions with ASE calculator](#making-predictions-with-ase-calculator)
+- [6. Parallelization](#6-parallelization)
+  - [Multi-GPU Training](#multi-gpu-training)
+  - [Multi-CPU Training](#multi-cpu-training)
+  - [Example on NERSC](#example-on-nersc)
+  - [Performance Considerations](#performance-considerations)
+- [7. LAMMPS Interface](#7-lammps-interface)
+  - [Use an IANN model with LAMMPS](#use-an-iann-model-with-lammps)
+    - [1. Convert a trained model to the torchscript format](#1-convert-a-trained-model-to-the-torchscript-format)
+    - [2. Use the exported model in LAMMPS](#2-use-the-exported-model-in-lammps)
+  - [Use an ensemble IANN model with LAMMPS](#use-an-ensemble-iann-model-with-lammps)
+    - [1. Convert trained models to a ensemble model](#1-convert-trained-models-to-a-ensemble-model)
+    - [2. Use the exported ensemble model in LAMMPS](#2-use-the-exported-ensemble-model-in-lammps)
+- [8. Modules](#8-modules)
+  - [iann.data](#ianndata)
+  - [iann.models](#iannmodels)
+  - [iann.calculators](#ianncalculators)
+  - [iann.plugins](#iannplugins)
+- [Troubleshooting](#troubleshooting)
+- [Issues](#issues)
+- [Maintainer](#maintainer)
+- [References](#references)
+
 
 ## 1. Introductions
 
-IANN (InterAtomic Neural Network) is an equivariant interatomic neural network potential package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [PaiNN](https://arxiv.org/abs/2102.03150), [Nequip](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), and [EquiformerV2](https://arxiv.org/abs/2306.12059), focusing on predicting energies and forces with high accuracy. 
+IANN (InterAtomic Neural Network) is an equivariant interatomic neural network potential framework package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [FastPot](https://github.com/changzhiai/IANN), [PaiNN](https://arxiv.org/abs/2102.03150), [Nequip](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), and [EquiformerV2](https://arxiv.org/abs/2306.12059), focusing on predicting energies and forces with high accuracy. 
 
 Key features:
+- Easy to use and to switch models
 - Multiple equivariant interatomic neural network models implementation
 - High-accuracy energy and force predictions
 - Distributed training on multiple GPUs and multiple server nodes
@@ -85,6 +123,7 @@ trainer.train("dataset.traj")
 
 Available models for `model`:
 ```
+- fastpot
 - painn
 - nequip
 - mace
@@ -409,6 +448,7 @@ Data handling utilities:
   
 ### iann.models
 Contains neural network model implementations:
+- `FastPot`: FastPot model implementation for energy and force prediction
 - `PaiNN`: PaiNN model implementation for energy and force prediction
 - `Nequip`: Nequip model implementation for energy and force prediction
 - `MACE`: MACE model implementation for energy and force prediction

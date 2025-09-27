@@ -8,12 +8,39 @@ Overview
 
 IANN provides several state-of-the-art foundation models for interatomic potentials. All of them are graph-based equivariant neural networks:
 
+- `FastPot <https://github.com/changzhiai/IANN/blob/master/iann/models/fastpot.py>`_ (Fast Potential with high-order tensor features and equivariant message passing)
 - `PaiNN <https://arxiv.org/abs/2102.03150>`_ (Polarizable atom interaction Neural Network)
 - `NequIP <https://doi.org/10.1038/s41467-022-29939-5>`_ (Neural equivariant Interatomic Potentials)
 - `MACE <https://arxiv.org/abs/2206.07697>`_ (Message-passing Atomic Cluster Expansion)
 - `EquiformerV2 <https://arxiv.org/abs/2306.12059>`_ (Equivariant Transformer V2)
 
 Each model has its own strengths and is suitable for different applications.
+
+FastPot
+-------
+
+FastPot is a high-performance neural network model that combines the power of high-order tensor features and equivariant message passing for fast and accurate potential energy surface prediction.
+
+Key features:
+
+* Very high computational efficiency
+* Good balance of accuracy and speed
+* Suitable for general-purpose applications
+
+Example usage:
+
+.. code-block:: python
+
+   from iann.models.fastpot import FastPot
+   
+   model = FastPot(
+       num_layers=3,
+       num_channels=128,
+       cutoff=5.5,
+       compute_forces=True
+   )
+
+There are more adjustable parameters for FastPot model to setup the training process, please check the source code :class:`iann.models.fastpot.FastPot` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
 
 PaiNN
 -----
@@ -142,18 +169,18 @@ When choosing a model, consider:
 
 1. **Accuracy Requirements**
 
-   * MACE and EquiformerV2 for highest accuracy
-   * PaiNN and MACE for balanced performance
+   * NequIP, MACE and EquiformerV2 for highest accuracy
+   * FastPot, PaiNN for balanced performance
 
 2. **Computational Resources**
 
-   * PaiNN for fastest training/inference
-   * EquiformerV2 for most complex systems
+   * FastPot and PaiNN for fast training/inference
+   * NequIP, MACE and EquiformerV2 for most complex systems
 
 3. **System Size**
 
-   * PaiNN and MACE for large systems
-   * NequIP for smaller, high-precision systems
+   * FastPot, PaiNN for super large systems
+   * NequIP, MACE for large systems
    * EquiformerV2 is not the best choice for small systems
 
 .. note::

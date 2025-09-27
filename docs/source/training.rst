@@ -37,6 +37,7 @@ Here is an simple example ``train.py`` of how to run training:
 
 Available models for ``model``:
 
+* fastpot
 * painn
 * nequip
 * mace
