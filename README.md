@@ -1,5 +1,10 @@
 # IANN (InterAtomic Neural Network Framework)
 
+[![Docs](https://img.shields.io/badge/Docs-available-blue)](https://iann.readthedocs.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/MIT)
+[![Python](https://img.shields.io/badge/Python-3.7%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) 
+[![C++](https://img.shields.io/badge/C++-11-00599C?logo=cplusplus&logoColor=white)](https://isocpp.org/) 
+
 
 - [1. Introductions](#1-introductions)
   - [Documentation](#documentation)
