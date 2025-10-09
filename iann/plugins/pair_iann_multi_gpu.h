@@ -78,7 +78,6 @@ class PairIANNMultiGPU : public Pair {
   
   // Multi-GPU management
   int num_gpus;                    // Number of available GPUs
-  int current_gpu_id;              // Current GPU ID for this rank
   std::vector<torch::Device> devices;  // Available GPU devices
   std::vector<std::shared_ptr<torch::jit::Module>> models;  // Models on each GPU
   std::vector<std::thread> worker_threads;  // Worker threads for each GPU

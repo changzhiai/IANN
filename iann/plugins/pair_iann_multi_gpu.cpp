@@ -124,8 +124,7 @@ int get_atomic_number_global(double mass) {
 PairIANNMultiGPU::PairIANNMultiGPU(LAMMPS *lmp) : Pair(lmp),
   use_gpu(false),  // Initialize to false by default
   use_multi_gpu(false),  // Initialize to false by default
-  num_gpus(0),
-  current_gpu_id(-1)  // Initialize to -1 (no GPU)
+  num_gpus(0)
 {
   restartinfo = 0;
   manybody_flag = 1;
@@ -302,31 +301,28 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
   // Build edges based on neighborlist
   build_edges(list->inum, list->ilist, list->numneigh, list->firstneigh);
 
-  // Use compact subgraph - only atoms that appear in edges
-  int compact_size = compact_atoms.size();
-  torch::Tensor num_atoms_tensor = torch::tensor({compact_size}, torch::kInt64);
+  // Use nall directly (no compact mapping needed)
+  torch::Tensor num_atoms_tensor = torch::tensor({nall}, torch::kInt64);
 
-  // Convert atom types to atomic numbers for compact subgraph
+  // Convert atom types to atomic numbers for all atoms
   std::vector<int> type_to_Z(atom->ntypes + 1); 
   for (int itype = 1; itype <= atom->ntypes; ++itype) {
       double mass = atom->mass[itype];
       type_to_Z[itype] = get_atomic_number_global(mass);
   }
-  std::vector<int64_t> atomic_numbers(compact_size);
-  for (int i = 0; i < compact_size; ++i) {
-      int atom_idx = compact_atoms[i];
-      atomic_numbers[i] = type_to_Z[atom->type[atom_idx]];
+  std::vector<int64_t> atomic_numbers(nall);
+  for (int i = 0; i < nall; ++i) {
+      atomic_numbers[i] = type_to_Z[atom->type[i]];
   }
-  torch::Tensor atomic_numbers_tensor = torch::from_blob(atomic_numbers.data(), {compact_size}, torch::TensorOptions().dtype(torch::kInt64)).clone();
+  torch::Tensor atomic_numbers_tensor = torch::from_blob(atomic_numbers.data(), {nall}, torch::TensorOptions().dtype(torch::kInt64)).clone();
 
-  // Convert atom positions to tensor for compact subgraph
-  torch::Tensor positions_tensor = torch::zeros({compact_size, 3}, torch::kFloat32);
+  // Convert atom positions to tensor for all atoms
+  torch::Tensor positions_tensor = torch::zeros({nall, 3}, torch::kFloat32);
   auto coord_acc = positions_tensor.accessor<float, 2>();
-  for (int i = 0; i < compact_size; i++) {
-      int atom_idx = compact_atoms[i];
-      coord_acc[i][0] = static_cast<float>(x[atom_idx][0]);
-      coord_acc[i][1] = static_cast<float>(x[atom_idx][1]);
-      coord_acc[i][2] = static_cast<float>(x[atom_idx][2]);
+  for (int i = 0; i < nall; i++) {
+      coord_acc[i][0] = static_cast<float>(x[i][0]);
+      coord_acc[i][1] = static_cast<float>(x[i][1]);
+      coord_acc[i][2] = static_cast<float>(x[i][2]);
   }
 
   // Convert box to tensor (3,3)
@@ -351,7 +347,6 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
 
   // Move tensors to GPU if available
   if (use_gpu) {
-    current_gpu_id = 0;  // Set current GPU ID for single GPU mode
     num_atoms_tensor = num_atoms_tensor.to(devices[0]);
     atomic_numbers_tensor = atomic_numbers_tensor.to(devices[0]);
     positions_tensor = positions_tensor.to(devices[0]);
@@ -363,27 +358,24 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
 
   // Run inference
   try {
-    // Set PyTorch seed for consistent RNG behavior - match original exactly
-    if (comm->me == 0 && debug) {
+    if (torch::cuda::is_available() && use_gpu) {
+      torch::cuda::manual_seed_all(666);
+    } else {
       torch::manual_seed(666);
-      if (torch::cuda::is_available() && use_gpu) {
-        torch::cuda::manual_seed_all(666);
-      }
-      std::cout << "[PAIR_IANN_MULTI_GPU] Seed set to 666" << std::endl;
     }
     
     models[0]->eval();
     
-    // Use same tuple format as original pair_iann.cpp
-    auto output = models[0]->forward({
-        num_atoms_tensor.to(torch::kInt64),
-        atomic_numbers_tensor.to(torch::kInt64),
-        positions_tensor.to(torch::kFloat32),
-        cell_tensor.to(torch::kFloat32),
-        edge_indices_tensor.to(torch::kInt64),
-        edge_vectors_tensor.to(torch::kFloat32),
-        num_edges_tensor.to(torch::kInt64)
-    }).toGenericDict();
+    std::vector<torch::jit::IValue> inputs;
+    inputs.push_back(num_atoms_tensor.to(torch::kInt64));
+    inputs.push_back(atomic_numbers_tensor.to(torch::kInt64));
+    inputs.push_back(positions_tensor.to(torch::kFloat32));
+    inputs.push_back(cell_tensor.to(torch::kFloat32));
+    inputs.push_back(edge_indices_tensor.to(torch::kInt64));
+    inputs.push_back(edge_vectors_tensor.to(torch::kFloat32));
+    inputs.push_back(num_edges_tensor.to(torch::kInt64));
+    
+    auto output = models[0]->forward(inputs).toGenericDict();
     
     // Extract energy and forces
     torch::Tensor energy_tensor = output.at("energy").toTensor();
@@ -406,50 +398,44 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
       }
     }
     
-    // Handle forces tensor - expect compact_size atoms, scatter back to original indices
+    // Handle forces tensor - expect nall atoms, only write forces for local atoms
     auto forces_accessor = forces_tensor.accessor<float, 2>();
-    if (forces_tensor.size(0) == compact_size) {
-      // Scatter forces back to original atom indices, only for local atoms
-      for (int i = 0; i < compact_size; i++) {
-        int atom_idx = compact_atoms[i];
-        if (atom_idx < nlocal) {  // Only write forces for local atoms
-          f[atom_idx][0] = forces_accessor[i][0];
-          f[atom_idx][1] = forces_accessor[i][1];
-          f[atom_idx][2] = forces_accessor[i][2];
-        }
+    if (forces_tensor.size(0) == nall) {
+      // Only write forces for local atoms
+      for (int i = 0; i < nlocal; i++) {
+        f[i][0] = forces_accessor[i][0];
+        f[i][1] = forces_accessor[i][1];
+        f[i][2] = forces_accessor[i][2];
       }
     } else {
       std::ostringstream msg;
       msg << "[PAIR_IANN_MULTI_GPU] Model returned forces of shape [" << forces_tensor.size(0)
-          << ", " << forces_tensor.size(1) << "], expected " << compact_size;
+          << ", " << forces_tensor.size(1) << "], expected " << nall;
       error->all(FLERR, msg.str());
     }
     
     // Set energy in LAMMPS if requested
     if (eflag_global) {
-      if (debug) {
-        std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " GPU " << current_gpu_id << " - Energy tensor dim: " << energy_tensor.dim() 
+      if (debug && comm->me == 0) {
+        std::cout << "[PAIR_IANN_MULTI_GPU] Energy tensor dim: " << energy_tensor.dim() 
                   << ", size: [" << energy_tensor.size(0) << "], nlocal: " << nlocal 
                   << ", nall: " << nall << ", has_atomic_energy: " << has_atomic_energy << std::endl;
       }
       
       if (has_atomic_energy) {
-        // Use atomic_energy if available - sum only local atoms from compact subgraph
+        // Use atomic_energy if available - sum only local atoms
         eng_vdwl = 0.0;
-        for (int i = 0; i < compact_size; i++) {
-          int atom_idx = compact_atoms[i];
-          if (atom_idx < nlocal) {  // Only sum energy for local atoms
-            eng_vdwl += atomic_energy_tensor[i].item<double>();
-          }
+        for (int i = 0; i < nlocal; i++) {
+          eng_vdwl += atomic_energy_tensor[i].item<float>();
         }
-        if (debug) {
-          std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " GPU " << current_gpu_id << " - Atomic energy sum (nlocal): " << eng_vdwl << std::endl;
+        if (debug && comm->me == 0) {
+          std::cout << "[PAIR_IANN_MULTI_GPU] Atomic energy sum (nlocal): " << eng_vdwl << std::endl;
         }
       } else {
         // Model returned scalar energy - use directly
-        eng_vdwl = energy_tensor.item<double>();
-        if (debug) {
-          std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " GPU " << current_gpu_id << " - Scalar energy: " << eng_vdwl << std::endl;
+        eng_vdwl = energy_tensor.item<float>();
+        if (debug && comm->me == 0) {
+          std::cout << "[PAIR_IANN_MULTI_GPU] Scalar energy: " << eng_vdwl << std::endl;
         }
       }
     }
@@ -497,9 +483,8 @@ void PairIANNMultiGPU::settings(int narg, char **arg)
   for (int i = iarg; i < narg; i++) {
     if (strcmp(arg[i], "debug") == 0) {
       debug = true;
-      if (comm->me == 0) {
-        std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " GPU " << current_gpu_id << " - Debug mode enabled" << std::endl;
-      }
+      if (comm->me == 0)
+        error->message(FLERR, "[PAIR_IANN_MULTI_GPU] Debug mode enabled");
     }
   }
   
@@ -516,7 +501,7 @@ void PairIANNMultiGPU::settings(int narg, char **arg)
         models[gpu_id]->to(devices[gpu_id]);
         
         if (comm->me == 0) {
-          std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " GPU " << gpu_id << " - Model loaded successfully" << std::endl;
+          error->message(FLERR, ("[PAIR_IANN_MULTI_GPU] Model loaded on GPU " + std::to_string(gpu_id)).c_str());
         }
       }
     } else {
@@ -595,23 +580,7 @@ void PairIANNMultiGPU::build_edges(int inum, int *ilist, int *numneigh, int **fi
 
   double cutoff_sq = cutoff * cutoff;
   
-  // Include all atoms (nall) to consider all possible interactions
-  std::set<int> unique_atoms;
-  for (int i = 0; i < nall; i++) {
-    unique_atoms.insert(i);
-  }
-  
-  // Create compact mapping: old_index -> compact_index
-  compact_map.clear();
-  compact_atoms.clear();
-  int compact_idx = 0;
-  for (int atom_idx : unique_atoms) {
-    compact_map[atom_idx] = compact_idx;
-    compact_atoms.push_back(atom_idx);
-    compact_idx++;
-  }
-  
-  // Build edges for all atoms (nall) - consider all possible interactions
+  // Build edges directly using nall indices (no compact mapping needed)
   for (int i = 0; i < nall; i++) {
     for (int jj = 0; jj < numneigh[i]; jj++) {
       int j = firstneigh[i][jj] & NEIGHMASK;
@@ -625,13 +594,8 @@ void PairIANNMultiGPU::build_edges(int inum, int *ilist, int *numneigh, int **fi
       if (rsq > cutoff_sq) continue;
       
       // Include all edges (both local-local and local-ghost)
-      auto it_i = compact_map.find(i);
-      auto it_j = compact_map.find(j);
-      
-      if (it_i != compact_map.end() && it_j != compact_map.end()) {
-        edge_indices.push_back({it_i->second, it_j->second});
-        edge_vectors.push_back({static_cast<float>(dx), static_cast<float>(dy), static_cast<float>(dz)});
-      }
+      edge_indices.push_back({static_cast<int64_t>(i), static_cast<int64_t>(j)});
+      edge_vectors.push_back({static_cast<float>(dx), static_cast<float>(dy), static_cast<float>(dz)});
     }
   }
 
