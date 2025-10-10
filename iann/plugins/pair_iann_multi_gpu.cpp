@@ -48,6 +48,7 @@ domain->minimum_image(std::string(__FILE__), __LINE__, dx, dy, dz);
 #ifdef __CUDACC__
 #include <cuda_runtime.h>
 #endif
+
 #include <c10/cuda/CUDAGuard.h>
 
 #include "atom.h"

@@ -405,7 +405,7 @@ Key Components:
 Usage of LAMMPS with IANN models on multiple GPUs
 ------------------------------------------------
 
-Multiple GPUs prediction (inference) are supported by using the ``pair_style iann/multi_gpu`` command. It will automatically detect the number of GPUs per node and use them to run the model. Here is an ``in.lmp`` example of how to use it:
+Multiple GPUs prediction (inference) is supported by using the ``pair_style iann/multi_gpu`` command. It will automatically detect the number of GPUs per node and use them to run the model. Here is an ``in.lmp`` example of how to use it:
 
 .. code-block:: lammps
 
