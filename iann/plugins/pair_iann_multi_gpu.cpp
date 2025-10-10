@@ -4,6 +4,9 @@
    Uses LibTorch C++ API to interface with trained models across multiple GPUs
    Handles neighbor list construction, energy/force calculations
 
+Usage:
+  pair_style iann/multi_gpu painn model.pt 5.5
+
 Due to LAMMPS version, the code is slightly different from the original one.
 If you have the following errors:
 
@@ -124,7 +127,7 @@ int get_atomic_number_global(double mass) {
 PairIANNMultiGPU::PairIANNMultiGPU(LAMMPS *lmp) : Pair(lmp),
   use_gpu(false),  // Initialize to false by default
   use_multi_gpu(false),  // Initialize to false by default
-  num_gpus(0)
+  local_gpus(0)
 {
   restartinfo = 0;
   manybody_flag = 1;
@@ -138,25 +141,10 @@ PairIANNMultiGPU::PairIANNMultiGPU(LAMMPS *lmp) : Pair(lmp),
   comm_forward = 1;  // We need to communicate forces
   comm_reverse = 1;  // We need to gather positions
 
-  // Initialize ensemble statistics variables
-  energy_variance = 0.0;
-  force_variance = 0.0;
-  max_energy_variance = 0.0;
-  max_force_variance = 0.0;
-
-  // Initialize global properties
-  n_global_properties = 4;  // We have 4 variance values to track
-  global_properties = new double[n_global_properties];
-  for (int i = 0; i < n_global_properties; i++) {
-    global_properties[i] = 0.0;
-  }
-  
   // Initialize promises for multi-GPU communication
-  energy_promises.resize(8);  // Support up to 8 GPUs
-  forces_promises.resize(8);
-  energy_var_promises.resize(8);
-  forces_var_promises.resize(8);
-  atomic_energy_var_promises.resize(8);
+  // Will be resized to actual number of GPUs after GPU detection
+  energy_promises.resize(1);  // Start with 1, will resize later
+  forces_promises.resize(1);
 
   // Check CUDA environment and detect available GPUs
   const char* cuda_path = getenv("CUDA_HOME");
@@ -182,51 +170,56 @@ PairIANNMultiGPU::PairIANNMultiGPU(LAMMPS *lmp) : Pair(lmp),
   // Try to initialize CUDA and detect available GPUs
   try {
     if (torch::cuda::is_available()) {
-      num_gpus = torch::cuda::device_count();
-      if (comm->me == 0) {
-        error->message(FLERR, ("[PAIR_IANN_MULTI_GPU] Found " + std::to_string(num_gpus) + " GPU(s)").c_str());
-      }
+      this->local_gpus = torch::cuda::device_count();
+      int local_gpus = this->local_gpus;  // Local reference for convenience, number of GPUs per node
+
+      int global_gpus = comm->nprocs;
       
-      // Initialize device list
-      for (int i = 0; i < num_gpus; i++) {
-        devices.push_back(torch::Device(torch::kCUDA, i));
-      }
+      // Each rank uses only one GPU (rank-based assignment)
+      int assigned_gpu_id = comm->me % local_gpus;  // Assign GPU based on rank
+
+      // All ranks report their GPU assignment
+      int node_id = comm->me / local_gpus;  // Calculate node ID based on GPUs per node
+      std::cout << "[PAIR_IANN_MULTI_GPU] Running on GPU " << assigned_gpu_id << " of Node " << node_id << ". Total number of GPUs is " << global_gpus << std::endl;
       
-      // Test each GPU with a small test case
-      for (int gpu_id = 0; gpu_id < num_gpus; gpu_id++) {
-        try {
-          torch::Device test_device(torch::kCUDA, gpu_id);
-          int ntest = 20;
-          torch::Tensor test_positions = torch::zeros({ntest, 3}, torch::kFloat32);
-          
-          // Try to move tensors to specific GPU
-          test_positions = test_positions.to(test_device);
-          
-          // Perform a simple operation on GPU
-          test_positions = test_positions + 1.0;
-          
-          // Move back to CPU and verify
-          test_positions = test_positions.cpu();
-          if (test_positions[0][0].item<float>() == 1.0) {
-            if (comm->me == 0) {
-              error->message(FLERR, ("[PAIR_IANN_MULTI_GPU] GPU " + std::to_string(gpu_id) + " available").c_str());
-            }
-          }
-        } catch (const c10::Error& e) {
-          if (comm->me == 0) {
-            std::string msg = "[PAIR_IANN_MULTI_GPU] GPU " + std::to_string(gpu_id) + " test failed: ";
-            msg += e.what();
-            error->warning(FLERR, msg.c_str());
-          }
+      // Initialize device list for this rank's assigned GPU only
+      devices.push_back(torch::Device(torch::kCUDA, assigned_gpu_id));
+      
+      // Test the assigned GPU
+      try {
+        torch::Device test_device(torch::kCUDA, assigned_gpu_id);
+        int ntest = 20;
+        torch::Tensor test_positions = torch::zeros({ntest, 3}, torch::kFloat32);
+        
+        // Try to move tensors to specific GPU
+        test_positions = test_positions.to(test_device);
+        
+        // Perform a simple operation on GPU
+        test_positions = test_positions + 1.0;
+        
+        // Move back to CPU and verify
+        test_positions = test_positions.cpu();
+        if (test_positions[0][0].item<float>() == 1.0) {
+          std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " successfully assigned to GPU " << assigned_gpu_id << " of Node " << node_id << std::endl;
         }
+      } catch (const c10::Error& e) {
+        std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " failed to assign to GPU " << assigned_gpu_id << " of Node " << node_id << " - test failed: " << e.what() << std::endl;
       }
       
-      if (num_gpus > 0) {
+      // GPU mode
+      if (local_gpus > 0) {
         use_gpu = true;
-        // Always use single GPU mode for simplicity - works for both single and multiple GPU setups
-        use_multi_gpu = false;
+        use_multi_gpu = (local_gpus > 1);
+        
+        // Resize promises to actual number of GPUs per node
+        energy_promises.resize(local_gpus);
+        forces_promises.resize(local_gpus);
         if (comm->me == 0) {
-          error->message(FLERR, "[PAIR_IANN_MULTI_GPU] GPU mode enabled");
+          if (use_multi_gpu) {
+            error->message(FLERR, "[PAIR_IANN_MULTI_GPU] Multi-GPU mode enabled ");
+          } else {
+            error->message(FLERR, "[PAIR_IANN_MULTI_GPU] Single GPU mode enabled");
+          }
         }
       } else {
         use_gpu = false;
@@ -239,7 +232,7 @@ PairIANNMultiGPU::PairIANNMultiGPU(LAMMPS *lmp) : Pair(lmp),
   } catch (const c10::Error& e) {
     use_gpu = false;
     use_multi_gpu = false;
-    num_gpus = 0;
+    this->local_gpus = 0;
     if (comm->me == 0) {
       std::string msg = "[PAIR_IANN_MULTI_GPU] GPU test failed: ";
       msg += e.what();
@@ -269,19 +262,6 @@ PairIANNMultiGPU::~PairIANNMultiGPU()
   if (model_type) delete[] model_type;
   if (model_path) delete[] model_path;
   
-  // Clean up global properties
-  delete[] global_properties;
-  
-  // Clean up GPU resources
-  if (use_multi_gpu) {
-    // Wait for all worker threads to finish
-    for (auto& thread : worker_threads) {
-      if (thread.joinable()) {
-        thread.join();
-      }
-    }
-  }
-  
   // LibTorch cleanup is automatic via shared_ptr
 }
 
@@ -298,13 +278,13 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
   int nall = nlocal + atom->nghost;
   int natoms_global = atom->natoms;  // Total number of atoms in the system
 
-  // Build edges based on neighborlist
+  // Build edges based on neighborlist, got num_edges_tensor, edge_indices_tensor and edge_vectors_tensor
   build_edges(list->inum, list->ilist, list->numneigh, list->firstneigh);
 
-  // Use nall directly (no compact mapping needed)
-  torch::Tensor num_atoms_tensor = torch::tensor({nall}, torch::kInt64);
+  // Use all atoms for num_atoms_tensor
+  num_atoms_tensor = torch::tensor({nall}, torch::kInt64);
 
-  // Convert atom types to atomic numbers for all atoms
+  // Convert atom types to atomic_numbers_tensor
   std::vector<int> type_to_Z(atom->ntypes + 1); 
   for (int itype = 1; itype <= atom->ntypes; ++itype) {
       double mass = atom->mass[itype];
@@ -314,10 +294,10 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
   for (int i = 0; i < nall; ++i) {
       atomic_numbers[i] = type_to_Z[atom->type[i]];
   }
-  torch::Tensor atomic_numbers_tensor = torch::from_blob(atomic_numbers.data(), {nall}, torch::TensorOptions().dtype(torch::kInt64)).clone();
+  atomic_numbers_tensor = torch::from_blob(atomic_numbers.data(), {nall}, torch::TensorOptions().dtype(torch::kInt64)).clone();
 
-  // Convert atom positions to tensor for all atoms
-  torch::Tensor positions_tensor = torch::zeros({nall, 3}, torch::kFloat32);
+  // Convert atom positions to positions_tensor
+  positions_tensor = torch::zeros({nall, 3}, torch::kFloat32);
   auto coord_acc = positions_tensor.accessor<float, 2>();
   for (int i = 0; i < nall; i++) {
       coord_acc[i][0] = static_cast<float>(x[i][0]);
@@ -325,16 +305,14 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
       coord_acc[i][2] = static_cast<float>(x[i][2]);
   }
 
-  // Convert box to tensor (3,3)
-  torch::Tensor cell_tensor = torch::zeros({3,3}, torch::kFloat32);
+  // Convert box to cell_tensor (3,3)
+  cell_tensor = torch::zeros({3,3}, torch::kFloat32);
   auto cell_acc = cell_tensor.accessor<float,2>();
-  
   double *boxlo = domain->boxlo;
   double *boxhi = domain->boxhi;
   double xy = domain->xy;
   double xz = domain->xz;
   double yz = domain->yz;
-  
   cell_acc[0][0] = static_cast<float>(boxhi[0] - boxlo[0]);
   cell_acc[0][1] = 0.0f;
   cell_acc[0][2] = 0.0f;
@@ -345,97 +323,128 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
   cell_acc[2][1] = static_cast<float>(yz);
   cell_acc[2][2] = static_cast<float>(boxhi[2] - boxlo[2]);
 
-  // Move tensors to GPU if available
-  if (use_gpu) {
-    num_atoms_tensor = num_atoms_tensor.to(devices[0]);
-    atomic_numbers_tensor = atomic_numbers_tensor.to(devices[0]);
-    positions_tensor = positions_tensor.to(devices[0]);
-    cell_tensor = cell_tensor.to(devices[0]);
-    edge_indices_tensor = edge_indices_tensor.to(devices[0]);
-    edge_vectors_tensor = edge_vectors_tensor.to(devices[0]);
-    num_edges_tensor = num_edges_tensor.to(devices[0]);
+  if (torch::cuda::is_available() && use_gpu) {
+    torch::cuda::manual_seed_all(666);
+  } else {
+    torch::manual_seed(666);
   }
 
   // Run inference
   try {
-    if (torch::cuda::is_available() && use_gpu) {
-      torch::cuda::manual_seed_all(666);
-    } else {
-      torch::manual_seed(666);
-    }
-    
-    models[0]->eval();
-    
-    std::vector<torch::jit::IValue> inputs;
-    inputs.push_back(num_atoms_tensor.to(torch::kInt64));
-    inputs.push_back(atomic_numbers_tensor.to(torch::kInt64));
-    inputs.push_back(positions_tensor.to(torch::kFloat32));
-    inputs.push_back(cell_tensor.to(torch::kFloat32));
-    inputs.push_back(edge_indices_tensor.to(torch::kInt64));
-    inputs.push_back(edge_vectors_tensor.to(torch::kFloat32));
-    inputs.push_back(num_edges_tensor.to(torch::kInt64));
-    
-    auto output = models[0]->forward(inputs).toGenericDict();
-    
-    // Extract energy and forces
-    torch::Tensor energy_tensor = output.at("energy").toTensor();
-    torch::Tensor forces_tensor = output.at("forces").toTensor();
-    
-    // Try to get atomic energies if available
-    torch::Tensor atomic_energy_tensor;
-    bool has_atomic_energy = false;
-    if (output.contains("atomic_energy")) {
-      atomic_energy_tensor = output.at("atomic_energy").toTensor();
-      has_atomic_energy = true;
-    }
-    
-    // Move tensors back to CPU if using GPU
-    if (use_gpu) {
-      energy_tensor = energy_tensor.to(torch::kCPU);
-      forces_tensor = forces_tensor.to(torch::kCPU);
-      if (has_atomic_energy) {
-        atomic_energy_tensor = atomic_energy_tensor.to(torch::kCPU);
-      }
-    }
-    
-    // Handle forces tensor - expect nall atoms, only write forces for local atoms
-    auto forces_accessor = forces_tensor.accessor<float, 2>();
-    if (forces_tensor.size(0) == nall) {
-      // Only write forces for local atoms
-      for (int i = 0; i < nlocal; i++) {
-        f[i][0] = forces_accessor[i][0];
-        f[i][1] = forces_accessor[i][1];
-        f[i][2] = forces_accessor[i][2];
-      }
-    } else {
-      std::ostringstream msg;
-      msg << "[PAIR_IANN_MULTI_GPU] Model returned forces of shape [" << forces_tensor.size(0)
-          << ", " << forces_tensor.size(1) << "], expected " << nall;
-      error->all(FLERR, msg.str());
-    }
-    
-    // Set energy in LAMMPS if requested
-    if (eflag_global) {
-      if (debug && comm->me == 0) {
-        std::cout << "[PAIR_IANN_MULTI_GPU] Energy tensor dim: " << energy_tensor.dim() 
-                  << ", size: [" << energy_tensor.size(0) << "], nlocal: " << nlocal 
-                  << ", nall: " << nall << ", has_atomic_energy: " << has_atomic_energy << std::endl;
+      if (use_multi_gpu && local_gpus > 1) {
+        // Multi-GPU inference - each rank uses its assigned GPU
+      if (debug) {
+        std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " Using multi-GPU inference with " << local_gpus << " GPUs per node" << std::endl;
       }
       
-      if (has_atomic_energy) {
-        // Use atomic_energy if available - sum only local atoms
-        eng_vdwl = 0.0;
-        for (int i = 0; i < nlocal; i++) {
-          eng_vdwl += atomic_energy_tensor[i].item<float>();
+      // Each rank runs inference on its assigned GPU
+      int assigned_gpu_id = comm->me % local_gpus;
+      int node_id = comm->me / local_gpus;
+      
+      // Reset promises for this iteration
+      energy_promises[0] = std::promise<torch::Tensor>();
+      forces_promises[0] = std::promise<torch::Tensor>();
+      
+      // Run inference on assigned GPU
+      run_inference_on_gpu(assigned_gpu_id, node_id, 0, 0, 0);
+      
+      // Collect results from this rank's GPU
+      collect_results_from_gpus();
+      
+    } else {
+      // Single GPU inference
+      if (debug && comm->me == 0) {
+        std::cout << "[PAIR_IANN_MULTI_GPU] Using single GPU inference" << std::endl;
+      }
+      
+      // Move tensors to GPU before forward pass
+      if (use_gpu) {
+        num_atoms_tensor = num_atoms_tensor.to(devices[0]);
+        atomic_numbers_tensor = atomic_numbers_tensor.to(devices[0]);
+        positions_tensor = positions_tensor.to(devices[0]);
+        cell_tensor = cell_tensor.to(devices[0]);
+        edge_indices_tensor = edge_indices_tensor.to(devices[0]);
+        edge_vectors_tensor = edge_vectors_tensor.to(devices[0]);
+        num_edges_tensor = num_edges_tensor.to(devices[0]);
+      }
+
+      models[0]->eval();
+      
+      std::vector<torch::jit::IValue> inputs;
+      inputs.push_back(num_atoms_tensor.to(torch::kInt64));
+      inputs.push_back(atomic_numbers_tensor.to(torch::kInt64));
+      inputs.push_back(positions_tensor.to(torch::kFloat32));
+      inputs.push_back(cell_tensor.to(torch::kFloat32));
+      inputs.push_back(edge_indices_tensor.to(torch::kInt64));
+      inputs.push_back(edge_vectors_tensor.to(torch::kFloat32));
+      inputs.push_back(num_edges_tensor.to(torch::kInt64));
+      
+      if (debug) {
+        std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " About to call model forward..." << std::endl;
+      }
+      
+      auto output = models[0]->forward(inputs).toGenericDict();
+      
+      // Extract energy and forces
+      torch::Tensor energy_tensor = output.at("energy").toTensor();
+      torch::Tensor forces_tensor = output.at("forces").toTensor();
+      
+      // Try to get atomic energies if available
+      torch::Tensor atomic_energy_tensor;
+      bool has_atomic_energy = false;
+      if (output.contains("atomic_energy")) {
+        atomic_energy_tensor = output.at("atomic_energy").toTensor();
+        has_atomic_energy = true;
+      }
+      
+      // Move tensors back to CPU if using GPU
+      if (use_gpu) {
+        energy_tensor = energy_tensor.to(torch::kCPU);
+        forces_tensor = forces_tensor.to(torch::kCPU);
+        if (has_atomic_energy) {
+          atomic_energy_tensor = atomic_energy_tensor.to(torch::kCPU);
         }
-        if (debug && comm->me == 0) {
-          std::cout << "[PAIR_IANN_MULTI_GPU] Atomic energy sum (nlocal): " << eng_vdwl << std::endl;
+      }
+      
+      // Handle forces tensor - expect nall atoms, only write forces for local atoms
+      auto forces_accessor = forces_tensor.accessor<float, 2>();
+      if (forces_tensor.size(0) == nall) {
+        // Only write forces for local atoms
+        for (int i = 0; i < nlocal; i++) {
+          f[i][0] = forces_accessor[i][0];
+          f[i][1] = forces_accessor[i][1];
+          f[i][2] = forces_accessor[i][2];
         }
       } else {
-        // Model returned scalar energy - use directly
-        eng_vdwl = energy_tensor.item<float>();
+        std::ostringstream msg;
+        msg << "[PAIR_IANN_MULTI_GPU] Model returned forces of shape [" << forces_tensor.size(0)
+            << ", " << forces_tensor.size(1) << "], expected " << nall;
+        error->all(FLERR, msg.str());
+      }
+      
+      // Set energy in LAMMPS if requested
+      if (eflag_global) {
         if (debug && comm->me == 0) {
-          std::cout << "[PAIR_IANN_MULTI_GPU] Scalar energy: " << eng_vdwl << std::endl;
+          std::cout << "[PAIR_IANN_MULTI_GPU] Energy tensor dim: " << energy_tensor.dim() 
+                    << ", size: [" << energy_tensor.size(0) << "], nlocal: " << nlocal 
+                    << ", nall: " << nall << ", has_atomic_energy: " << has_atomic_energy << std::endl;
+        }
+        
+        if (has_atomic_energy) {
+          // Use atomic_energy if available - sum only local atoms
+          eng_vdwl = 0.0;
+          for (int i = 0; i < nlocal; i++) {
+            eng_vdwl += atomic_energy_tensor[i].item<float>();
+          }
+          if (debug && comm->me == 0) {
+            std::cout << "[PAIR_IANN_MULTI_GPU] Atomic energy sum (nlocal): " << eng_vdwl << std::endl;
+          }
+        } else {
+          // Model returned scalar energy - use directly
+          eng_vdwl = energy_tensor.item<float>();
+          if (debug && comm->me == 0) {
+            std::cout << "[PAIR_IANN_MULTI_GPU] Scalar energy: " << eng_vdwl << std::endl;
+          }
         }
       }
     }
@@ -490,19 +499,25 @@ void PairIANNMultiGPU::settings(int narg, char **arg)
   
   // Load the model on all available GPUs
   try {
-    if (use_gpu && num_gpus > 0) {
-      models.resize(num_gpus);
-      for (int gpu_id = 0; gpu_id < num_gpus; gpu_id++) {
-        // Load model on CPU first
-        models[gpu_id] = std::make_shared<torch::jit::Module>(torch::jit::load(model_path));
-        models[gpu_id]->eval();
-        
-        // Move model to specific GPU
-        models[gpu_id]->to(devices[gpu_id]);
-        
-        if (comm->me == 0) {
-          error->message(FLERR, ("[PAIR_IANN_MULTI_GPU] Model loaded on GPU " + std::to_string(gpu_id)).c_str());
-        }
+    if (debug) {
+      std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " Model loading check: use_gpu=" << use_gpu << ", local_gpus=" << local_gpus << std::endl;
+    }
+
+    if (use_gpu && local_gpus > 0) {
+      // Each rank loads model on its assigned GPU only
+      models.resize(1);  // Only one model per rank
+      int assigned_gpu_id = comm->me % local_gpus;  // Get assigned GPU ID
+      int node_id = comm->me / local_gpus;  // Calculate node ID
+      
+      // Load model on CPU first
+      models[0] = std::make_shared<torch::jit::Module>(torch::jit::load(model_path));
+      models[0]->eval();
+      
+      // Move model to assigned GPU
+      models[0]->to(devices[0]);
+      
+      if (debug) {
+        std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " Model loaded on GPU " << assigned_gpu_id << " of Node " << node_id << std::endl;
       }
     } else {
       // CPU mode - load single model
@@ -580,7 +595,7 @@ void PairIANNMultiGPU::build_edges(int inum, int *ilist, int *numneigh, int **fi
 
   double cutoff_sq = cutoff * cutoff;
   
-  // Build edges directly using nall indices (no compact mapping needed)
+  // Build edges directly using nall indices
   for (int i = 0; i < nall; i++) {
     for (int jj = 0; jj < numneigh[i]; jj++) {
       int j = firstneigh[i][jj] & NEIGHMASK;
@@ -618,229 +633,75 @@ void PairIANNMultiGPU::build_edges(int inum, int *ilist, int *numneigh, int **fi
   }
 
   // Scalar tensor for number of edges
-  num_edges_tensor = torch::tensor((int64_t)num_edges, torch::kInt64);
+  num_edges_tensor = torch::tensor({(int64_t)num_edges}, torch::kInt64);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void PairIANNMultiGPU::distribute_atoms_to_gpus()
-{
-  int nlocal = atom->nlocal;
-  
-  // Initialize atom groups for each GPU
-  atom_groups.resize(num_gpus);
-  for (int i = 0; i < num_gpus; i++) {
-    atom_groups[i].clear();
-  }
-  
-  // Simple round-robin distribution
-  for (int i = 0; i < nlocal; i++) {
-    int gpu_id = i % num_gpus;
-    atom_groups[gpu_id].push_back(i);
-  }
-  
-}
-
-/* ---------------------------------------------------------------------- */
-
-void PairIANNMultiGPU::distribute_edges_to_gpus()
-{
-  int num_edges = edge_indices_tensor.size(0);
-  
-  // Initialize edge groups for each GPU
-  edge_groups.resize(num_gpus);
-  for (int i = 0; i < num_gpus; i++) {
-    edge_groups[i].clear();
-  }
-  
-  // Distribute edges based on which atoms they connect
-  auto edge_indices_accessor = edge_indices_tensor.accessor<int64_t, 2>();
-  for (int edge_id = 0; edge_id < num_edges; edge_id++) {
-    int atom_i = edge_indices_accessor[edge_id][0];
-    int atom_j = edge_indices_accessor[edge_id][1];
-    
-    // Find which GPU has atom_i
-    int gpu_id = -1;
-    for (int gid = 0; gid < num_gpus; gid++) {
-      if (std::find(atom_groups[gid].begin(), atom_groups[gid].end(), atom_i) != atom_groups[gid].end()) {
-        gpu_id = gid;
-        break;
-      }
-    }
-    
-    if (gpu_id >= 0) {
-      edge_groups[gpu_id].push_back(edge_id);
-    }
-  }
-  
-}
-
-/* ---------------------------------------------------------------------- */
-
-void PairIANNMultiGPU::run_inference_on_gpu(int gpu_id, int atom_start, int atom_end, int edge_start, int edge_end)
+void PairIANNMultiGPU::run_inference_on_gpu(int assigned_gpu_id, int node_id, int atom_start, int edge_start, int edge_end)
 {
   try {
+
+    
     // Set the current CUDA device for this thread
     if (use_gpu && torch::cuda::is_available()) {
       // Set CUDA device using runtime API
-#ifdef __CUDACC__
-      cudaSetDevice(gpu_id);
-#endif
-    } else if (gpu_id != 0) {
-      // Fallback: if no GPU available, only allow gpu_id = 0
-      if (comm->me == 0) {
-        error->warning(FLERR, "[PAIR_IANN_MULTI_GPU] CUDA not available, falling back to CPU for GPU > 0");
-      }
-      return;
-    }
+      #ifdef __CUDACC__
+            cudaSetDevice(assigned_gpu_id);
+      #endif
+    } 
     
     int nlocal = atom->nlocal;
+    int nall = nlocal + atom->nghost;
     double **x = atom->x;
     int *type = atom->type;
     
-    // Get atoms assigned to this GPU
-    const auto& gpu_atoms = atom_groups[gpu_id];
-    int num_atoms_gpu = gpu_atoms.size();
-    
-    if (num_atoms_gpu == 0) {
-      // No atoms assigned to this GPU, return zero results
-      energy_promises[gpu_id].set_value(torch::tensor({0.0}, torch::kFloat32));
-      forces_promises[gpu_id].set_value(torch::zeros({nlocal, 3}, torch::kFloat32));
-      return;
+    // Each rank processes its own atoms
+    if (debug) {
+      std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " processing " << nall << " atoms (nlocal=" << atom->nlocal 
+                << ", nghost=" << atom->nghost << ") on GPU " << assigned_gpu_id << " of Node " << node_id << std::endl;
     }
     
-    // Convert atom types to atomic numbers for this GPU's atoms
-    std::vector<int> type_to_Z(atom->ntypes + 1); 
-    for (int itype = 1; itype <= atom->ntypes; ++itype) {
-        double mass = atom->mass[itype];
-        type_to_Z[itype] = get_atomic_number_global(mass);
-    }
+    // Use the global tensors created in compute() - no duplication needed
+    torch::Tensor atomic_numbers_tensor = this->atomic_numbers_tensor;
+    torch::Tensor positions_tensor = this->positions_tensor;
+    torch::Tensor cell_tensor = this->cell_tensor;
+
+    // Use the global edge tensors directly (no mapping needed with nall approach)
+    torch::Tensor num_atoms_tensor = this->num_atoms_tensor;
+    torch::Tensor num_edges_tensor = torch::tensor({(int64_t)this->edge_indices_tensor.size(0)}, torch::kInt64);
     
-    std::vector<int64_t> atomic_numbers_gpu(num_atoms_gpu);
-    for (int i = 0; i < num_atoms_gpu; i++) {
-        int atom_idx = gpu_atoms[i];
-        atomic_numbers_gpu[i] = type_to_Z[atom->type[atom_idx]];
-    }
-    torch::Tensor atomic_numbers_tensor = torch::from_blob(atomic_numbers_gpu.data(), {num_atoms_gpu}, torch::TensorOptions().dtype(torch::kInt64)).clone();
-
-    // Convert atom positions to tensor for this GPU's atoms
-    torch::Tensor positions_tensor = torch::zeros({num_atoms_gpu, 3}, torch::kFloat32);
-    auto coord_acc = positions_tensor.accessor<float, 2>();
-    for (int i = 0; i < num_atoms_gpu; i++) {
-        int atom_idx = gpu_atoms[i];
-        coord_acc[i][0] = static_cast<float>(x[atom_idx][0]);
-        coord_acc[i][1] = static_cast<float>(x[atom_idx][1]);
-        coord_acc[i][2] = static_cast<float>(x[atom_idx][2]);
-    }
-
-    // Convert box to tensor (3,3) - same for all GPUs
-    torch::Tensor cell_tensor = torch::zeros({3,3}, torch::kFloat32);
-    auto cell_acc = cell_tensor.accessor<float,2>();
-    
-    double *boxlo = domain->boxlo;
-    double *boxhi = domain->boxhi;
-    double xy = domain->xy;
-    double xz = domain->xz;
-    double yz = domain->yz;
-    
-    cell_acc[0][0] = static_cast<float>(boxhi[0] - boxlo[0]);
-    cell_acc[0][1] = 0.0f;
-    cell_acc[0][2] = 0.0f;
-    cell_acc[1][0] = static_cast<float>(xy);
-    cell_acc[1][1] = static_cast<float>(boxhi[1] - boxlo[1]);
-    cell_acc[1][2] = 0.0f;
-    cell_acc[2][0] = static_cast<float>(xz);
-    cell_acc[2][1] = static_cast<float>(yz);
-    cell_acc[2][2] = static_cast<float>(boxhi[2] - boxlo[2]);
-
-    // Get edges assigned to this GPU and remap to local atom indices
-    const auto& gpu_edges = edge_groups[gpu_id];
-
-    // Build map from global atom index -> local per-GPU index
-    std::unordered_map<int, int> global_to_local;
-    global_to_local.reserve(num_atoms_gpu * 2);
-    for (int i = 0; i < num_atoms_gpu; i++) {
-      global_to_local[gpu_atoms[i]] = i;
-    }
-
-    // Access global edge tensors (constructed in build_edges)
-    auto global_edge_idx = this->edge_indices_tensor.accessor<int64_t, 2>();
-    auto global_edge_vec = this->edge_vectors_tensor.accessor<float, 2>();
-
-    // Collect only edges whose endpoints both reside on this GPU, with remapped indices
-    std::vector<std::array<int64_t, 2>> local_edges;
-    std::vector<std::array<float, 3>> local_edge_vecs;
-    local_edges.reserve(gpu_edges.size());
-    local_edge_vecs.reserve(gpu_edges.size());
-
-    for (int i = 0; i < (int)gpu_edges.size(); i++) {
-      int edge_idx = gpu_edges[i];
-      int gi = static_cast<int>(global_edge_idx[edge_idx][0]);
-      int gj = static_cast<int>(global_edge_idx[edge_idx][1]);
-
-      auto it_i = global_to_local.find(gi);
-      auto it_j = global_to_local.find(gj);
-      if (it_i == global_to_local.end() || it_j == global_to_local.end()) {
-        // Skip cross-GPU edges for this local forward
-        continue;
-      }
-
-      local_edges.push_back({(int64_t)it_i->second, (int64_t)it_j->second});
-      local_edge_vecs.push_back({
-        global_edge_vec[edge_idx][0],
-        global_edge_vec[edge_idx][1],
-        global_edge_vec[edge_idx][2]
-      });
-    }
-
-    int num_edges_gpu = static_cast<int>(local_edges.size());
-
-    // Create per-GPU edge tensors
-    torch::Tensor edge_indices_tensor = torch::empty({num_edges_gpu, 2}, torch::kInt64);
-    torch::Tensor edge_vectors_tensor = torch::empty({num_edges_gpu, 3}, torch::kFloat32);
-
-    if (num_edges_gpu > 0) {
-      auto edge_indices_accessor = edge_indices_tensor.accessor<int64_t, 2>();
-      auto edge_vectors_accessor = edge_vectors_tensor.accessor<float, 2>();
-      for (int k = 0; k < num_edges_gpu; k++) {
-        edge_indices_accessor[k][0] = local_edges[k][0];
-        edge_indices_accessor[k][1] = local_edges[k][1];
-        edge_vectors_accessor[k][0] = local_edge_vecs[k][0];
-        edge_vectors_accessor[k][1] = local_edge_vecs[k][1];
-        edge_vectors_accessor[k][2] = local_edge_vecs[k][2];
-      }
-    }
-
-    torch::Tensor num_edges_tensor = torch::tensor((int64_t)num_edges_gpu, torch::kInt64);
-    torch::Tensor num_atoms_tensor = torch::tensor((int64_t)num_atoms_gpu, torch::kInt64);
+    // Use global edge tensors directly
+    torch::Tensor edge_indices_tensor = this->edge_indices_tensor;
+    torch::Tensor edge_vectors_tensor = this->edge_vectors_tensor;
 
     // Validate edge indices before moving to GPU
-    if (num_edges_gpu > 0) {
+    if (edge_indices_tensor.size(0) > 0) {
       auto edge_flat = edge_indices_tensor.reshape({-1});
       auto max_idx = edge_flat.max().item<int64_t>();
       auto min_idx = edge_flat.min().item<int64_t>();
       
-      if (min_idx < 0 || max_idx >= num_atoms_gpu) {
+      if (min_idx < 0 || max_idx >= nall) {
         // Return zero results for this GPU
-        energy_promises[gpu_id].set_value(torch::tensor({0.0}, torch::kFloat32));
-        forces_promises[gpu_id].set_value(torch::zeros({nlocal, 3}, torch::kFloat32));
+        energy_promises[0].set_value(torch::tensor({0.0}, torch::kFloat32));
+        forces_promises[0].set_value(torch::zeros({nlocal, 3}, torch::kFloat32));
         return;
       }
     }
 
-    // Move tensors to this GPU
-    atomic_numbers_tensor = atomic_numbers_tensor.to(devices[gpu_id]);
-    positions_tensor = positions_tensor.to(devices[gpu_id]);
-    cell_tensor = cell_tensor.to(devices[gpu_id]);
-    edge_indices_tensor = edge_indices_tensor.to(devices[gpu_id]);
-    edge_vectors_tensor = edge_vectors_tensor.to(devices[gpu_id]);
-    num_edges_tensor = num_edges_tensor.to(devices[gpu_id]);
-    num_atoms_tensor = num_atoms_tensor.to(devices[gpu_id]);
+    // Move tensors to this rank's assigned GPU (devices[0] contains the assigned GPU)
+    atomic_numbers_tensor = atomic_numbers_tensor.to(devices[0]);
+    positions_tensor = positions_tensor.to(devices[0]);
+    cell_tensor = cell_tensor.to(devices[0]);
+    edge_indices_tensor = edge_indices_tensor.to(devices[0]);
+    edge_vectors_tensor = edge_vectors_tensor.to(devices[0]);
+    num_edges_tensor = num_edges_tensor.to(devices[0]);
+    num_atoms_tensor = num_atoms_tensor.to(devices[0]);
     
     // Run inference
-    models[gpu_id]->eval();
+    models[0]->eval();
     
-    auto output = models[gpu_id]->forward({
+    auto output = models[0]->forward({
         num_atoms_tensor.to(torch::kInt64),
         atomic_numbers_tensor.to(torch::kInt64),
         positions_tensor.to(torch::kFloat32),
@@ -859,61 +720,40 @@ void PairIANNMultiGPU::run_inference_on_gpu(int gpu_id, int atom_start, int atom
     auto full_forces_accessor = full_forces.accessor<float, 2>();
     auto forces_accessor = forces.accessor<float, 2>();
     
-    for (int i = 0; i < num_atoms_gpu; i++) {
-      int atom_idx = gpu_atoms[i];
-      full_forces_accessor[atom_idx][0] = forces_accessor[i][0];
-      full_forces_accessor[atom_idx][1] = forces_accessor[i][1];
-      full_forces_accessor[atom_idx][2] = forces_accessor[i][2];
+    // Only write forces for local atoms (0 to nlocal-1)
+    for (int i = 0; i < nlocal; i++) {
+      full_forces_accessor[i][0] = forces_accessor[i][0];
+      full_forces_accessor[i][1] = forces_accessor[i][1];
+      full_forces_accessor[i][2] = forces_accessor[i][2];
+    }
+    
+    // Calculate energy as sum of local atoms only
+    double local_energy = 0.0;
+    if (output.contains("atomic_energy")) {
+      auto atomic_energy = output.at("atomic_energy").toTensor().cpu();
+      auto atomic_energy_accessor = atomic_energy.accessor<float, 1>();
+      for (int i = 0; i < nlocal; i++) {
+        local_energy += atomic_energy_accessor[i];
+      }
+    } else {
+      // Use scalar energy if atomic energy not available
+      local_energy = energy.item<double>();
     }
     
     // Set promises
-    energy_promises[gpu_id].set_value(energy);
-    forces_promises[gpu_id].set_value(full_forces);
-    
-    // Handle variances if they exist
-    if (output.find("energy_variance") != output.end()) {
-      auto energy_var = output.at("energy_variance").toTensor().cpu();
-      energy_var_promises[gpu_id].set_value(energy_var);
-    }
-    
-    if (output.find("forces_variance") != output.end()) {
-      auto forces_var = output.at("forces_variance").toTensor().cpu();
-      torch::Tensor full_forces_var = torch::zeros({nlocal, 3}, torch::kFloat32);
-      auto full_forces_var_accessor = full_forces_var.accessor<float, 2>();
-      auto forces_var_accessor = forces_var.accessor<float, 2>();
-      
-      for (int i = 0; i < num_atoms_gpu; i++) {
-        int atom_idx = gpu_atoms[i];
-        full_forces_var_accessor[atom_idx][0] = forces_var_accessor[i][0];
-        full_forces_var_accessor[atom_idx][1] = forces_var_accessor[i][1];
-        full_forces_var_accessor[atom_idx][2] = forces_var_accessor[i][2];
-      }
-      forces_var_promises[gpu_id].set_value(full_forces_var);
-    }
-    
-    if (output.find("atomic_energy_variance") != output.end()) {
-      auto atomic_energy_var = output.at("atomic_energy_variance").toTensor().cpu();
-      torch::Tensor full_atomic_energy_var = torch::zeros({nlocal}, torch::kFloat32);
-      auto full_atomic_energy_var_accessor = full_atomic_energy_var.accessor<float, 1>();
-      auto atomic_energy_var_accessor = atomic_energy_var.accessor<float, 1>();
-      
-      for (int i = 0; i < num_atoms_gpu; i++) {
-        int atom_idx = gpu_atoms[i];
-        full_atomic_energy_var_accessor[atom_idx] = atomic_energy_var_accessor[i];
-      }
-      atomic_energy_var_promises[gpu_id].set_value(full_atomic_energy_var);
-    }
+    energy_promises[0].set_value(torch::tensor({local_energy}, torch::kFloat32));
+    forces_promises[0].set_value(full_forces);
     
   } catch (const c10::Error& e) {
     if (comm->me == 0) {
-      std::string msg = "[PAIR_IANN_MULTI_GPU] Error on GPU " + std::to_string(gpu_id) + ": ";
+      std::string msg = "[PAIR_IANN_MULTI_GPU] Error on rank " + std::to_string(comm->me) + " (GPU " + std::to_string(assigned_gpu_id) + "): ";
       msg += e.what();
       error->warning(FLERR, msg.c_str());
     }
     
     // Set zero results on error
-    energy_promises[gpu_id].set_value(torch::tensor({0.0}, torch::kFloat32));
-    forces_promises[gpu_id].set_value(torch::zeros({atom->nlocal, 3}, torch::kFloat32));
+    energy_promises[0].set_value(torch::tensor({0.0}, torch::kFloat32));
+    forces_promises[0].set_value(torch::zeros({atom->nlocal, 3}, torch::kFloat32));
   }
 }
 
@@ -925,129 +765,33 @@ void PairIANNMultiGPU::collect_results_from_gpus()
   double **f = atom->f;
   
   try {
-    // Collect energy results from all GPUs
-    double total_energy = 0.0;
-    for (int gpu_id = 0; gpu_id < num_gpus; gpu_id++) {
-      auto energy_future = energy_promises[gpu_id].get_future();
-      auto energy = energy_future.get();
-      total_energy += energy.item<double>();
-    }
+    // Each rank collects results from its single assigned GPU
+    auto energy_future = energy_promises[0].get_future();
+    auto energy = energy_future.get();
+    double total_energy = energy.item<double>();
     
-    // Collect forces results from all GPUs
-    torch::Tensor total_forces = torch::zeros({nlocal, 3}, torch::kFloat32);
-    auto total_forces_accessor = total_forces.accessor<float, 2>();
-    
-    for (int gpu_id = 0; gpu_id < num_gpus; gpu_id++) {
-      auto forces_future = forces_promises[gpu_id].get_future();
-      auto forces = forces_future.get();
-      auto forces_accessor = forces.accessor<float, 2>();
-      
-      for (int i = 0; i < nlocal; i++) {
-        total_forces_accessor[i][0] += forces_accessor[i][0];
-        total_forces_accessor[i][1] += forces_accessor[i][1];
-        total_forces_accessor[i][2] += forces_accessor[i][2];
-      }
-    }
+    // Collect forces results from this rank's GPU
+    auto forces_future = forces_promises[0].get_future();
+    auto forces = forces_future.get();
+    auto forces_accessor = forces.accessor<float, 2>();
     
     // Copy forces to LAMMPS force array
     for (int i = 0; i < nlocal; i++) {
-      f[i][0] = total_forces_accessor[i][0];
-      f[i][1] = total_forces_accessor[i][1];
-      f[i][2] = total_forces_accessor[i][2];
+      f[i][0] = forces_accessor[i][0];
+      f[i][1] = forces_accessor[i][1];
+      f[i][2] = forces_accessor[i][2];
     }
     
-    // Set energy in LAMMPS if requested
-    if (eflag_global) {
-      eng_vdwl = total_energy;
-    }
+    // Set energy in LAMMPS
+    eng_vdwl = total_energy;
     
-    // Handle ensemble statistics if available
-    bool has_variances = false;
-    double total_energy_variance = 0.0;
-    torch::Tensor total_forces_variance = torch::zeros({nlocal, 3}, torch::kFloat32);
-    torch::Tensor total_atomic_energy_variance = torch::zeros({nlocal}, torch::kFloat32);
-    
-    // Check if any GPU has variance information
-    for (int gpu_id = 0; gpu_id < num_gpus; gpu_id++) {
-      try {
-        auto energy_var_future = energy_var_promises[gpu_id].get_future();
-        auto energy_var = energy_var_future.get();
-        total_energy_variance += energy_var.item<double>();
-        has_variances = true;
-      } catch (...) {
-        // No variance data from this GPU
-      }
-    }
-    
-    if (has_variances) {
-      // Collect forces variance
-      auto total_forces_var_accessor = total_forces_variance.accessor<float, 2>();
-      for (int gpu_id = 0; gpu_id < num_gpus; gpu_id++) {
-        try {
-          auto forces_var_future = forces_var_promises[gpu_id].get_future();
-          auto forces_var = forces_var_future.get();
-          auto forces_var_accessor = forces_var.accessor<float, 2>();
-          
-          for (int i = 0; i < nlocal; i++) {
-            total_forces_var_accessor[i][0] += forces_var_accessor[i][0];
-            total_forces_var_accessor[i][1] += forces_var_accessor[i][1];
-            total_forces_var_accessor[i][2] += forces_var_accessor[i][2];
-          }
-        } catch (...) {
-          // No forces variance data from this GPU
-        }
-      }
-      
-      // Collect atomic energy variance
-      auto total_atomic_energy_var_accessor = total_atomic_energy_variance.accessor<float, 1>();
-      for (int gpu_id = 0; gpu_id < num_gpus; gpu_id++) {
-        try {
-          auto atomic_energy_var_future = atomic_energy_var_promises[gpu_id].get_future();
-          auto atomic_energy_var = atomic_energy_var_future.get();
-          auto atomic_energy_var_accessor = atomic_energy_var.accessor<float, 1>();
-          
-          for (int i = 0; i < nlocal; i++) {
-            total_atomic_energy_var_accessor[i] += atomic_energy_var_accessor[i];
-          }
-        } catch (...) {
-          // No atomic energy variance data from this GPU
-        }
-      }
-      
-      // Calculate ensemble statistics
-      energy_variance = total_energy_variance;
-      
-      // Calculate variance of force magnitudes
-      auto force_norms = torch::norm(total_forces, 2, 1);
-      force_variance = torch::var(force_norms, 0).item<double>();
-      
-      max_energy_variance = total_atomic_energy_variance.max().item<double>();
-      
-      // Calculate maximum force variance
-      max_force_variance = 0.0;
-      for (int i = 0; i < nlocal; i++) {
-        double atom_max_var = std::max({total_forces_var_accessor[i][0], 
-                                      total_forces_var_accessor[i][1], 
-                                      total_forces_var_accessor[i][2]});
-        max_force_variance = std::max(max_force_variance, atom_max_var);
-      }
-      
-      // Update global properties for thermo output
-      global_properties[0] = energy_variance;
-      global_properties[1] = force_variance;
-      global_properties[2] = max_energy_variance;
-      global_properties[3] = max_force_variance;
-      
+    if (debug) {
+      std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " Results collection completed" << " eng_vdwl: " << eng_vdwl << std::endl;
     }
     
     // Reset promises for next iteration
-    for (int gpu_id = 0; gpu_id < num_gpus; gpu_id++) {
-      energy_promises[gpu_id] = std::promise<torch::Tensor>();
-      forces_promises[gpu_id] = std::promise<torch::Tensor>();
-      energy_var_promises[gpu_id] = std::promise<torch::Tensor>();
-      forces_var_promises[gpu_id] = std::promise<torch::Tensor>();
-      atomic_energy_var_promises[gpu_id] = std::promise<torch::Tensor>();
-    }
+    energy_promises[0] = std::promise<torch::Tensor>();
+    forces_promises[0] = std::promise<torch::Tensor>();
     
   } catch (const std::exception& e) {
     error->all(FLERR, "[PAIR_IANN_MULTI_GPU] Error collecting results from GPUs: " + std::string(e.what()));
