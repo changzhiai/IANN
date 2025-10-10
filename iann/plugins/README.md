@@ -16,7 +16,7 @@ TorchScript installation  from official website: https://pytorch.org/get-started
 Here is an example that selects Stable, Linux, LibTorch, C++/Java, and CUDA 11.8. Then downloading as follows: 
 
    ```bash
-   INSTALL_PATH=~/changzhi/softwares
+   INSTALL_PATH=~/softwares
    cd $INSTALL_PATH
    wget https://download.pytorch.org/libtorch/cu118/libtorch-cxx11-abi-shared-with-deps-2.7.1%2Bcu118.zip
    unzip libtorch-cxx11-abi-shared-with-deps-2.7.1+cu118.zip
@@ -123,6 +123,9 @@ The `pair_style iann` command takes the following parameters:
 - `model_type`: Type of ML model (painn, nequip, mace, equiformer2)
 - `model_path`: Path to the exported TorchScript model
 - `cutoff`: Interaction cutoff distance in Å (must match the model's trained cutoff)
+
+> [!NOTE]
+> Multiple GPUs prediction (inference) are supported by using the `pair_style iann/multi_gpu` command. It will automatically detect the number of GPUs per node and use them to run the model.
 
 ### Notes on Performance
 

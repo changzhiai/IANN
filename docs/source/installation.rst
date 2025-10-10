@@ -27,7 +27,7 @@ You can install IANN using pip:
 .. code-block:: bash
 
    # Clone the repository
-   git clone git@github.com:changzhiai/IANN.git
+   git clone https://github.com/changzhiai/IANN.git
    cd IANN
 
    # Install with pip

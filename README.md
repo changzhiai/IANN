@@ -68,7 +68,7 @@ A documentation is available at: https://iann.readthedocs.io
 
 ```bash
 # Clone the repository
-git clone git@github.com:changzhiai/IANN.git
+git clone https://github.com/changzhiai/IANN.git
 cd IANN
 
 # Install with pip
@@ -361,6 +361,9 @@ dump 1 all custom 10 dump.xyz id type x y z
 # Run the simulation
 run 5000
 ```
+
+> [!NOTE]
+> Multiple GPUs prediction (inference) are supported by using the `pair_style iann/multi_gpu` command. It will automatically detect the number of GPUs per node and use them to run the model.
 
 ### Use an ensemble IANN model with LAMMPS
 

@@ -53,7 +53,7 @@ Install GPU version LAMMPS with LibTorch:
    -D CMAKE_BUILD_TYPE=Release \
    -D PKG_GPU=yes  \
    -D GPU_API=cuda \
-   -DGPU_ARCH=$GPU_ARCH \
+   -D GPU_ARCH=$GPU_ARCH \
    -D PKG_USER-MISC=ON \
    -D BUILD_MPI=ON \ 
    -D BUILD_OMP=ON \
@@ -400,6 +400,56 @@ Key Components:
    * Use ``thermo_modify colname c_variance[3] max_energy_var`` to change the name of c_variance[3] to max_energy_var.
    * Use ``thermo_modify colname c_variance[4] max_force_var`` to change the name of c_variance[4] to max_force_var.
    * Use ``thermo_modify flush yes`` to flush the thermodynamic output.
+
+
+Usage of LAMMPS with IANN models on multiple GPUs
+------------------------------------------------
+
+Multiple GPUs prediction (inference) are supported by using the ``pair_style iann/multi_gpu`` command. It will automatically detect the number of GPUs per node and use them to run the model. Here is an ``in.lmp`` example of how to use it:
+
+.. code-block:: lammps
+
+   # LAMMPS input script example of running on multiple GPUs
+
+   # Define the units and the atom style
+   units metal
+   atom_style atomic
+
+   # Define the boundary conditions
+   boundary p p p
+
+   # Read the initial structure
+   read_data initial.data
+
+   # Define the IANN pair style
+   pair_style iann/multi_gpu painn model_lmp.pt 5.5
+   pair_coeff * *
+
+   # Define the mass of the atoms
+   mass 1 1.0079999997406976 # H
+   mass 2 195.08399994981576 # Pt
+
+   # Define the neighbor list
+   neighbor 0.5 bin
+   neigh_modify every 1 delay 0 check yes
+
+   # Thermodynamic settings
+   thermo 10
+
+   # Initial minimization to relax the system before dynamics
+   minimize 1.0e-4 1.0e-6 100 1000
+
+   # Define the timestep and the thermostat
+   timestep 0.001
+   fix 1 all nvt temp 300.0 300.0 0.1
+
+   # Define the dump frequency and the dump file
+   dump 1 all custom 10 dump.xyz id type x y z
+
+   # Run the simulation
+   run 5000
+
+The key components are the same as the single GPU inference version, and we just need to replace the ``pair_style iann`` command with the ``pair_style iann/multi_gpu`` command. The log file ``lammps.log`` is shown exactly the same as the single GPU inference version. 
 
 
 Troubleshooting
