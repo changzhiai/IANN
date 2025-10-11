@@ -161,11 +161,12 @@ class EnsembleLAMMPSModelWrapper(torch.nn.Module):
         # Calculate ensemble averages and variances
         avg_energy = torch.mean(torch.stack(all_energies), dim=0) # shape: (1,)
         avg_forces = torch.mean(torch.stack(all_forces), dim=0) # shape: (N, 3)
+        avg_atomic_energy = torch.mean(torch.stack(all_atomic_energies), dim=0) # shape: (N,)
         
         # Calculate variances
         energy_var = torch.var(torch.stack(all_energies), dim=0) # shape: (1,)
         forces_var = torch.var(torch.stack(all_forces), dim=0) # shape: (N, 3)
-        atomic_energy_var = torch.var(torch.stack(all_atomic_energies), dim=0) # shape: (1, N)
+        atomic_energy_var = torch.var(torch.stack(all_atomic_energies), dim=0) # shape: (N,)
         
         results = {'energy': avg_energy, 'forces': avg_forces, 'atomic_energy': avg_atomic_energy, 'energy_variance': energy_var, 'forces_variance': forces_var, 'atomic_energy_variance': atomic_energy_var}
         return results
