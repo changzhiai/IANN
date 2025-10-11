@@ -32,6 +32,7 @@
 #include "modify.h"
 #include "update.h"
 #include "pair_iann.h"
+#include "pair_iann_multi_gpu_variance.h"
 
 using namespace LAMMPS_NS;
 
@@ -50,7 +51,11 @@ ComputeIANNVariance::ComputeIANNVariance(LAMMPS *lmp, int narg, char **arg) :
 
   // Get pointer to IANN pair style
   pair_iann = (PairIANN *)force->pair_match("iann", 1);
-  if (!pair_iann) error->all(FLERR, "Compute iann/variance requires pair style iann");
+  pair_iann_multi_gpu = (PairIANNMultiGPUVariance *)force->pair_match("iann/multi_gpu/variance", 1);
+  
+  if (!pair_iann && !pair_iann_multi_gpu) {
+    error->all(FLERR, "Compute iann/variance requires pair style iann or iann/multi_gpu/variance");
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -66,7 +71,11 @@ void ComputeIANNVariance::init()
 {
   // Check if pair style is still available
   pair_iann = (PairIANN *)force->pair_match("iann", 1);
-  if (!pair_iann) error->all(FLERR, "Compute iann/variance requires pair style iann");
+  pair_iann_multi_gpu = (PairIANNMultiGPUVariance *)force->pair_match("iann/multi_gpu/variance", 1);
+  
+  if (!pair_iann && !pair_iann_multi_gpu) {
+    error->all(FLERR, "Compute iann/variance requires pair style iann or iann/multi_gpu/variance");
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -74,10 +83,17 @@ void ComputeIANNVariance::init()
 void ComputeIANNVariance::compute_vector()
 {
   // Access variance values from pair style
-  vector[0] = pair_iann->energy_variance;
-  vector[1] = pair_iann->force_variance;
-  vector[2] = pair_iann->max_energy_variance;
-  vector[3] = pair_iann->max_force_variance;
+  if (pair_iann) {
+    vector[0] = pair_iann->energy_variance;
+    vector[1] = pair_iann->force_variance;
+    vector[2] = pair_iann->max_energy_variance;
+    vector[3] = pair_iann->max_force_variance;
+  } else if (pair_iann_multi_gpu) {
+    vector[0] = pair_iann_multi_gpu->energy_variance;
+    vector[1] = pair_iann_multi_gpu->force_variance;
+    vector[2] = pair_iann_multi_gpu->max_energy_variance;
+    vector[3] = pair_iann_multi_gpu->max_force_variance;
+  }
 }
 
 /* ---------------------------------------------------------------------- */
