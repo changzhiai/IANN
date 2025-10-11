@@ -408,7 +408,7 @@ void PairIANN::compute(int eflag, int vflag)
             energy_variance = energy_var.item<double>();
             
             // Calculate variance of force magnitudes
-            auto force_norms = torch::norm(forces, 2, 1);  // Calculate L2 norm along dimension 1 (xyz components)
+            auto force_norms = torch::norm(forces_var, 2, 1);  // Calculate L2 norm along dimension 1 (xyz components)
             force_variance = torch::var(force_norms, 0).item<double>(); // variance of force magnitudes
             
             max_energy_variance = atomic_energy_var.max().item<double>();

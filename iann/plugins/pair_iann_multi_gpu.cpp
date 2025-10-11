@@ -120,7 +120,7 @@ int get_atomic_number_global(double mass) {
             return z;
         }
     }
-    return -1;  // Unknown
+    throw std::runtime_error("[PAIR_IANN_MULTI_GPU] Unknown atomic number for mass: " + std::to_string(mass));
 }
 
 /* ---------------------------------------------------------------------- */
@@ -355,7 +355,11 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
     } else {
       // Single GPU inference
       if (debug && comm->me == 0) {
+        static bool printed = true;
+        if (printed) {
         std::cout << "[PAIR_IANN_MULTI_GPU] Using single GPU inference" << std::endl;
+        printed = false;
+        }
       }
       
       // Move tensors to GPU before forward pass
@@ -379,10 +383,6 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
       inputs.push_back(edge_indices_tensor.to(torch::kInt64));
       inputs.push_back(edge_vectors_tensor.to(torch::kFloat32));
       inputs.push_back(num_edges_tensor.to(torch::kInt64));
-      
-      if (debug) {
-        std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " About to call model forward..." << std::endl;
-      }
       
       auto output = models[0]->forward(inputs).toGenericDict();
       
@@ -428,7 +428,8 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
         if (debug && comm->me == 0) {
           std::cout << "[PAIR_IANN_MULTI_GPU] Energy tensor dim: " << energy_tensor.dim() 
                     << ", size: [" << energy_tensor.size(0) << "], nlocal: " << nlocal 
-                    << ", nall: " << nall << ", has_atomic_energy: " << has_atomic_energy << std::endl;
+                    << ", nall: " << nall << ", has_atomic_energy: " << has_atomic_energy
+                    << ", atomic_energy_tensor: [" << atomic_energy_tensor << "]" << std::endl;
         }
         
         if (has_atomic_energy) {
@@ -438,7 +439,7 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
             eng_vdwl += atomic_energy_tensor[i].item<float>();
           }
           if (debug && comm->me == 0) {
-            std::cout << "[PAIR_IANN_MULTI_GPU] Atomic energy sum (nlocal): " << eng_vdwl << std::endl;
+            std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " Atomic energy sum (nlocal): " << eng_vdwl << std::endl;
           }
         } else {
           // Model returned scalar energy - use directly
