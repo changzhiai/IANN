@@ -44,7 +44,7 @@ class ComputeIANNVariance : public Compute {
 
  private:
   class PairIANN *pair_iann;
-  class PairIANNMultiGPUVariance *pair_iann_multi_gpu;
+  class PairIANNMultiGPU *pair_iann_multi_gpu;
 };
 
 }    // namespace LAMMPS_NS

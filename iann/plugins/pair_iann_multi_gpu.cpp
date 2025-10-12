@@ -1,8 +1,9 @@
 /* ----------------------------------------------------------------------
-   Multi-GPU version of IANN LAMMPS interface
+   Multi-GPU version of IANN LAMMPS interface with variance support
    Inherits from LAMMPS Pair class
    Uses LibTorch C++ API to interface with trained models across multiple GPUs
    Handles neighbor list construction, energy/force calculations
+   Handles ensemble statistics (energy variance, force variances)
 
 Usage:
   pair_style iann/multi_gpu painn model.pt 5.5
@@ -67,8 +68,8 @@ domain->minimum_image(std::string(__FILE__), __LINE__, dx, dy, dz);
 
 using namespace LAMMPS_NS;
 
-std::map<int, int> type_to_Z_global;
-std::map<double, int> mass_to_Z_global = {
+static std::map<int, int> type_to_Z_global;
+static std::map<double, int> mass_to_Z_global = {
     {1.008, 1},     // H
     {4.0026, 2},    // He
     {6.94, 3},      // Li
@@ -114,7 +115,7 @@ std::map<double, int> mass_to_Z_global = {
     {207.2, 82}     // Pb
 };
 
-int get_atomic_number_global(double mass) {
+static int get_atomic_number_global(double mass) {
     for (const auto& [m, z] : mass_to_Z_global) {
         if (fabs(mass - m) < 0.1) {  // 0.1 u tolerance
             return z;
@@ -146,6 +147,24 @@ PairIANNMultiGPU::PairIANNMultiGPU(LAMMPS *lmp) : Pair(lmp),
   // Will be resized to actual number of GPUs after GPU detection
   energy_promises.resize(1);  // Start with 1, will resize later
   forces_promises.resize(1);
+  
+  // Initialize variance promises
+  energy_var_promises.resize(1);
+  forces_var_promises.resize(1);
+  atomic_energy_var_promises.resize(1);
+  
+  // Initialize variance variables
+  energy_variance = 0.0;
+  force_variance = 0.0;
+  max_energy_variance = 0.0;
+  max_force_variance = 0.0;
+  
+  // Initialize global properties for thermo output
+  n_global_properties = 4;
+  global_properties = new double[n_global_properties];
+  for (int i = 0; i < n_global_properties; i++) {
+    global_properties[i] = 0.0;
+  }
 
   // Check CUDA environment and detect available GPUs
   const char* cuda_path = getenv("CUDA_HOME");
@@ -215,6 +234,10 @@ PairIANNMultiGPU::PairIANNMultiGPU(LAMMPS *lmp) : Pair(lmp),
         // Resize promises to actual number of GPUs per node
         energy_promises.resize(local_gpus);
         forces_promises.resize(local_gpus);
+        energy_var_promises.resize(local_gpus);
+        forces_var_promises.resize(local_gpus);
+        atomic_energy_var_promises.resize(local_gpus);
+        
         if (comm->me == 0) {
           if (use_multi_gpu) {
             error->message(FLERR, "[PAIR_IANN_MULTI_GPU] Multi-GPU mode enabled ");
@@ -262,6 +285,8 @@ PairIANNMultiGPU::~PairIANNMultiGPU()
   
   if (model_type) delete[] model_type;
   if (model_path) delete[] model_path;
+  
+  if (global_properties) delete[] global_properties;
   
   // LibTorch cleanup is automatic via shared_ptr
 }
@@ -345,6 +370,9 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
       // Reset promises for this iteration
       energy_promises[0] = std::promise<torch::Tensor>();
       forces_promises[0] = std::promise<torch::Tensor>();
+      energy_var_promises[0] = std::promise<torch::Tensor>();
+      forces_var_promises[0] = std::promise<torch::Tensor>();
+      atomic_energy_var_promises[0] = std::promise<torch::Tensor>();
       
       // Run inference on assigned GPU
       run_inference_on_gpu(assigned_gpu_id, node_id, 0, 0, 0);
@@ -398,6 +426,25 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
         has_atomic_energy = true;
       }
       
+      // Handle variances if they exist
+      bool has_variances = false;
+      torch::Tensor energy_var, forces_var, atomic_energy_var;
+      if (output.find("energy_variance") != output.end() && 
+          output.find("forces_variance") != output.end() &&
+          output.find("atomic_energy_variance") != output.end()) {
+          has_variances = true;
+          energy_var = output.at("energy_variance").toTensor();
+          forces_var = output.at("forces_variance").toTensor();
+          atomic_energy_var = output.at("atomic_energy_variance").toTensor();
+          
+          // Move variance tensors back to CPU if using GPU
+          if (use_gpu) {
+            energy_var = energy_var.to(torch::kCPU);
+            forces_var = forces_var.to(torch::kCPU);
+            atomic_energy_var = atomic_energy_var.to(torch::kCPU);
+          }
+      }
+      
       // Move tensors back to CPU if using GPU
       if (use_gpu) {
         energy_tensor = energy_tensor.to(torch::kCPU);
@@ -428,8 +475,7 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
         if (debug && comm->me == 0) {
           std::cout << "[PAIR_IANN_MULTI_GPU] Energy tensor dim: " << energy_tensor.dim() 
                     << ", size: [" << energy_tensor.size(0) << "], nlocal: " << nlocal 
-                    << ", nall: " << nall << ", has_atomic_energy: " << has_atomic_energy
-                    << ", atomic_energy_tensor: [" << atomic_energy_tensor << "]" << std::endl;
+                    << ", nall: " << nall << ", has_atomic_energy: " << has_atomic_energy << std::endl;
         }
         
         if (has_atomic_energy) {
@@ -447,6 +493,45 @@ void PairIANNMultiGPU::compute(int eflag, int vflag)
           if (debug && comm->me == 0) {
             std::cout << "[PAIR_IANN_MULTI_GPU] Scalar energy: " << eng_vdwl << std::endl;
           }
+        }
+      }
+      
+      // Handle variances
+      if (has_variances) {
+        // For energy variance, calculate variance of nlocal atomic energy variances
+        torch::Tensor local_atomic_energy_var = atomic_energy_var.slice(0, 0, nlocal);
+        energy_variance = torch::var(local_atomic_energy_var, 0).item<double>();
+        
+        // Calculate variance of force magnitudes for local atoms only
+        torch::Tensor local_forces_var = forces_var.slice(0, 0, nlocal);
+        auto force_var_norms = torch::norm(local_forces_var, 2, 1);  // Calculate L2 norm along dimension 1 (xyz components)
+        force_variance = torch::var(force_var_norms, 0).item<double>(); // variance of force magnitude variances                     
+        
+        // Calculate max energy variance for local atoms only
+        max_energy_variance = local_atomic_energy_var.max().item<double>();
+        
+        // Calculate maximum force variance for local atoms only
+        max_force_variance = 0.0;
+        auto forces_var_accessor = forces_var.accessor<float, 2>();
+        for (int i = 0; i < nlocal; i++) {
+          double atom_max_var = std::max({forces_var_accessor[i][0], 
+                                        forces_var_accessor[i][1], 
+                                        forces_var_accessor[i][2]});
+          max_force_variance = std::max(max_force_variance, atom_max_var);
+        }
+        
+        // Update global properties for thermo output
+        global_properties[0] = energy_variance;
+        global_properties[1] = force_variance;
+        global_properties[2] = max_energy_variance;
+        global_properties[3] = max_force_variance;
+        
+        // Print variance statistics
+        if (debug && comm->me == 0) {
+          std::cout << "[PAIR_IANN_MULTI_GPU] Energy variance: " << energy_variance << std::endl;
+          std::cout << "[PAIR_IANN_MULTI_GPU] Force variance: " << force_variance << std::endl;
+          std::cout << "[PAIR_IANN_MULTI_GPU] Max energy variance: " << max_energy_variance << std::endl;
+          std::cout << "[PAIR_IANN_MULTI_GPU] Max force variance: " << max_force_variance << std::endl;
         }
       }
     }
@@ -687,6 +772,9 @@ void PairIANNMultiGPU::run_inference_on_gpu(int assigned_gpu_id, int node_id, in
         // Return zero results for this GPU
         energy_promises[0].set_value(torch::tensor({0.0}, torch::kFloat32));
         forces_promises[0].set_value(torch::zeros({nlocal, 3}, torch::kFloat32));
+        energy_var_promises[0].set_value(torch::tensor({0.0}, torch::kFloat32));
+        forces_var_promises[0].set_value(torch::zeros({nlocal, 3}, torch::kFloat32));
+        atomic_energy_var_promises[0].set_value(torch::zeros({nlocal}, torch::kFloat32));
         return;
       }
     }
@@ -742,9 +830,49 @@ void PairIANNMultiGPU::run_inference_on_gpu(int assigned_gpu_id, int node_id, in
       local_energy = energy.item<double>();
     }
     
+    // Handle variances if they exist
+    torch::Tensor energy_var = torch::tensor({0.0}, torch::kFloat32);
+    torch::Tensor full_forces_var = torch::zeros({nlocal, 3}, torch::kFloat32);
+    torch::Tensor full_atomic_energy_var = torch::zeros({nlocal}, torch::kFloat32);
+    
+    if (output.find("energy_variance") != output.end() && 
+        output.find("forces_variance") != output.end() &&
+        output.find("atomic_energy_variance") != output.end()) {
+      
+      // For energy variance, we need to calculate variance of nlocal atomic energies
+      auto atomic_energy_var = output.at("atomic_energy_variance").toTensor().cpu();
+      auto atomic_energy_var_accessor = atomic_energy_var.accessor<float, 1>();
+      
+      // Create tensor of local atomic energy variances
+      torch::Tensor local_atomic_energy_var = torch::zeros({nlocal}, torch::kFloat32);
+      auto local_atomic_energy_var_accessor = local_atomic_energy_var.accessor<float, 1>();
+      
+      for (int i = 0; i < nlocal; i++) {
+        local_atomic_energy_var_accessor[i] = atomic_energy_var_accessor[i];
+        full_atomic_energy_var.accessor<float, 1>()[i] = atomic_energy_var_accessor[i];
+      }
+      
+      // Calculate variance of local atomic energy variances
+      energy_var = torch::var(local_atomic_energy_var, 0);
+      
+      // Handle forces variance for local atoms only
+      auto forces_var = output.at("forces_variance").toTensor().cpu();
+      auto forces_var_accessor = forces_var.accessor<float, 2>();
+      auto full_forces_var_accessor = full_forces_var.accessor<float, 2>();
+      
+      for (int i = 0; i < nlocal; i++) {
+        full_forces_var_accessor[i][0] = forces_var_accessor[i][0];
+        full_forces_var_accessor[i][1] = forces_var_accessor[i][1];
+        full_forces_var_accessor[i][2] = forces_var_accessor[i][2];
+      }
+    }
+    
     // Set promises
     energy_promises[0].set_value(torch::tensor({local_energy}, torch::kFloat32));
     forces_promises[0].set_value(full_forces);
+    energy_var_promises[0].set_value(energy_var);
+    forces_var_promises[0].set_value(full_forces_var);
+    atomic_energy_var_promises[0].set_value(full_atomic_energy_var);
     
   } catch (const c10::Error& e) {
     if (comm->me == 0) {
@@ -756,6 +884,9 @@ void PairIANNMultiGPU::run_inference_on_gpu(int assigned_gpu_id, int node_id, in
     // Set zero results on error
     energy_promises[0].set_value(torch::tensor({0.0}, torch::kFloat32));
     forces_promises[0].set_value(torch::zeros({atom->nlocal, 3}, torch::kFloat32));
+    energy_var_promises[0].set_value(torch::tensor({0.0}, torch::kFloat32));
+    forces_var_promises[0].set_value(torch::zeros({atom->nlocal, 3}, torch::kFloat32));
+    atomic_energy_var_promises[0].set_value(torch::zeros({atom->nlocal}, torch::kFloat32));
   }
 }
 
@@ -787,13 +918,56 @@ void PairIANNMultiGPU::collect_results_from_gpus()
     // Set energy in LAMMPS
     eng_vdwl = total_energy;
     
+    // Collect variance results
+    auto energy_var_future = energy_var_promises[0].get_future();
+    auto energy_var = energy_var_future.get();
+    
+    auto forces_var_future = forces_var_promises[0].get_future();
+    auto forces_var = forces_var_future.get();
+    
+    auto atomic_energy_var_future = atomic_energy_var_promises[0].get_future();
+    auto atomic_energy_var = atomic_energy_var_future.get();
+
+    
+    // Handle variances - energy_var already contains variance of local atomic energy variances
+    energy_variance = energy_var.item<double>();
+    
+    // Calculate variance of force magnitude variances for local atoms only
+    auto force_var_norms = torch::norm(forces_var, 2, 1);  // Calculate L2 norm along dimension 1 (xyz components)
+    force_variance = torch::var(force_var_norms, 0).item<double>(); // variance of force magnitude variances
+    
+    // Calculate max energy variance for local atoms only
+    max_energy_variance = atomic_energy_var.max().item<double>();
+    
+    // Calculate maximum force variance for local atoms only
+    max_force_variance = 0.0;
+    auto forces_var_accessor = forces_var.accessor<float, 2>();
+    for (int i = 0; i < nlocal; i++) {
+      double atom_max_var = std::max({forces_var_accessor[i][0], 
+                                    forces_var_accessor[i][1], 
+                                    forces_var_accessor[i][2]});
+      max_force_variance = std::max(max_force_variance, atom_max_var);
+    }
+    
+    // Update global properties for thermo output
+    global_properties[0] = energy_variance;
+    global_properties[1] = force_variance;
+    global_properties[2] = max_energy_variance;
+    global_properties[3] = max_force_variance;
+    
     if (debug) {
-      std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " Results collection completed" << " eng_vdwl: " << eng_vdwl << std::endl;
+      std::cout << "[PAIR_IANN_MULTI_GPU] Rank " << comm->me << " Results collection completed" 
+                << " eng_vdwl: " << eng_vdwl 
+                << " energy_variance: " << energy_variance 
+                << " force_variance: " << force_variance << std::endl;
     }
     
     // Reset promises for next iteration
     energy_promises[0] = std::promise<torch::Tensor>();
     forces_promises[0] = std::promise<torch::Tensor>();
+    energy_var_promises[0] = std::promise<torch::Tensor>();
+    forces_var_promises[0] = std::promise<torch::Tensor>();
+    atomic_energy_var_promises[0] = std::promise<torch::Tensor>();
     
   } catch (const std::exception& e) {
     error->all(FLERR, "[PAIR_IANN_MULTI_GPU] Error collecting results from GPUs: " + std::string(e.what()));

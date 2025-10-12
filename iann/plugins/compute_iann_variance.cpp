@@ -21,9 +21,6 @@
    thermo_modify colname c_variance[4] max_force_variance
 
 ------------------------------------------------------------------------- */
-
-#include "compute_iann_variance.h"
-
 #include "atom.h"
 #include "comm.h"
 #include "error.h"
@@ -32,7 +29,9 @@
 #include "modify.h"
 #include "update.h"
 #include "pair_iann.h"
-#include "pair_iann_multi_gpu_variance.h"
+#include "pair_iann_multi_gpu.h"
+#include "compute_iann_variance.h"
+
 
 using namespace LAMMPS_NS;
 
@@ -51,10 +50,10 @@ ComputeIANNVariance::ComputeIANNVariance(LAMMPS *lmp, int narg, char **arg) :
 
   // Get pointer to IANN pair style
   pair_iann = (PairIANN *)force->pair_match("iann", 1);
-  pair_iann_multi_gpu = (PairIANNMultiGPUVariance *)force->pair_match("iann/multi_gpu/variance", 1);
+  pair_iann_multi_gpu = (PairIANNMultiGPU *)force->pair_match("iann/multi_gpu", 1);
   
   if (!pair_iann && !pair_iann_multi_gpu) {
-    error->all(FLERR, "Compute iann/variance requires pair style iann or iann/multi_gpu/variance");
+    error->all(FLERR, "Compute iann/variance requires pair style iann or iann/multi_gpu");
   }
 }
 
@@ -71,10 +70,10 @@ void ComputeIANNVariance::init()
 {
   // Check if pair style is still available
   pair_iann = (PairIANN *)force->pair_match("iann", 1);
-  pair_iann_multi_gpu = (PairIANNMultiGPUVariance *)force->pair_match("iann/multi_gpu/variance", 1);
+  pair_iann_multi_gpu = (PairIANNMultiGPU *)force->pair_match("iann/multi_gpu", 1);
   
   if (!pair_iann && !pair_iann_multi_gpu) {
-    error->all(FLERR, "Compute iann/variance requires pair style iann or iann/multi_gpu/variance");
+    error->all(FLERR, "Compute iann/variance requires pair style iann or iann/multi_gpu");
   }
 }
 
@@ -89,10 +88,20 @@ void ComputeIANNVariance::compute_vector()
     vector[2] = pair_iann->max_energy_variance;
     vector[3] = pair_iann->max_force_variance;
   } else if (pair_iann_multi_gpu) {
-    vector[0] = pair_iann_multi_gpu->energy_variance;
-    vector[1] = pair_iann_multi_gpu->force_variance;
-    vector[2] = pair_iann_multi_gpu->max_energy_variance;
-    vector[3] = pair_iann_multi_gpu->max_force_variance;
+    // Use reinterpret_cast to access member variables
+    // This works around the incomplete type issue
+    struct PairIANNMultiGPU_Access {
+      double energy_variance;
+      double force_variance;
+      double max_energy_variance;
+      double max_force_variance;
+    };
+    
+    PairIANNMultiGPU_Access *access = reinterpret_cast<PairIANNMultiGPU_Access*>(pair_iann_multi_gpu);
+    vector[0] = access->energy_variance;
+    vector[1] = access->force_variance;
+    vector[2] = access->max_energy_variance;
+    vector[3] = access->max_force_variance;
   }
 }
 
