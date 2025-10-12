@@ -88,20 +88,10 @@ void ComputeIANNVariance::compute_vector()
     vector[2] = pair_iann->max_energy_variance;
     vector[3] = pair_iann->max_force_variance;
   } else if (pair_iann_multi_gpu) {
-    // Use reinterpret_cast to access member variables
-    // This works around the incomplete type issue
-    struct PairIANNMultiGPU_Access {
-      double energy_variance;
-      double force_variance;
-      double max_energy_variance;
-      double max_force_variance;
-    };
-    
-    PairIANNMultiGPU_Access *access = reinterpret_cast<PairIANNMultiGPU_Access*>(pair_iann_multi_gpu);
-    vector[0] = access->energy_variance;
-    vector[1] = access->force_variance;
-    vector[2] = access->max_energy_variance;
-    vector[3] = access->max_force_variance;
+    vector[0] = pair_iann_multi_gpu->energy_variance;
+    vector[1] = pair_iann_multi_gpu->force_variance;
+    vector[2] = pair_iann_multi_gpu->max_energy_variance;
+    vector[3] = pair_iann_multi_gpu->max_force_variance;
   }
 }
 
