@@ -16,6 +16,9 @@ IANN provides several state-of-the-art foundation models for interatomic potenti
 
 Each model has its own strengths and is suitable for different applications.
 
+.. note::
+   NVIDIA Python library ``cuEquivariance`` is an optional dependency for the ``NequIP`` and ``MACE`` models. If you want to use the optimized operations, you need to install it. Please check the official website `cuEquivariance <https://docs.nvidia.com/cuda/cuequivariance/>`_ for more details.
+
 FastPot
 -------
 
