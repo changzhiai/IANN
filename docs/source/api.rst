@@ -65,12 +65,11 @@ Plugins
 
 .. autofunction:: iann.plugins.converter.convert_models_for_lammps
 
+
 C++ LAMMPS Plugins
 ------------------
 
-
 .. cpp:class:: PairIANN
-   :source: iann/plugins/pair_iann.h
 
    LAMMPS pair style (single GPU) for using trained IANN potentials in molecular dynamics simulations.
 
@@ -86,7 +85,6 @@ C++ LAMMPS Plugins
 
 
 .. cpp:class:: PairIANNMultiGPU
-   :source: iann/plugins/pair_iann_multi_gpu.h
 
    IANN pair style (multiple GPUs) for using trained IANN potentials in molecular dynamics simulations.
 
@@ -96,7 +94,6 @@ C++ LAMMPS Plugins
 
 
 .. cpp:class:: ComputeIANNVariance
-   :source: iann/plugins/compute_iann_variance.h
 
    Compute style for accessing ensemble variance statistics from IANN potentials.
 
