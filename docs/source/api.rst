@@ -69,13 +69,10 @@ C++ LAMMPS Plugins
 ------------------
 
 .. cpp:class:: PairIANN
-   :members:
 
 .. cpp:class:: PairIANNMultiGPU
-   :members:
 
 .. cpp:class:: ComputeIANNVariance
-   :members:
 
 
 For more information about specific functions and classes, see their respective module in source code. 
