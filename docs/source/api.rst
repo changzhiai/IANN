@@ -78,8 +78,11 @@ IANN Pair Style (Single GPU)
    **LAMMPS Command:** ``pair_style iann model_type model_path cutoff``
 
    **Parameters:**
+
    - ``model_type``: Type of ML model (fastpot, painn, nequip, mace, equiformer2)
+   
    - ``model_path``: Path to the exported TorchScript model file
+   
    - ``cutoff``: Interaction cutoff distance in Å
 
 IANN Pair Style (Multiple GPUs)
@@ -103,9 +106,13 @@ IANN Variance Compute Style
    **LAMMPS Command:** ``compute variance all iann/variance``
 
    **Output Components:**
+
    - ``c_variance[1]``: Energy variance
+   
    - ``c_variance[2]``: Force variance  
+   
    - ``c_variance[3]``: Maximum energy variance
+   
    - ``c_variance[4]``: Maximum force variance
 
    **Usage Example:**
