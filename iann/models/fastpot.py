@@ -231,10 +231,7 @@ class GlobalEmbedding(nn.Module):
 
 class FastPot(nn.Module):
     """
-    FastPot: Fast Potential (High-Order Tensor Equivariant Message Passing Neural Network).
-    
-    A high-performance neural network model that combines the power of high-order tensor features
-    and equivariant message passing for fast and accurate potential energy surface prediction.
+    FastPot: Fast Potential with high-order tensor features and equivariant message passing for fast and accurate potential energy surface prediction.
     """
     def __init__(
         self, 
@@ -247,7 +244,7 @@ class FastPot(nn.Module):
         **kwargs,
     ):
         """
-        Initialize the HOTMEM model.
+        Initialize the FastPot model.
         
         Parameters
         ----------
@@ -255,21 +252,10 @@ class FastPot(nn.Module):
             Number of message passing layers
         num_channels : int
             Number of feature channels
-        norm_data : bool
-            Whether to normalize the data
-        data_mean : list
-            Mean values for data normalization
-        data_stddev : list
-            Standard deviation values for data normalization
-        norm_per_atom : bool
-            Whether to normalize per atom
-        **kwargs : dict
-            Additional keyword arguments including:
-            - num_embedding: Number of atomic embeddings (default: 119)
-            - cutoff: Interaction cutoff distance (default: 5.5)
-            - edge_embedding_size: Size of edge embeddings (default: 20)
-            - lmax: Maximum spherical harmonic degree (default: 2)
-            - compute_forces: Compute forces during inference (default: False)
+        cutoff : float
+            Interaction cutoff distance
+        lmax : int
+            Maximum spherical harmonic degree
         """
         super().__init__()
         
@@ -277,7 +263,6 @@ class FastPot(nn.Module):
         self.num_layers = num_layers
         self.num_channels = num_channels
         self.lmax = kwargs.get('lmax', 7)
-        self.use_multi_body = kwargs.get('use_multi_body', False)
         self.species = kwargs.get('species', None)
         self.num_basis: int = kwargs.get('num_basis', num_channels)
         self.power: int = kwargs.get('power', 6)
@@ -341,12 +326,10 @@ class FastPot(nn.Module):
         
     def forward(self, data: AtomsData):
         """
-        Forward pass with enhanced features.
-        
         Parameters
         ----------
         data : AtomsData
-            Input data containing atomic information and edge connectivity
+            Input data containing atomic information
             
         Returns
         -------
