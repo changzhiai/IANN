@@ -14,6 +14,8 @@ Data
 
 Models
 ------
+.. autoclass:: iann.models.fastpot.FastPot
+   :members: __init__, forward
 
 .. autoclass:: iann.models.painn.PaiNN
    :members: __init__, forward
@@ -62,6 +64,18 @@ Plugins
 .. autofunction:: iann.plugins.converter.convert_model_for_lammps
 
 .. autofunction:: iann.plugins.converter.convert_models_for_lammps
+
+C++ LAMMPS Plugins
+------------------
+
+.. cpp:class:: PairIANN
+   :members:
+
+.. cpp:class:: PairIANNMultiGPU
+   :members:
+
+.. cpp:class:: ComputeIANNVariance
+   :members:
 
 
 For more information about specific functions and classes, see their respective module in source code. 
