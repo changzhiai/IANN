@@ -68,12 +68,11 @@ Plugins
 C++ LAMMPS Plugins
 ------------------
 
-IANN Pair Style (Single GPU)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. cpp:class:: PairIANN
+   :source: iann/plugins/pair_iann.h
 
-   LAMMPS pair style for using trained IANN potentials in molecular dynamics simulations.
+   LAMMPS pair style (single GPU) for using trained IANN potentials in molecular dynamics simulations.
 
    **LAMMPS Command:** ``pair_style iann model_type model_path cutoff``
 
@@ -85,21 +84,19 @@ IANN Pair Style (Single GPU)
    
    - ``cutoff``: Interaction cutoff distance in Å
 
-IANN Pair Style (Multiple GPUs)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. cpp:class:: PairIANNMultiGPU
+   :source: iann/plugins/pair_iann_multi_gpu.h
 
-   Multi-GPU version of IANN pair style with automatic GPU detection and utilization.
+   IANN pair style (multiple GPUs) for using trained IANN potentials in molecular dynamics simulations.
 
    **LAMMPS Command:** ``pair_style iann/multi_gpu model_type model_path cutoff``
 
-   **Parameters:** Same as single GPU version
+   **Parameters:** Same as single GPU version :cpp:class:`PairIANN`
 
-IANN Variance Compute Style
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. cpp:class:: ComputeIANNVariance
+   :source: iann/plugins/compute_iann_variance.h
 
    Compute style for accessing ensemble variance statistics from IANN potentials.
 
