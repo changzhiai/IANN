@@ -464,15 +464,26 @@ Contains neural network model implementations:
 
 
 ### iann.calculators
-Utility functions:
+ASE calculators implementations:
 - `MLCalculator`: ASE calculator interface for models
 - `EnsembleCalculator`: ASE ensemble calculator interface for models
 - `AtomicEnsembleCalculator`: ASE atomic ensemble calculator interface for models
 
 
 ### iann.plugins
-Tools for converting models:
-- Convert to LAMMPS
+Tools for converting models and LAMMPS integration:
+- `converter`: Model conversion utilities for LAMMPS integration
+- `EnsembleLAMMPSModelWrapper`:  Wrapper class for adapting ensemble model inputs/outputs for LAMMPS
+- `LAMMPSModelWrapper`: Wrapper class for adapting model inputs/outputs for LAMMPS
+- `convert_model_for_lammps`: Function to convert trained model to TorchScript format
+- `convert_models_for_lammps`: Function to convert trained ensemble models to TorchScript format
+
+### C++ LAMMPS Plugins
+C++ plugins for LAMMPS molecular dynamics simulations:
+- `PairIANN`: Single GPU pair style for IANN potentials
+- `PairIANNMultiGPU`: Multiple GPU pair style for IANN potentials
+- `ComputeIANNVariance`: Compute style for variance calculations
+
 
 ## Troubleshooting
 
