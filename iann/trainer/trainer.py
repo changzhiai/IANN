@@ -642,6 +642,14 @@ class Trainer:
     
     def _save_model(self, filename, total_steps, best_val_loss):
         """Save model checkpoint"""
+        # Check for NaN values and exit if found
+        if math.isnan(best_val_loss):
+            if self.rank == 0:
+                logging.error("NaN values detected in best_val_loss. Exiting training.")
+            if self.distributed:
+                self._cleanup_distributed()
+            sys.exit(1)
+        
         model_state = self.model.module.state_dict() if self.distributed else self.model.state_dict()
         
         torch.save(
