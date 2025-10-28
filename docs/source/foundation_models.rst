@@ -1,11 +1,13 @@
 Foundation Models
 =================
 
-Foundation models in future
+Foundation models available
 ---------------------------
 
-Currently, we provide the 'painn' foundation model, which is trained on the OpenCatalysis dataset. This model is intended to accelerate downstream tasks such as property prediction or molecular dynamics by leveraging knowledge learned from large-scale datasets.
-For example, you can use the following code to load the 'painn' foundation model:
+Currently, we provide the ``painn`` foundation model, which is trained on the OpenCatalysis dataset. This model is intended to accelerate downstream tasks such as property prediction or molecular dynamics by leveraging knowledge learned from large-scale datasets.
+
+
+For example, you can use the following code to load the foundation model:
 
 .. code-block:: python
 
@@ -51,7 +53,11 @@ And you can fine tune the foundation model on your own dataset by using the foll
         distributed=False)
    trainer.train("dataset.traj")
 
-The more comprehensive the training data is, the better the foundation model will perform. The comprehensive foundation models will be provided in future releases. The more training data may be sourced from well-established materials databases, such as:
+
+Foundation models in future
+---------------------------
+
+The more comprehensive the training data is, the better the foundation model will perform. The more comprehensive foundation models will be provided in future releases. The more training data may be sourced from well-established materials databases, such as:
 
 - `Catalysis-Hub (CatHub) <https://www.catalysis-hub.org>`_ — a repository of surface reaction data.
 - `Materials Project <https://materialsproject.org>`_ — a comprehensive database of computed materials properties.
