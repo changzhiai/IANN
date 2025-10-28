@@ -608,7 +608,11 @@ class Trainer:
     
     def _load_model(self):
         """Load model from checkpoint"""
-        best_model = os.path.join(self.config["output_dir"], self.config["output_model"])
+        if self.config['load_model'].endswith('.pt'):
+            best_model = self.config['load_model']
+        else:
+            best_model = os.path.join(self.config["output_dir"], self.config["output_model"])
+        
         if os.path.exists(best_model):
             if self.rank == 0:
                 logging.info(f"Loading model from {best_model}")
