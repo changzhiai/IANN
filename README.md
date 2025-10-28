@@ -39,6 +39,7 @@
   - [iann.models](#iannmodels)
   - [iann.calculators](#ianncalculators)
   - [iann.plugins](#iannplugins)
+  - [C++ LAMMPS Plugins](#c-lammps-plugins)
 - [Troubleshooting](#troubleshooting)
 - [Issues](#issues)
 - [Maintainer](#maintainer)
