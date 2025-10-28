@@ -19,19 +19,22 @@
   - [Monitoring Training Progress](#monitoring-training-progress)
 - [5. Predicting](#5-predicting)
   - [Making Predictions with ASE calculator](#making-predictions-with-ase-calculator)
-- [6. Parallelization](#6-parallelization)
+- [6. Foundation Models](#6-foundation-models)
+  - [Using Pre-trained Foundation Models](#using-pre-trained-foundation-models)
+  - [Fine-tuning Foundation Models](#fine-tuning-foundation-models)
+- [7. Parallelization](#7-parallelization)
   - [Multi-GPU Training](#multi-gpu-training)
   - [Multi-CPU Training](#multi-cpu-training)
   - [Example on NERSC](#example-on-nersc)
   - [Performance Considerations](#performance-considerations)
-- [7. LAMMPS Interface](#7-lammps-interface)
+- [8. LAMMPS Interface](#8-lammps-interface)
   - [Use an IANN model with LAMMPS](#use-an-iann-model-with-lammps)
     - [1. Convert a trained model to the torchscript format](#1-convert-a-trained-model-to-the-torchscript-format)
     - [2. Use the exported model in LAMMPS](#2-use-the-exported-model-in-lammps)
   - [Use an ensemble IANN model with LAMMPS](#use-an-ensemble-iann-model-with-lammps)
     - [1. Convert trained models to a ensemble model](#1-convert-trained-models-to-a-ensemble-model)
     - [2. Use the exported ensemble model in LAMMPS](#2-use-the-exported-ensemble-model-in-lammps)
-- [8. Modules](#8-modules)
+- [9. Modules](#9-modules)
   - [iann.data](#ianndata)
   - [iann.models](#iannmodels)
   - [iann.calculators](#ianncalculators)
@@ -190,7 +193,6 @@ Training logs will be saved in the specified output directory. You can monitor:
 ### Making Predictions with ASE calculator
 
 ```python
-
 from iann.calculators import MLCalculator
 from ase.io import read
 
@@ -211,7 +213,61 @@ for atoms in images:
 >[!TIP]  
 > `EnsembleCalculator` and `AtomicEnsembleCalculator` are available to get uncertainty for each structure and each atom, seperately.
 
-## 6. Parallelization
+## 6. Foundation Models
+
+IANN provides pre-trained foundation models (painn) that you can use out-of-the-box or fine-tune for your specific tasks.
+
+### Using Pre-trained Foundation Models
+
+To use a foundation model for predictions:
+
+```python
+from iann.foundations import foundation_model
+from iann.calculators import MLCalculator
+from ase.build import fcc100
+
+calc = MLCalculator(
+  model_path=foundation_model("painn_oc22.pt"),
+  compute_forces=True,
+  device='cpu') # use 'cuda' for GPU
+
+atoms = fcc100("Pt", size=(4,4,3), a=5.5, vacuum=15.0)
+atoms.calc = calc
+nnp_energy = atoms.get_potential_energy()
+nnp_forces = atoms.get_forces()
+print(f"NNP Energy: {nnp_energy:.4f} eV")
+print(f"NNP Forces: {nnp_forces}")
+```
+
+### Fine-tuning Foundation Models
+
+You can fine-tune a foundation model on your own data:
+
+```python
+from iann.trainer import Trainer
+from iann.foundations import foundation_model
+
+trainer = Trainer(model="painn", 
+    config={"num_channels": 128, # number of channels in the model
+        "num_layers": 3, # number of layers in the model
+        "cutoff": 5.5, # cutoff radius
+        "batch_size": 16, # batch size
+        "learning_rate": 0.0001, # initial learning rate
+        "forces_weight": 0.9, # weight for forces
+        "load_model": foundation_model("painn_oc22.pt"), # load model from foundation model
+        "max_steps": 10000000, # maximum number of steps
+        "random_seed": 888, # random seed for reproducibility
+        "val_ratio": 0.003, # validation ratio
+        "stop_patience": 500, # patience for early stopping
+        'device': 'cuda',
+        'output_dir': 'output',
+        'output_log': 'output.log',
+        'output_model': 'model.pt'},
+    distributed=False)
+trainer.train("dataset.traj")
+```
+
+## 7. Parallelization
 
 IANN supports distributed training using PyTorch's Distributed Data Parallel (DDP).
 
@@ -294,7 +350,7 @@ srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
 - Enable mixed precision training for faster performance
 - Monitor GPU utilization to ensure efficient resource use
 
-## 7. LAMMPS Interface
+## 8. LAMMPS Interface
 
 IANN models can be used as interatomic potentials in LAMMPS molecular dynamics simulations (Support GPU).
 
@@ -444,7 +500,7 @@ run 5000
 ```
 
 
-## 8. Modules
+## 9. Modules
 
 IANN is organized into several key modules:
 
