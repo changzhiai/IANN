@@ -7,14 +7,14 @@ This module provides easy access to pre-trained foundation models.
 import os
 import torch
 
-def get_foundation_model_path(model_name="painn_oc22.pt"):
+def get_foundation_model_path(model_name="painn_oc.pt"):
     """
     Get the absolute path to a foundation model file.
     
     Parameters
     ----------
     model_name : str, optional
-        Name of the foundation model file (default: "painn_oc22.pt")
+        Name of the foundation model file (default: "painn_oc.pt")
     
     Returns
     -------
@@ -24,20 +24,20 @@ def get_foundation_model_path(model_name="painn_oc22.pt"):
     Examples
     --------
     >>> from iann.foundations.foundation_models import get_foundation_model_path
-    >>> path = get_foundation_model_path("painn_oc22.pt")
+    >>> path = get_foundation_model_path("painn_oc.pt")
     """
     # Get the directory of this file
     _here = os.path.abspath(os.path.dirname(__file__))
     return os.path.join(_here, model_name)
 
-def load_foundation_model(model_name="painn_oc22.pt", device=None):
+def load_foundation_model(model_name="painn_oc.pt", device=None):
     """
     Load a foundation model checkpoint.
     
     Parameters
     ----------
     model_name : str, optional
-        Name of the foundation model file (default: "painn_oc22.pt")
+        Name of the foundation model file (default: "painn_oc.pt")
     device : str or torch.device, optional
         Device to load the model on (default: 'cpu' or 'cuda' if available)
     
@@ -49,7 +49,7 @@ def load_foundation_model(model_name="painn_oc22.pt", device=None):
     Examples
     --------
     >>> from iann.foundations.foundation_models import load_foundation_model
-    >>> state_dict = load_foundation_model("painn_oc22.pt")
+    >>> state_dict = load_foundation_model("painn_oc.pt")
     """
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -58,7 +58,7 @@ def load_foundation_model(model_name="painn_oc22.pt", device=None):
     state_dict = torch.load(model_path, map_location=device)
     return state_dict
 
-def foundation_model(model_name="painn_oc22.pt"):
+def foundation_model(model_name="painn_oc.pt"):
     """
     Get the path to a foundation model.
     
@@ -68,7 +68,7 @@ def foundation_model(model_name="painn_oc22.pt"):
     Parameters
     ----------
     model_name : str, optional
-        Name of the foundation model file (default: "painn_oc22.pt")
+        Name of the foundation model file (default: "painn_oc.pt")
     
     Returns
     -------
@@ -81,7 +81,7 @@ def foundation_model(model_name="painn_oc22.pt"):
     >>> from iann.calculators import MLCalculator
     >>> 
     >>> # Use directly
-    >>> calc = MLCalculator(foundation_model("painn_oc22.pt"))
+    >>> calc = MLCalculator(foundation_model("painn_oc.pt"))
     >>> 
     >>> # Or with default
     >>> calc = MLCalculator(foundation_model())

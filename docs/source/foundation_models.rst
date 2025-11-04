@@ -16,7 +16,7 @@ For example, you can use the following code to load the foundation model:
    from ase.build import fcc100
 
    calc = MLCalculator(
-      model_path=foundation_model("painn_oc22.pt"),
+      model_path=foundation_model("painn_oc.pt"), # foundation model trained on OC20+OC22
       compute_forces=True,
       device='cpu') # use 'cuda' for GPU
 
@@ -41,7 +41,7 @@ And you can fine tune the foundation model on your own dataset by using the foll
             "batch_size": 16, # batch size
             "learning_rate": 0.0001, # initial learning rate
             "forces_weight": 0.9, # weight for forces
-            "load_model": foundation_model("painn_oc22.pt"), # load model from foundation model
+            "load_model": foundation_model("painn_oc.pt"), # load the foundation model
             "max_steps": 10000000, # maximum number of steps
             "random_seed": 888, # random seed for reproducibility
             "val_ratio": 0.003, # validation ratio

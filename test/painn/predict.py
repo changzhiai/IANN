@@ -8,6 +8,7 @@ import numpy as np
 model_type = "painn"
 model_path = "test/painn/output/model.pt"
 calc = MLCalculator(model_path=model_path, model_type=model_type)
+# calc = MLCalculator(model_path=model_path, model_type=model_type, compute_stress=True) # compute stress
 
 # atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
 images = read('test/Pt_ads.traj', ':')
@@ -27,6 +28,9 @@ for atoms in images:
     nnp_energy = atoms.get_potential_energy()
     nnp_force = atoms.get_forces()
     mean_nnp_force = np.mean(np.linalg.norm(nnp_force, axis=1))
+
+    # nnp_stress = atoms.get_stress()
+    # print(nnp_stress)
 
     dft_energies.append(dft_energy)
     dft_forces.append(mean_dft_force)
