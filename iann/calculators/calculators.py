@@ -89,7 +89,7 @@ class MLCalculator(Calculator):
     """
     Machine learning calculator for a single model.
     """
-    implemented_properties = ["energy", "forces"]
+    implemented_properties = ["energy", "forces", "stress"]
 
     def __init__(
         self,
@@ -147,6 +147,14 @@ class MLCalculator(Calculator):
             else:
                 self.compute_forces = None
 
+        if "compute_stress" in self.config:
+            self.compute_stress = self.config["compute_stress"]
+        else:
+            if "compute_stress" in kwargs:
+                self.compute_stress = kwargs["compute_stress"]
+            else:
+                self.compute_stress = None
+
         if model is not None:
             self.model = model
         elif model_path is not None:
@@ -164,6 +172,7 @@ class MLCalculator(Calculator):
             print(f"Model: {self.model}")
             print(f"Cutoff: {self.cutoff}")
             print(f"Compute forces: {self.compute_forces}")
+            print(f"Compute stress: {self.compute_stress}")
             print(f"Energy scale: {self.energy_scale}")
             print(f"Forces scale: {self.forces_scale}")
 
@@ -175,7 +184,7 @@ class MLCalculator(Calculator):
         atoms : ase.Atoms
             ASE atoms object.
         properties : list of str
-            energy and forces are supported.
+            energy, forces, and stress are supported.
         system_changes : list of str
             List of changes for ASE.
         """
@@ -196,6 +205,8 @@ class MLCalculator(Calculator):
         results["energy"] = model_results.energy[0].detach().cpu().numpy().item()
         if self.compute_forces:
             results["forces"] = model_results.forces.detach().cpu().numpy() * self.forces_scale
+        if self.compute_stress:
+            results["stress"] = model_results.stress.detach().cpu().numpy()
     
         self.results = results
 

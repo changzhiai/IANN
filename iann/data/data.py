@@ -30,6 +30,8 @@ class AtomsData(NamedTuple):
         The energy of the system.
     forces : Optional[torch.Tensor]
         The forces of the system.
+    stress : Optional[torch.Tensor]
+        The stress tensor of the system (3x3 matrix).
     image_indices : Optional[torch.Tensor]
         The image indices of the atoms in the system.
     atomic_energy : Optional[torch.Tensor]
@@ -61,6 +63,7 @@ class AtomsData(NamedTuple):
     global_attr: torch.Tensor
     energy: Optional[torch.Tensor] = None
     forces: Optional[torch.Tensor] = None
+    stress: Optional[torch.Tensor] = None
     image_indices: Optional[torch.Tensor] = None
     atomic_energy: Optional[torch.Tensor] = None
 
@@ -113,6 +116,7 @@ def replace_properties(
     data: AtomsData,
     energy: Optional[torch.Tensor] = None,
     forces: Optional[torch.Tensor] = None,
+    stress: Optional[torch.Tensor] = None,
     image_indices: Optional[torch.Tensor] = None,
     atomic_energy: Optional[torch.Tensor] = None,
     node_attr: Optional[torch.Tensor] = None,
@@ -137,6 +141,7 @@ def replace_properties(
         num_edges=data.num_edges,
         energy=energy if energy is not None else data.energy,
         forces=forces if forces is not None else data.forces,
+        stress=stress if stress is not None else data.stress,
         image_indices=image_indices if image_indices is not None else data.image_indices,
         atomic_energy=atomic_energy if atomic_energy is not None else data.atomic_energy,
         node_attr=node_attr if node_attr is not None else data.node_attr,
