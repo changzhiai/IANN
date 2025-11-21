@@ -54,6 +54,9 @@ And you can fine tune the foundation model on your own dataset by using the foll
    trainer.train("dataset.traj")
 
 
+Currently, we provide the ``painn_oc`` foundation model, which is trained on the OpenCatalysis dataset, which contains 10,000,000+ structures from OC20 and OC22. This model is intended to accelerate downstream tasks such as property prediction or molecular dynamics by leveraging knowledge learned from large-scale datasets.
+
+
 Foundation models in future
 ---------------------------
 
