@@ -546,7 +546,7 @@ C++ plugins for LAMMPS molecular dynamics simulations:
 
 - **Memory Issues**: Reduce batch size or model size if you encounter OOM errors
 - **Training Instability**: Try reducing learning rate or using gradient clipping
-- **Poor Performance**: try increasing model capacity
+- **Poor Performance**: Try increasing model capacity
 
 ## Issues
 
