@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Ai"
+  given-names: "Changzhi"
+  orcid: "https://orcid.org/0009-0008-3773-5787"
+title: "IANN"
+version: 0.1.0
+doi: 10.5281/zenodo.17809949
+date-released: 2025-12-03
+url: "https://github.com/changzhiai/IANN"
