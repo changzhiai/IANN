@@ -11,3 +11,10 @@ __pycache__/
 */model_output/*
 *.json
 *log.txt
+*output*
+*model_output*
+iann/models/test
+test/dft*.traj
+test/*/*.traj
+test/*/*.pt
+test/test
