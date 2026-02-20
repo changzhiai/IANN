@@ -254,7 +254,7 @@ class PaiNN(nn.Module):
 
         node_scalar = self.readout_mlp(node_scalar)
         node_scalar = self._make_contiguous(node_scalar)
-        node_scalar = node_scalar.squeeze()
+        node_scalar = node_scalar.squeeze(-1)
 
         image_idx = torch.arange(num_atoms.shape[0],
                                  device=edge_indices.device)

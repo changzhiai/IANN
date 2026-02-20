@@ -184,6 +184,11 @@ class AseDataReader:
             edge_indices, edge_vectors = self.get_neighborlist(atoms)
         else:
             edge_indices, edge_vectors = self.get_neighborlist_simple(atoms)
+        
+        # Ensure correct shapes for empty edge lists (e.g., single atom case)
+        if edge_indices.shape[0] == 0:
+            edge_indices = edge_indices.reshape(0, 2)
+            edge_vectors = edge_vectors.reshape(0, 3)
             
         edge_indices = torch.from_numpy(edge_indices)
         edge_vectors = torch.from_numpy(edge_vectors).float()
@@ -229,9 +234,14 @@ class AseDataReader:
             pair_j_idx.append(indices)  
             edge_vectors.append(diff)
 
-        pair_j_idx = np.concatenate(pair_j_idx)
-        edge_indices = np.stack((pair_i_idx, pair_j_idx), axis=1)
-        edge_vectors = np.concatenate(edge_vectors)
+        # Handle case when there are no edges (e.g., single atom)
+        if len(pair_j_idx) == 0 or all(len(idx) == 0 for idx in pair_j_idx):
+            edge_indices = np.empty((0, 2), dtype=np.int64)
+            edge_vectors = np.empty((0, 3), dtype=np.float64)
+        else:
+            pair_j_idx = np.concatenate(pair_j_idx)
+            edge_indices = np.stack((pair_i_idx, pair_j_idx), axis=1)
+            edge_vectors = np.concatenate(edge_vectors)
         
         return edge_indices, edge_vectors
     
@@ -241,7 +251,12 @@ class AseDataReader:
         mask = dist_mat < self.cutoff
         np.fill_diagonal(mask, False)        
         edge_indices = np.argwhere(mask)
-        edge_vectors = pos[edge_indices[:, 1]] - pos[edge_indices[:, 0]]
+        
+        # Handle case when there are no edges (e.g., single atom)
+        if edge_indices.shape[0] == 0:
+            edge_vectors = np.empty((0, 3), dtype=np.float64)
+        else:
+            edge_vectors = pos[edge_indices[:, 1]] - pos[edge_indices[:, 0]]
         
         return edge_indices, edge_vectors
     
