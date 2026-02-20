@@ -4,10 +4,14 @@ Foundation Models
 Foundation models available
 ---------------------------
 
-Currently, we provide the ``painn`` foundation model, which is trained on the OpenCatalysis dataset. This model is intended to accelerate downstream tasks such as property prediction or molecular dynamics by leveraging knowledge learned from large-scale datasets.
+Currently, we provide the following foundation models:
 
+- ``painn_oc.pt``: Trained on the **OpenCatalysis** dataset (OC20 and OC22), containing 10,000,000+ structures.
+- ``painn_mptrj.pt``: Trained on the **Materials Project** trajectory dataset (MPtrj), containing 1,500,000+ structures.
 
-For example, you can use the following code to load the foundation model:
+These models are intended to accelerate downstream tasks such as property prediction or molecular dynamics by leveraging knowledge learned from large-scale datasets.
+
+For example, you can use the following code to load a foundation model:
 
 .. code-block:: python
 
@@ -54,13 +58,10 @@ And you can fine tune the foundation model on your own dataset by using the foll
    trainer.train("dataset.traj")
 
 
-Currently, we provide the ``painn_oc`` foundation model, which is trained on the OpenCatalysis dataset, which contains 10,000,000+ structures from OC20 and OC22. This model is intended to accelerate downstream tasks such as property prediction or molecular dynamics by leveraging knowledge learned from large-scale datasets.
-
-
 Foundation models in future
 ---------------------------
 
-The more comprehensive the training data is, the better the foundation model will perform. The more comprehensive foundation models will be provided in future releases. The more training data may be sourced from well-established materials databases, such as:
+The more comprehensive the training data is, the better the foundation model will perform. The more comprehensive foundation models will be provided in future releases. The more training data could be sourced from well-established materials databases, such as:
 
 - `Catalysis-Hub (CatHub) <https://www.catalysis-hub.org>`_ — a repository of surface reaction data.
 - `Materials Project <https://materialsproject.org>`_ — a comprehensive database of computed materials properties.
