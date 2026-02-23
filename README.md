@@ -239,6 +239,8 @@ nnp_forces = atoms.get_forces()
 print(f"NNP Energy: {nnp_energy:.4f} eV")
 print(f"NNP Forces: {nnp_forces}")
 ```
+> [!TIP]
+> More foundation models can be found at [Foundation Models](https://iann.readthedocs.io/en/latest/foundation_models.html) section in the documentation.
 
 ### Fine-tuning Foundation Models
 
