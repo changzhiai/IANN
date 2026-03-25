@@ -10,6 +10,12 @@ import collections
 import warnings
 warnings.filterwarnings("ignore", message="The TorchScript type system doesn't support instance-level annotations")
 
+from e3nn import o3
+from e3nn.nn import FullyConnectedNet
+from e3nn.nn import Activation
+from e3nn.util.codegen import CodeGenMixin
+import opt_einsum_fx
+
 # Try to import cuEquivariance, fallback to e3nn if not available
 try: 
     import cuequivariance_torch as cuet
@@ -17,11 +23,6 @@ try:
     warnings.warn("cuEquivariance detected - using optimized operations", UserWarning)
 except (ImportError, SyntaxError, Exception) as e:
     warnings.warn(f"cuEquivariance not available - falling back to e3nn (Warning: {e})", UserWarning)
-    from e3nn import o3
-    from e3nn.nn import FullyConnectedNet
-    from e3nn.nn import Activation
-    from e3nn.util.codegen import CodeGenMixin
-    import opt_einsum_fx
     CUEQUIVARIANCE_AVAILABLE = False
 
 activation_fn = {
