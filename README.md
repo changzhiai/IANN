@@ -216,7 +216,7 @@ for atoms in images:
 
 ## 6. Foundation Models
 
-IANN provides pre-trained foundation models (painn) that you can use out-of-the-box or fine-tune for your specific tasks.
+IANN provides pre-trained foundation models with different levels of DFT accuracy that you can use out-of-the-box or fine-tune for your specific tasks.
 
 ### Using Pre-trained Foundation Models
 
