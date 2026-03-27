@@ -8,7 +8,11 @@ from typing import Optional, Callable, Tuple
 from typing import List, Dict, Union
 import collections
 import warnings
+import logging
+logging.getLogger("cuequivariance").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", message="The TorchScript type system doesn't support instance-level annotations")
+# warnings.filterwarnings("ignore", message="cuequivariance_ops_torch is not available")
+# warnings.filterwarnings("ignore", message="Fused TP is not supported on CPU")
 
 from e3nn import o3
 from e3nn.nn import FullyConnectedNet
@@ -22,6 +26,7 @@ if not hasattr(torch.compiler, "is_compiling"):
 
 # Try to import cuEquivariance, fallback to e3nn if not available
 try: 
+    import cuequivariance as cue
     import cuequivariance_torch as cuet
     CUEQUIVARIANCE_AVAILABLE = True
     warnings.warn("cuEquivariance detected - using optimized operations", UserWarning)
@@ -151,7 +156,9 @@ class AtomwiseLinear(torch.nn.Module):
         
         if CUEQUIVARIANCE_AVAILABLE:
             self.linear = cuet.Linear(
-                irreps_in=self.irreps_in, irreps_out=self.irreps_out
+                irreps_in=cue.Irreps(cue.O3, self.irreps_in), 
+                irreps_out=cue.Irreps(cue.O3, self.irreps_out),
+                layout=cue.mul_ir
             )
         else:
             self.linear = o3.Linear(
@@ -178,9 +185,15 @@ class AtomwiseNonLinear(torch.nn.Module):
         super().__init__()
         self.MLP_irreps = MLP_irreps
         if CUEQUIVARIANCE_AVAILABLE:
-            self.linear_1 = cuet.Linear(irreps_in=irreps_in, irreps_out=self.MLP_irreps)
+            self.linear_1 = cuet.Linear(
+                irreps_in=cue.Irreps(cue.O3, irreps_in), 
+                irreps_out=cue.Irreps(cue.O3, self.MLP_irreps),
+                layout=cue.mul_ir
+            )
             self.linear_2 = cuet.Linear(
-                irreps_in=self.MLP_irreps, irreps_out=irreps_out
+                irreps_in=cue.Irreps(cue.O3, self.MLP_irreps), 
+                irreps_out=cue.Irreps(cue.O3, irreps_out),
+                layout=cue.mul_ir
             )
         else:
             self.linear_1 = o3.Linear(irreps_in=irreps_in, irreps_out=self.MLP_irreps)
@@ -415,8 +428,9 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
         # First linear
         if CUEQUIVARIANCE_AVAILABLE:
             self.linear_1 = cuet.Linear(
-                irreps_in=self.irreps_in['node_feat'],
-                irreps_out=self.irreps_in['node_feat'],
+                irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
+                irreps_out=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
+                layout=cue.mul_ir,
                 internal_weights=True,
                 shared_weights=True,
             )
@@ -436,8 +450,9 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
         
         if CUEQUIVARIANCE_AVAILABLE:
             self.conv_tp = cuet.ChannelWiseTensorProduct(
-                irreps_in1=self.irreps_in['node_feat'],
-                irreps_in2=self.irreps_in['edge_diff_embedding'],
+                irreps_in1=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
+                irreps_in2=cue.Irreps(cue.O3, self.irreps_in['edge_diff_embedding']),
+                layout=cue.mul_ir,
                 filter_irreps_out=None,
                 shared_weights=False,
                 internal_weights=False,
@@ -464,8 +479,9 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
         self.irreps_out = self.target_irreps
         if CUEQUIVARIANCE_AVAILABLE:
             self.linear_2 = cuet.Linear(
-                irreps_in=irreps_mid, 
-                irreps_out=self.irreps_out,
+                irreps_in=cue.Irreps(cue.O3, irreps_mid), 
+                irreps_out=cue.Irreps(cue.O3, self.irreps_out),
+                layout=cue.mul_ir,
                 internal_weights=True,
                 shared_weights=True,
             )
@@ -477,9 +493,10 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
         # Selector TensorProduct
         if CUEQUIVARIANCE_AVAILABLE:
             self.skip_tp = cuet.FullyConnectedTensorProduct(
-                irreps_in1=self.irreps_in['node_feat'], 
-                irreps_in2=self.irreps_in['node_attr'],
-                irreps_out=self.hidden_irreps,
+                irreps_in1=cue.Irreps(cue.O3, self.irreps_in['node_feat']), 
+                irreps_in2=cue.Irreps(cue.O3, self.irreps_in['node_attr']),
+                irreps_out=cue.Irreps(cue.O3, self.hidden_irreps),
+                layout=cue.mul_ir,
             )
         else:
             self.skip_tp = o3.FullyConnectedTensorProduct(
@@ -871,8 +888,9 @@ class EquivariantProductBasisBlock(torch.nn.Module):
         # Update linear
         if CUEQUIVARIANCE_AVAILABLE:
             self.linear = cuet.Linear(
-                irreps_in=target_irreps,
-                irreps_out=target_irreps,
+                irreps_in=cue.Irreps(cue.O3, target_irreps),
+                irreps_out=cue.Irreps(cue.O3, target_irreps),
+                layout=cue.mul_ir,
                 internal_weights=True,
                 shared_weights=True,
             )
@@ -1034,7 +1052,11 @@ class MACE(nn.Module):
                 )
             else:
                 if CUEQUIVARIANCE_AVAILABLE:
-                    readout = cuet.Linear(irreps_in=hidden_irreps_out, irreps_out=o3.Irreps('1x0e'))
+                    readout = cuet.Linear(
+                        irreps_in=cue.Irreps(cue.O3, hidden_irreps_out), 
+                        irreps_out=cue.Irreps(cue.O3, '1x0e'),
+                        layout=cue.mul_ir
+                    )
                 else:
                     readout = o3.Linear(irreps_in=hidden_irreps_out, irreps_out=o3.Irreps('1x0e'))
             self.readouts.append(readout)
