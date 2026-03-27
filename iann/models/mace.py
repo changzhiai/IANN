@@ -16,6 +16,10 @@ from e3nn.nn import Activation
 from e3nn.util.codegen import CodeGenMixin
 import opt_einsum_fx
 
+import torch.compiler
+if not hasattr(torch.compiler, "is_compiling"):
+    torch.compiler.is_compiling = lambda: False
+
 # Try to import cuEquivariance, fallback to e3nn if not available
 try: 
     import cuequivariance_torch as cuet
@@ -434,8 +438,7 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
             self.conv_tp = cuet.ChannelWiseTensorProduct(
                 irreps_in1=self.irreps_in['node_feat'],
                 irreps_in2=self.irreps_in['edge_diff_embedding'],
-                irreps_out=irreps_mid,
-                instructions=instructions,
+                filter_irreps_out=None,
                 shared_weights=False,
                 internal_weights=False,
             )

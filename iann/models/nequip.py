@@ -11,6 +11,10 @@ from e3nn import o3
 from e3nn.o3 import Linear, TensorProduct, FullyConnectedTensorProduct
 from e3nn.nn import FullyConnectedNet, Gate, NormActivation
 
+import torch.compiler
+if not hasattr(torch.compiler, "is_compiling"):
+    torch.compiler.is_compiling = lambda: False
+
 # Try to import cuEquivariance, fallback to e3nn if not available
 try:
     import cuequivariance_torch as cuet
@@ -395,7 +399,7 @@ class ConvNetLayer(torch.nn.Module):
             tp = cuet.ChannelWiseTensorProduct(
                 irreps_in1=feature_irreps_in,
                 irreps_in2=edge_diff_irreps,
-                irreps_out=irreps_mid,
+                filter_irreps_out=None,
                 shared_weights=False,
                 internal_weights=False,
             )

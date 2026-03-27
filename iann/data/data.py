@@ -176,7 +176,7 @@ class AseDataReader:
         
     def __call__(self, atoms):
         num_atoms = torch.tensor([atoms.get_global_number_of_atoms()])
-        atomic_numbers = torch.tensor(atoms.numbers)
+        atomic_numbers = torch.tensor(atoms.numbers, dtype=torch.long)
         positions = torch.tensor(atoms.positions, dtype=torch.float32)
         cell = torch.tensor(atoms.cell[:], dtype=torch.float32)
         
