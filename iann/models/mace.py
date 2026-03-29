@@ -453,7 +453,7 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
                 irreps_in1=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
                 irreps_in2=cue.Irreps(cue.O3, self.irreps_in['edge_diff_embedding']),
                 layout=cue.mul_ir,
-                filter_irreps_out=None,
+                filter_irreps_out=cue.Irreps(cue.O3, irreps_mid.simplify()),
                 shared_weights=False,
                 internal_weights=False,
             )
