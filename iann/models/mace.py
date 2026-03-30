@@ -1116,7 +1116,7 @@ class MACE(nn.Module):
                 sc=sc,
                 node_attrs=node_attr,
             )
-            node_es_list.append(readout(node_feat).squeeze())
+            node_es_list.append(readout(node_feat).view(-1))
         
         node_es = torch.sum(torch.stack(node_es_list, dim=0), dim=0)
         data = replace_properties(data, atomic_energy=node_es)
