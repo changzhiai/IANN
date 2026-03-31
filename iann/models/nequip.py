@@ -842,7 +842,7 @@ class NequIP(torch.nn.Module):
         
         node_feat = data.node_feat
         assert node_feat is not None
-        atomic_energy = self.readout_mlp(node_feat).squeeze()
+        atomic_energy = self.readout_mlp(node_feat).reshape(-1)
         assert atomic_energy is not None
         data = replace_properties(data, atomic_energy=atomic_energy)
         data = self.atomwise_reduce(data)
@@ -893,7 +893,7 @@ class AtomwiseReduce(nn.Module):
         if image_indices is None:
             image_indices = torch.zeros_like(atomic_energy, dtype=torch.long)
         assert image_indices is not None
-        y.index_add_(0, image_indices, atomic_energy)
+        y.index_add_(0, image_indices.reshape(-1), atomic_energy.reshape(-1))
         
         if self.aggregation_mode == "mean":
             y = y / data.num_atoms

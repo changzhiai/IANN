@@ -1172,7 +1172,7 @@ class AtomwiseReduce(nn.Module):
         if image_indices is None:
             image_indices = torch.zeros_like(atomic_energy, dtype=torch.long)
         assert image_indices is not None
-        y.index_add_(0, image_indices, atomic_energy)
+        y.index_add_(0, image_indices.reshape(-1), atomic_energy.reshape(-1))
         
         if self.aggregation_mode == "mean":
             y = y / data.num_atoms
