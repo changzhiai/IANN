@@ -612,38 +612,15 @@ class InteractionLayer(torch.nn.Module):
 
             # TO DO, it's not that safe to directly use the
             # dictionary
-            if CUEQUIVARIANCE_AVAILABLE:
-                # Create custom cuEquivariance-based gate
-                class CuequivarianceGate(nn.Module):
-                    def __init__(self, irreps_scalars, irreps_gates, irreps_gated, act_scalars, act_gates):
-                        super().__init__()
-                        self.linear_scalar = cuet.Linear(cue.Irreps(cue.O3, irreps_scalars), cue.Irreps(cue.O3, irreps_gates), layout=cue.mul_ir)
-                        self.linear_gate = cuet.Linear(cue.Irreps(cue.O3, irreps_gates), cue.Irreps(cue.O3, irreps_gated), layout=cue.mul_ir)
-                        self.act_scalars = act_scalars
-                        self.act_gates = act_gates
-                    
-                    def forward(self, x):
-                        scalar_out = self.linear_scalar(x)
-                        gate_out = self.linear_gate(x)
-                        return scalar_out * gate_out
-                
-                equivariant_nonlin = CuequivarianceGate(
-                    irreps_scalars=irreps_scalars,
-                    irreps_gates=irreps_gates,
-                    irreps_gated=irreps_gated,
-                    act_scalars=[acts[nonlinearity_scalars_dict[ir.p]] for _, ir in irreps_scalars],
-                    act_gates=[acts[nonlinearity_gates_dict[ir.p]] for _, ir in irreps_gates],
-                )
-            else:
-                equivariant_nonlin = Gate(
-                    irreps_scalars=irreps_scalars,
-                    act_scalars=[
-                        acts[nonlinearity_scalars_dict[ir.p]] for _, ir in irreps_scalars
-                    ],
-                    irreps_gates=irreps_gates,
-                    act_gates=[acts[nonlinearity_gates_dict[ir.p]] for _, ir in irreps_gates],
-                    irreps_gated=irreps_gated,
-                )
+            equivariant_nonlin = Gate(
+                irreps_scalars=irreps_scalars,
+                act_scalars=[
+                    acts[nonlinearity_scalars_dict[ir.p]] for _, ir in irreps_scalars
+                ],
+                irreps_gates=irreps_gates,
+                act_gates=[acts[nonlinearity_gates_dict[ir.p]] for _, ir in irreps_gates],
+                irreps_gated=irreps_gated,
+            )
 
             conv_irreps_out = equivariant_nonlin.irreps_in.simplify()
 
