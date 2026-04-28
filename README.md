@@ -79,6 +79,13 @@ cd IANN
 pip install -e .
 ```
 
+> [!NOTE]
+> If you encounter a C++ compilation error (`must #include <typeinfo> before using typeid`) when installing dependencies like `asap3` due to the compiler version incompatibility, export the compiler flag before running the installation:
+> ```bash
+> export CXXFLAGS="-include typeinfo"
+> pip install -e .
+> ```
+
 ### GPU Support
 For GPU acceleration, make sure you have CUDA installed and PyTorch with CUDA support:
 

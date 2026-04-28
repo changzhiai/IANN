@@ -33,6 +33,14 @@ You can install IANN using pip:
    # Install with pip
    pip install .
 
+.. note::
+   If you encounter a C++ compilation error (e.g. ``must #include <typeinfo> before using typeid``) when installing dependencies like ``asap3`` due to compiler version incompatibility, you can fix it by exporting the compiler flag before installation:
+
+   .. code-block:: bash
+
+      export CXXFLAGS="-include typeinfo"
+      pip install .
+
 
 GPU Support
 ----------
