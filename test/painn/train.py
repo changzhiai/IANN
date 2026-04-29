@@ -18,5 +18,5 @@ trainer = Trainer(
             },
     distributed=False
     )
-# trainer.train("test/Pt_ads.traj")
-trainer.train("test/dft_PdTiH_adss_r0_to_r31_final_tot.traj")
+trainer.train("test/Pt_ads.traj")
+# trainer.train("test/dft_PdTiH_adss_r0_to_r31_final_tot.traj")

@@ -27,21 +27,21 @@ try:
 except (ImportError, SyntaxError, Exception) as e:
     _HAS_CUEQUIVARIANCE = False
 
-def resolve_cuequivariance(use_cuequivariance: Optional[bool] = None) -> bool:
-    if use_cuequivariance is None:
+def resolve_cuequivariance(use_cue: Optional[bool] = None) -> bool:
+    if use_cue is None:
         if _HAS_CUEQUIVARIANCE:
             logging.info("cuEquivariance detected - using optimized operations")
             return True
         else:
             logging.info("cuEquivariance not available - falling back to e3nn")
             return False
-    if use_cuequivariance and not _HAS_CUEQUIVARIANCE:
+    if use_cue and not _HAS_CUEQUIVARIANCE:
         raise ImportError("cuEquivariance requested but not available")
     
-    if use_cuequivariance:
+    if use_cue:
         logging.info("cuEquivariance enabled - using optimized operations")
         
-    return use_cuequivariance
+    return use_cue
 
 class Transform(torch.nn.Module, metaclass=abc.ABCMeta):
     def __init__(self) -> None:
@@ -152,14 +152,14 @@ class AtomwiseLinear(torch.nn.Module):
         self,
         irreps_in: o3.Irreps,
         irreps_out: o3.Irreps,
-        use_cuequivariance: bool = False,
+        use_cue: bool = False,
     ):
         super().__init__()
         self.irreps_in: o3.Irreps = irreps_in
         self.irreps_out: o3.Irreps = irreps_out
-        self.use_cuequivariance = use_cuequivariance
+        self.use_cue = use_cue
         
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.linear = cuet.Linear(
                 irreps_in=cue.Irreps(cue.O3, self.irreps_in),
                 irreps_out=cue.Irreps(cue.O3, self.irreps_out),
@@ -348,7 +348,7 @@ class ConvNetLayer(torch.nn.Module):
         avg_num_neighbors: Optional[float]=None,
         use_sc: bool=True,
         nonlinearity_scalars: Dict[int, Callable] = {"e": "ssp"},
-        use_cuequivariance: bool = False,
+        use_cue: bool = False,
     ) -> None:
         """
         Convolution Block.
@@ -375,7 +375,7 @@ class ConvNetLayer(torch.nn.Module):
         # avg_num_neighbors = torch.ones((1,)) if avg_num_neighbors is None else torch.tensor([avg_num_neighbors])
         self.register_buffer("avg_num_neighbors", avg_num_neigh)
         self.use_sc = use_sc
-        self.use_cuequivariance = use_cuequivariance
+        self.use_cue = use_cue
 
         feature_irreps_in = irreps_in['node_feat']
         feature_irreps_out = irreps_out
@@ -383,7 +383,7 @@ class ConvNetLayer(torch.nn.Module):
         edge_dist_irreps = irreps_in['edge_dist_embedding']
 
         # - Build modules -
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.linear_1 = cuet.Linear(
                 irreps_in=cue.Irreps(cue.O3, feature_irreps_in),
                 irreps_out=cue.Irreps(cue.O3, feature_irreps_in),
@@ -421,7 +421,7 @@ class ConvNetLayer(torch.nn.Module):
             for i_in1, i_in2, i_out, mode, train in instructions
         ]
 
-        if self.use_cuequivariance:
+        if self.use_cue:
             tp = cuet.ChannelWiseTensorProduct(
                 irreps_in1=cue.Irreps(cue.O3, feature_irreps_in),
                 irreps_in2=cue.Irreps(cue.O3, edge_diff_irreps),
@@ -453,7 +453,7 @@ class ConvNetLayer(torch.nn.Module):
 
         self.tp = tp
 
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.linear_2 = cuet.Linear(
                 irreps_in=cue.Irreps(cue.O3, irreps_mid.simplify()),
                 irreps_out=cue.Irreps(cue.O3, feature_irreps_out),
@@ -471,7 +471,7 @@ class ConvNetLayer(torch.nn.Module):
 
         self.sc = None
         if self.use_sc:
-            if self.use_cuequivariance:
+            if self.use_cue:
                 self.sc = cuet.FullyConnectedTensorProduct(
                     irreps_in1=cue.Irreps(cue.O3, feature_irreps_in),
                     irreps_in2=cue.Irreps(cue.O3, irreps_in['node_attr']),
@@ -578,11 +578,11 @@ class InteractionLayer(torch.nn.Module):
         nonlinearity_type: str = "gate",
         nonlinearity_scalars: Dict[int, Callable] = {"e": "ssp", "o": "tanh"},
         nonlinearity_gates: Dict[int, Callable] = {"e": "ssp", "o": "abs"},
-        use_cuequivariance: bool = False,
+        use_cue: bool = False,
     ):
         super().__init__()
         # initialization
-        self.use_cuequivariance = use_cuequivariance
+        self.use_cue = use_cue
         assert nonlinearity_type in ("gate", "norm")
         # make the nonlin dicts from parity ints instead of convinience strs
         nonlinearity_scalars_dict = {
@@ -670,7 +670,7 @@ class InteractionLayer(torch.nn.Module):
             irreps_in=self.irreps_in,
             irreps_out=conv_irreps_out,
             nonlinearity_scalars=nonlinearity_scalars,
-            use_cuequivariance=use_cuequivariance,
+            use_cue=use_cue,
             **convolution_kwargs,
         )
         # output node feature irreps
@@ -726,7 +726,7 @@ class NequIP(torch.nn.Module):
         self.nonlinearity_scalars:Dict[int, Callable] = kwargs.get('nonlinearity_scalars', {"e": "ssp", "o": "tanh"})
         self.nonlinearity_gates:Dict[int, Callable] = kwargs.get('nonlinearity_gates', {"e": "ssp", "o": "abs"})
         self.convolution_kwargs:dict = kwargs.get('convolution_kwargs', {})
-        self.use_cuequivariance: bool = resolve_cuequivariance(kwargs.get('use_cuequivariance', None))
+        self.use_cue: bool = resolve_cuequivariance(kwargs.get('use_cue', None))
 
         
         species: List[str] = kwargs.get('species', None)
@@ -788,7 +788,7 @@ class NequIP(torch.nn.Module):
         self.embeddings['chemical_embedding'] = AtomwiseLinear(
             irreps_in=self.irreps_in['node_attr'], # from OneHotAtomEncoding
             irreps_out=self.node_irreps,
-            use_cuequivariance=self.use_cuequivariance,
+            use_cue=self.use_cue,
         )
         self.irreps_in['node_feat'] = self.embeddings.chemical_embedding.irreps_out
         
@@ -802,12 +802,12 @@ class NequIP(torch.nn.Module):
                 nonlinearity_type=self.nonlinearity_type,
                 nonlinearity_scalars=self.nonlinearity_scalars,
                 nonlinearity_gates=self.nonlinearity_gates,
-                use_cuequivariance=self.use_cuequivariance,
+                use_cue=self.use_cue,
             )
             self.interactions.append(interaction)
             self.irreps_in.update(interaction.irreps_out)
         
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.readout_mlp = nn.Sequential(
                 cuet.Linear(
                     irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
@@ -890,8 +890,8 @@ class NequIP(torch.nn.Module):
         """Get information about optimization status"""
         return {
             "cuequivariance_available": _HAS_CUEQUIVARIANCE,
-            "optimization_enabled": self.use_cuequivariance,
-            "performance_boost": "2-5x speedup" if self.use_cuequivariance else "No optimization"
+            "optimization_enabled": self.use_cue,
+            "performance_boost": "2-5x speedup" if self.use_cue else "No optimization"
         }
      
 class AtomwiseReduce(nn.Module):

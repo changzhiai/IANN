@@ -692,7 +692,13 @@ class Trainer:
             device_batch = batch.to(self.device)
             out = model(device_batch)
             count += device_batch.energy.shape[0]
-            energy_loss = self.criterion(out.energy, device_batch.energy).detach().cpu().numpy()
+            if self.config.get("loss_per_atom", True):
+                n_atoms = device_batch.num_atoms.view(-1)
+                energy_pred = out.energy.view(-1) / n_atoms
+                energy_target = device_batch.energy.view(-1) / n_atoms
+                energy_loss = self.criterion(energy_pred, energy_target).detach().cpu().numpy()
+            else:
+                energy_loss = self.criterion(out.energy, device_batch.energy).detach().cpu().numpy()
 
             if bool(self.config["forces_weight"]):
                 forces_count += device_batch.forces.shape[0]
@@ -705,8 +711,13 @@ class Trainer:
             running_loss += total_loss * device_batch.energy.shape[0]
             
             # energy errors
-            energy_targets = device_batch.energy.detach().cpu().numpy()
-            energy_outputs = out.energy.detach().cpu().numpy()
+            if self.config.get("loss_per_atom", True):
+                n_atoms_np = device_batch.num_atoms.detach().cpu().numpy()
+                energy_targets = device_batch.energy.view(-1).detach().cpu().numpy() / n_atoms_np
+                energy_outputs = out.energy.view(-1).detach().cpu().numpy() / n_atoms_np
+            else:
+                energy_targets = device_batch.energy.detach().cpu().numpy()
+                energy_outputs = out.energy.detach().cpu().numpy()
             energy_running_ae += np.sum(np.abs(energy_targets - energy_outputs), axis=0)
             energy_running_se += np.sum(np.square(energy_targets - energy_outputs), axis=0)
 
@@ -852,6 +863,7 @@ class Trainer:
             logging.info(f"Batch Size (batch_size): {self.config['batch_size']}")
             logging.info(f"Learning Rate (learning_rate): {self.config['learning_rate']}")
             logging.info(f"Forces Weight (forces_weight): {self.config['forces_weight']}")
+            logging.info(f"Loss per Atom (loss_per_atom): {self.config.get('loss_per_atom', True)}")
             
             if self.config["max_epochs"]:
                 logging.info(f"Max Epochs (max_epochs): {max_epochs}")
@@ -931,7 +943,13 @@ class Trainer:
                 out = self.model(device_batch)
                 
                 # Calculate losses
-                energy_loss = self.criterion(out.energy, device_batch.energy)
+                if self.config.get("loss_per_atom", True):
+                    n_atoms = device_batch.num_atoms.view(-1)
+                    energy_pred = out.energy.view(-1) / n_atoms
+                    energy_target = device_batch.energy.view(-1) / n_atoms
+                    energy_loss = self.criterion(energy_pred, energy_target)
+                else:
+                    energy_loss = self.criterion(out.energy, device_batch.energy)
                 if bool(self.config["forces_weight"]):
                     forces_loss = forces_criterion(out.forces, device_batch.forces)
                 else:

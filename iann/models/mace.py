@@ -32,21 +32,21 @@ try:
 except (ImportError, SyntaxError, Exception) as e:
     _HAS_CUEQUIVARIANCE = False
 
-def resolve_cuequivariance(use_cuequivariance: Optional[bool] = None) -> bool:
-    if use_cuequivariance is None:
+def resolve_cuequivariance(use_cue: Optional[bool] = None) -> bool:
+    if use_cue is None:
         if _HAS_CUEQUIVARIANCE:
             logging.info("cuEquivariance detected - using optimized operations")
             return True
         else:
             logging.info("cuEquivariance not available - falling back to e3nn")
             return False
-    if use_cuequivariance and not _HAS_CUEQUIVARIANCE:
+    if use_cue and not _HAS_CUEQUIVARIANCE:
         raise ImportError("cuEquivariance requested but not available")
     
-    if use_cuequivariance:
+    if use_cue:
         logging.info("cuEquivariance enabled - using optimized operations")
     
-    return use_cuequivariance
+    return use_cue
 
 activation_fn = {
     "silu": torch.nn.SiLU(),
@@ -161,16 +161,16 @@ class AtomwiseLinear(torch.nn.Module):
         self,
         irreps_in: Optional[o3.Irreps]=None,
         irreps_out: Optional[o3.Irreps]=None,
-        use_cuequivariance: bool = False,
+        use_cue: bool = False,
     ):
         super().__init__()
         self.irreps_in: Optional[o3.Irreps] = irreps_in
         if irreps_out is None:
             irreps_out = irreps_in
         self.irreps_out = irreps_out
-        self.use_cuequivariance = use_cuequivariance
+        self.use_cue = use_cue
         
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.linear = cuet.Linear(
                 irreps_in=cue.Irreps(cue.O3, self.irreps_in), 
                 irreps_out=cue.Irreps(cue.O3, self.irreps_out),
@@ -197,12 +197,12 @@ class AtomwiseNonLinear(torch.nn.Module):
         MLP_irreps: o3.Irreps,
         gate: Optional[Callable],
         irreps_out: o3.Irreps=o3.Irreps("1x0e"),
-        use_cuequivariance: bool = False,
+        use_cue: bool = False,
     ):
         super().__init__()
         self.MLP_irreps = MLP_irreps
-        self.use_cuequivariance = use_cuequivariance
-        if self.use_cuequivariance:
+        self.use_cue = use_cue
+        if self.use_cue:
             self.linear_1 = cuet.Linear(
                 irreps_in=cue.Irreps(cue.O3, irreps_in), 
                 irreps_out=cue.Irreps(cue.O3, self.MLP_irreps),
@@ -434,19 +434,19 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
         target_irreps,
         hidden_irreps,
         avg_num_neighbors: Optional[float] = None,
-        use_cuequivariance: bool = False,
+        use_cue: bool = False,
     ) -> None:
         super().__init__()
         self.irreps_in = irreps_in
         self.target_irreps = target_irreps
         self.hidden_irreps = hidden_irreps
         self._initialized = True if avg_num_neighbors is not None else False
-        self.use_cuequivariance = use_cuequivariance
+        self.use_cue = use_cue
         avg_num_neighbors = torch.ones((1,)) if avg_num_neighbors is None else torch.tensor([avg_num_neighbors])
         self.register_buffer("avg_num_neighbors", avg_num_neighbors) 
 
         # First linear
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.linear_1 = cuet.Linear(
                 irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
                 irreps_out=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
@@ -468,7 +468,7 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
             self.target_irreps,
         )
         
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.conv_tp = cuet.ChannelWiseTensorProduct(
                 irreps_in1=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
                 irreps_in2=cue.Irreps(cue.O3, self.irreps_in['edge_diff_embedding']),
@@ -497,7 +497,7 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
         # Linear
         irreps_mid = irreps_mid.simplify()
         self.irreps_out = self.target_irreps
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.linear_2 = cuet.Linear(
                 irreps_in=cue.Irreps(cue.O3, irreps_mid), 
                 irreps_out=cue.Irreps(cue.O3, self.irreps_out),
@@ -511,7 +511,7 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
             )
 
         # Selector TensorProduct
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.skip_tp = cuet.FullyConnectedTensorProduct(
                 irreps_in1=cue.Irreps(cue.O3, self.irreps_in['node_feat']), 
                 irreps_in2=cue.Irreps(cue.O3, self.irreps_in['node_attr']),
@@ -895,12 +895,12 @@ class EquivariantProductBasisBlock(torch.nn.Module):
         correlation: int,
         use_sc: bool = True,
         num_elements: Optional[int] = None,
-        use_cuequivariance: bool = False,
+        use_cue: bool = False,
     ) -> None:
         super().__init__()
 
         self.use_sc = use_sc
-        self.use_cuequivariance = use_cuequivariance
+        self.use_cue = use_cue
         self.symmetric_contractions = SymmetricContraction(
             irreps_in=node_feats_irreps,
             irreps_out=target_irreps,
@@ -908,7 +908,7 @@ class EquivariantProductBasisBlock(torch.nn.Module):
             num_elements=num_elements,
         )
         # Update linear
-        if self.use_cuequivariance:
+        if self.use_cue:
             self.linear = cuet.Linear(
                 irreps_in=cue.Irreps(cue.O3, target_irreps),
                 irreps_out=cue.Irreps(cue.O3, target_irreps),
@@ -955,7 +955,7 @@ class MACE(nn.Module):
         """
         super().__init__()
         
-        self.use_cuequivariance = resolve_cuequivariance(kwargs.get('use_cuequivariance', None))
+        self.use_cue = resolve_cuequivariance(kwargs.get('use_cue', None))
         self.cutoff: float = kwargs.get('cutoff', 5.5)
         self.hidden_irreps: Union[o3.Irreps, str, None] = kwargs.get('hidden_irreps', None)
         self.edge_sh_irreps: Union[o3.Irreps, str, None] = kwargs.get('edge_sh_irreps', None)
@@ -1036,7 +1036,7 @@ class MACE(nn.Module):
         self.embeddings['chemical_embedding'] = AtomwiseLinear(
             irreps_in=self.irreps_in['node_attr'],
             irreps_out=self.node_irreps,
-            use_cuequivariance=self.use_cuequivariance,
+            use_cue=self.use_cue,
         )
         self.irreps_in['node_feat'] = self.embeddings.chemical_embedding.irreps_out
         
@@ -1056,7 +1056,7 @@ class MACE(nn.Module):
                 target_irreps=interaction_irreps,
                 hidden_irreps=hidden_irreps_out,
                 avg_num_neighbors=self.avg_num_neighbors,
-                use_cuequivariance=self.use_cuequivariance,
+                use_cue=self.use_cue,
             )
             self.interactions.append(inter)
             
@@ -1066,7 +1066,7 @@ class MACE(nn.Module):
                 correlation=self.correlation[i],
                 num_elements=num_elements,
                 use_sc=True,
-                use_cuequivariance=self.use_cuequivariance,
+                use_cue=self.use_cue,
             )
             self.products.append(prod)
             
@@ -1075,10 +1075,10 @@ class MACE(nn.Module):
                     irreps_in=hidden_irreps_out, 
                     MLP_irreps=self.MLP_irreps,
                     gate=gate_fn,
-                    use_cuequivariance=self.use_cuequivariance,
+                    use_cue=self.use_cue,
                 )
             else:
-                if self.use_cuequivariance:
+                if self.use_cue:
                     readout = cuet.Linear(
                         irreps_in=cue.Irreps(cue.O3, hidden_irreps_out), 
                         irreps_out=cue.Irreps(cue.O3, '1x0e'),
@@ -1169,8 +1169,8 @@ class MACE(nn.Module):
         """Get information about optimization status"""
         return {
             "cuequivariance_available": _HAS_CUEQUIVARIANCE,
-            "optimization_enabled": self.use_cuequivariance,
-            "performance_boost": "2-5x speedup" if self.use_cuequivariance else "No optimization"
+            "optimization_enabled": self.use_cue,
+            "performance_boost": "2-5x speedup" if self.use_cue else "No optimization"
         }
     
 class AtomwiseReduce(nn.Module):
