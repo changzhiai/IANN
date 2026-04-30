@@ -64,6 +64,8 @@ class AtomsData(NamedTuple):
     energy: Optional[torch.Tensor] = None
     forces: Optional[torch.Tensor] = None
     stress: Optional[torch.Tensor] = None
+    virial: Optional[torch.Tensor] = None
+    displacement: Optional[torch.Tensor] = None
     image_indices: Optional[torch.Tensor] = None
     atomic_energy: Optional[torch.Tensor] = None
 
@@ -117,6 +119,8 @@ def replace_properties(
     energy: Optional[torch.Tensor] = None,
     forces: Optional[torch.Tensor] = None,
     stress: Optional[torch.Tensor] = None,
+    virial: Optional[torch.Tensor] = None,
+    displacement: Optional[torch.Tensor] = None,
     image_indices: Optional[torch.Tensor] = None,
     atomic_energy: Optional[torch.Tensor] = None,
     node_attr: Optional[torch.Tensor] = None,
@@ -142,6 +146,8 @@ def replace_properties(
         energy=energy if energy is not None else data.energy,
         forces=forces if forces is not None else data.forces,
         stress=stress if stress is not None else data.stress,
+        virial=virial if virial is not None else data.virial,
+        displacement=displacement if displacement is not None else data.displacement,
         image_indices=image_indices if image_indices is not None else data.image_indices,
         atomic_energy=atomic_energy if atomic_energy is not None else data.atomic_energy,
         node_attr=node_attr if node_attr is not None else data.node_attr,
@@ -170,9 +176,11 @@ class AseDataReader:
     atoms_data : AtomsData
         The AtomsData object.
     """
-    def __init__(self, cutoff=5.0, compute_forces=False):            
+    def __init__(self, cutoff=5.0, compute_forces=False, compute_stress=False, compute_virial=False):            
         self.cutoff = cutoff
         self.compute_forces = compute_forces
+        self.compute_stress = compute_stress
+        self.compute_virial = compute_virial
         
     def __call__(self, atoms):
         num_atoms = torch.tensor([atoms.get_global_number_of_atoms()])
@@ -203,10 +211,28 @@ class AseDataReader:
         except (AttributeError, RuntimeError):
             energy = None
 
-        try: 
-            forces = torch.tensor(atoms.get_forces(apply_constraint=False), dtype=torch.float32)
-        except (AttributeError, RuntimeError):
+        if self.compute_forces:
+            try: 
+                forces = torch.tensor(atoms.get_forces(apply_constraint=False), dtype=torch.float32)
+            except (AttributeError, RuntimeError):
+                forces = None
+        else:
             forces = None
+            
+        if self.compute_stress or self.compute_virial:
+            try:
+                # ASE stress is usually a 6-element Voigt array or 3x3 matrix.
+                # get_stress(voigt=False) returns a 3x3 matrix.
+                stress_mat = atoms.get_stress(voigt=False)
+                stress = torch.tensor([stress_mat], dtype=torch.float32) if self.compute_stress else None
+                # Virial is stress * volume (with appropriate sign conventions, usually just V * stress)
+                virial = torch.tensor([stress_mat * atoms.get_volume()], dtype=torch.float32) if self.compute_virial else None
+            except (AttributeError, RuntimeError, ValueError):
+                stress = None
+                virial = None
+        else:
+            stress = None
+            virial = None
         
         # Return as AtomsData object for TorchScript compatibility
         return AtomsData(
@@ -219,6 +245,8 @@ class AseDataReader:
             num_edges=num_edges,
             energy=energy,
             forces=forces,
+            stress=stress,
+            virial=virial,
             image_indices=None,
             global_attr=global_attr,
         ).contiguous()
@@ -291,14 +319,14 @@ class AseDataset(torch.utils.data.Dataset):
     atoms_data : AtomsData
         The AtomsData object.
     """
-    def __init__(self, ase_db, cutoff=5.0, compute_forces=False, **kwargs):
+    def __init__(self, ase_db, cutoff=5.0, compute_forces=False, compute_stress=False, compute_virial=False, **kwargs):
         if isinstance(ase_db, str):
             self.db = Trajectory(ase_db)
         else:
             self.db = ase_db
         
         self.cutoff = cutoff
-        self.atoms_reader = AseDataReader(cutoff, compute_forces)
+        self.atoms_reader = AseDataReader(cutoff, compute_forces, compute_stress, compute_virial)
         
     def __len__(self):
         return len(self.db)

@@ -8,7 +8,7 @@ requirements = parse_requirements('requirements.txt')
 
 setup(
     name="IANN",
-    version="0.1.0",
+    version="0.1.1",
     description="Interatomic Neural Network Package for materials science",
     author="Changzhi Ai",
     author_email="changzhi@stanford.edu",

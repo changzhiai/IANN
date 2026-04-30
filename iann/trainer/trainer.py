@@ -27,6 +27,9 @@ DEFAULT_CONFIG = {
     "batch_size": 12, # batch size
     "learning_rate": 0.0001, # initial learning rate
     "forces_weight": 0.9, # weight for forces
+    "virial_weight": 0.0, # weight for virial
+    "stress_weight": 0.0, # weight for stress
+    "loss_per_atom": True, # whether to scale loss by number of atoms
     "load_model": False, # load model from checkpoint
     "max_steps": 1000000, # maximum number of steps
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
@@ -346,6 +349,8 @@ class Trainer:
             ase_db=dataset_path,
             cutoff=self.config["cutoff"],
             compute_forces=bool(self.config["forces_weight"]),
+            compute_stress=bool(self.config["stress_weight"]),
+            compute_virial=bool(self.config["virial_weight"]),
         )
         
         # Split data
@@ -416,12 +421,19 @@ class Trainer:
                 logging.info("Compute forces: True")
             else:
                 logging.info("Compute forces: False")
+                
+            if bool(self.config['stress_weight']):
+                logging.info("Compute stress: True")
+            if bool(self.config['virial_weight']):
+                logging.info("Compute virial: True")
 
     def _create_model(self):
         """Create model based on model_type"""
         # Other model parameters
         model_params = {
             "compute_forces": bool(self.config["forces_weight"]),
+            "compute_virial": bool(self.config["virial_weight"]),
+            "compute_stress": bool(self.config["stress_weight"]),
         }
         # update all params in model_params
         model_params.update(self.config)
@@ -684,15 +696,21 @@ class Trainer:
         energy_running_se = 0.0
         forces_running_c_ae = 0.0
         forces_running_c_se = 0.0
+        virial_running_ae = 0.0
+        virial_running_se = 0.0
+        stress_running_ae = 0.0
+        stress_running_se = 0.0
         running_loss = 0.0
         count = 0
         forces_count = 0
+        virial_count = 0
+        stress_count = 0
         
         for batch in self.val_loader:
             device_batch = batch.to(self.device)
             out = model(device_batch)
             count += device_batch.energy.shape[0]
-            if self.config.get("loss_per_atom", True):
+            if self.config["loss_per_atom"]:
                 n_atoms = device_batch.num_atoms.view(-1)
                 energy_pred = out.energy.view(-1) / n_atoms
                 energy_target = device_batch.energy.view(-1) / n_atoms
@@ -705,13 +723,30 @@ class Trainer:
                 forces_loss = forces_criterion(out.forces, device_batch.forces).detach().cpu().numpy()
             else:
                 forces_loss = 0.0
+                
+            if bool(self.config["virial_weight"]) and out.virial is not None and device_batch.virial is not None:
+                virial_count += device_batch.virial.shape[0]
+                if self.config["loss_per_atom"]:
+                    n_atoms_v = device_batch.num_atoms.view(-1, 1, 1).expand_as(device_batch.virial)
+                    virial_loss = self.criterion(out.virial / n_atoms_v, device_batch.virial / n_atoms_v).detach().cpu().numpy()
+                else:
+                    virial_loss = self.criterion(out.virial, device_batch.virial).detach().cpu().numpy()
+            else:
+                virial_loss = 0.0
+                
+            if bool(self.config["stress_weight"]) and out.stress is not None and device_batch.stress is not None:
+                stress_count += device_batch.stress.shape[0]
+                stress_loss = self.criterion(out.stress, device_batch.stress).detach().cpu().numpy()
+            else:
+                stress_loss = 0.0
 
             # use mean square loss here
-            total_loss = self.config["forces_weight"] * forces_loss + (1 - self.config["forces_weight"]) * energy_loss
+            e_w = 1.0 - self.config["forces_weight"] - self.config["virial_weight"] - self.config["stress_weight"]
+            total_loss = e_w * energy_loss + self.config["forces_weight"] * forces_loss + self.config["virial_weight"] * virial_loss + self.config["stress_weight"] * stress_loss
             running_loss += total_loss * device_batch.energy.shape[0]
             
             # energy errors
-            if self.config.get("loss_per_atom", True):
+            if self.config["loss_per_atom"]:
                 n_atoms_np = device_batch.num_atoms.detach().cpu().numpy()
                 energy_targets = device_batch.energy.view(-1).detach().cpu().numpy() / n_atoms_np
                 energy_outputs = out.energy.view(-1).detach().cpu().numpy() / n_atoms_np
@@ -722,7 +757,7 @@ class Trainer:
             energy_running_se += np.sum(np.square(energy_targets - energy_outputs), axis=0)
 
             # force errors
-            if bool(self.config["forces_weight"]):
+            if bool(self.config["forces_weight"]) and out.forces is not None and device_batch.forces is not None:
                 forces_targets = device_batch.forces.detach().cpu().numpy()
                 forces_outputs = out.forces.detach().cpu().numpy()
                 forces_diff = forces_targets - forces_outputs
@@ -731,6 +766,26 @@ class Trainer:
             else:
                 forces_running_c_ae = 0.0
                 forces_running_c_se = 0.0
+                
+            # virial errors
+            if bool(self.config["virial_weight"]) and out.virial is not None and device_batch.virial is not None:
+                virial_targets = device_batch.virial.detach().cpu().numpy()
+                virial_outputs = out.virial.detach().cpu().numpy()
+                if self.config["loss_per_atom"]:
+                    n_atoms_np = device_batch.num_atoms.detach().cpu().numpy()[:, np.newaxis, np.newaxis]
+                    virial_targets = virial_targets / n_atoms_np
+                    virial_outputs = virial_outputs / n_atoms_np
+                virial_diff = virial_targets - virial_outputs
+                virial_running_ae += np.sum(np.abs(virial_diff))
+                virial_running_se += np.sum(np.square(virial_diff))
+                
+            # stress errors
+            if bool(self.config["stress_weight"]) and out.stress is not None and device_batch.stress is not None:
+                stress_targets = device_batch.stress.detach().cpu().numpy()
+                stress_outputs = out.stress.detach().cpu().numpy()
+                stress_diff = stress_targets - stress_outputs
+                stress_running_ae += np.sum(np.abs(stress_diff))
+                stress_running_se += np.sum(np.square(stress_diff))
         
         # Restore the model's original training state
         if was_training:
@@ -739,12 +794,26 @@ class Trainer:
         energy_mae = energy_running_ae / count
         energy_rmse = np.sqrt(energy_running_se / count)
 
-        if bool(self.config["forces_weight"]):
+        if bool(self.config["forces_weight"]) and forces_count > 0:
             forces_mae = forces_running_c_ae / (forces_count * 3)
             forces_rmse = np.sqrt(forces_running_c_se / (forces_count * 3))
         else:
             forces_mae = 0
             forces_rmse = 0
+            
+        if bool(self.config["virial_weight"]) and virial_count > 0:
+            virial_mae = virial_running_ae / (virial_count * 9)
+            virial_rmse = np.sqrt(virial_running_se / (virial_count * 9))
+        else:
+            virial_mae = 0
+            virial_rmse = 0
+            
+        if bool(self.config["stress_weight"]) and stress_count > 0:
+            stress_mae = stress_running_ae / (stress_count * 9)
+            stress_rmse = np.sqrt(stress_running_se / (stress_count * 9))
+        else:
+            stress_mae = 0
+            stress_rmse = 0
 
         total_loss = running_loss / count
 
@@ -753,8 +822,15 @@ class Trainer:
             "energy_rmse": energy_rmse,
             "forces_mae": forces_mae,
             "forces_rmse": forces_rmse,
+            "virial_mae": virial_mae,
+            "virial_rmse": virial_rmse,
+            "stress_mae": stress_mae,
+            "stress_rmse": stress_rmse,
             "sqrt(total_loss)": np.sqrt(total_loss),
         }
+        
+        # Remove zeros from evaluation dict for unused metrics
+        evaluation = {k: v for k, v in evaluation.items() if v != 0 or k == "sqrt(total_loss)"}
 
         return evaluation
     
@@ -863,7 +939,11 @@ class Trainer:
             logging.info(f"Batch Size (batch_size): {self.config['batch_size']}")
             logging.info(f"Learning Rate (learning_rate): {self.config['learning_rate']}")
             logging.info(f"Forces Weight (forces_weight): {self.config['forces_weight']}")
-            logging.info(f"Loss per Atom (loss_per_atom): {self.config.get('loss_per_atom', True)}")
+            if bool(self.config['stress_weight']):
+                logging.info(f"Stress Weight (stress_weight): {self.config['stress_weight']}")
+            if bool(self.config['virial_weight']):
+                logging.info(f"Virial Weight (virial_weight): {self.config['virial_weight']}")
+            logging.info(f"Loss per Atom (loss_per_atom): {self.config['loss_per_atom']}")
             
             if self.config["max_epochs"]:
                 logging.info(f"Max Epochs (max_epochs): {max_epochs}")
@@ -943,7 +1023,7 @@ class Trainer:
                 out = self.model(device_batch)
                 
                 # Calculate losses
-                if self.config.get("loss_per_atom", True):
+                if self.config["loss_per_atom"]:
                     n_atoms = device_batch.num_atoms.view(-1)
                     energy_pred = out.energy.view(-1) / n_atoms
                     energy_target = device_batch.energy.view(-1) / n_atoms
@@ -955,8 +1035,23 @@ class Trainer:
                 else:
                     forces_loss = 0.0
                 
+                if bool(self.config["virial_weight"]) and out.virial is not None and device_batch.virial is not None:
+                    if self.config["loss_per_atom"]:
+                        n_atoms_v = device_batch.num_atoms.view(-1, 1, 1).expand_as(device_batch.virial)
+                        virial_loss = self.criterion(out.virial / n_atoms_v, device_batch.virial / n_atoms_v)
+                    else:
+                        virial_loss = self.criterion(out.virial, device_batch.virial)
+                else:
+                    virial_loss = 0.0
+                    
+                if bool(self.config["stress_weight"]) and out.stress is not None and device_batch.stress is not None:
+                    stress_loss = self.criterion(out.stress, device_batch.stress)
+                else:
+                    stress_loss = 0.0
+                
                 # Total loss
-                total_loss = self.config["forces_weight"] * forces_loss + (1 - self.config["forces_weight"]) * energy_loss
+                e_w = 1.0 - self.config["forces_weight"] - self.config["virial_weight"] - self.config["stress_weight"]
+                total_loss = e_w * energy_loss + self.config["forces_weight"] * forces_loss + self.config["virial_weight"] * virial_loss + self.config["stress_weight"] * stress_loss
                 total_loss.backward()
                 
                 # Apply gradient clipping

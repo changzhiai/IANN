@@ -109,21 +109,22 @@ class OneHotAtomEncoding(torch.nn.Module):
 
     def __init__(
         self,
-        num_elements: Optional[int] = None,
+        num_elements: int = 119,
         species: Optional[List[str]] = None,
         set_features: bool=True,
     ):
         super().__init__()
-        self.num_elements = num_elements
+        self.num_elements = num_elements  # always 119 for foundation model compatibility
         self.set_features = set_features
         self.species = species
         
+        # TypeMapper is kept for downstream use (e.g., PerTypeScaleShift)
+        # but one-hot encoding always uses Z-1 indexing with 119 classes
         if self.species is not None:
             self.type_mapper = TypeMapper(self.species)
-            self.num_elements = len(self.species)
         else:
-            self.num_elements = 119
             self.type_mapper = None
+
         # output node feature irreps
         self.irreps_out = {
             'node_attr': o3.Irreps([(self.num_elements, o3.Irrep(0, 1))])
@@ -132,10 +133,8 @@ class OneHotAtomEncoding(torch.nn.Module):
             self.irreps_out['node_feat'] = self.irreps_out['node_attr']
             
     def forward(self, data: AtomsData) -> AtomsData:
-        if self.type_mapper is not None:
-            atomic_types = self.type_mapper(data)
-        else:
-            atomic_types = data.atomic_numbers - 1
+        # Always use Z-1 indexing for one-hot (foundation model compatible)
+        atomic_types = data.atomic_numbers - 1
     
         onehot = torch.nn.functional.one_hot(
             atomic_types, num_classes=self.num_elements
@@ -544,6 +543,113 @@ class ConvNetLayer(torch.nn.Module):
 def ShiftedSoftPlus(x):
     return torch.nn.functional.softplus(x) - torch.log(torch.tensor(2.0))
 
+
+class PerTypeScaleShift(torch.nn.Module):
+    """Per-element energy scale and shift.
+    
+    Applies per-atom-type (per-element) scaling and shifting to the predicted
+    per-atom energy:
+    
+        E_atom_out = scale[type] * E_atom_raw + shift[type]
+    
+    This is critical for multi-element systems where different elements have
+    vastly different isolated atom energies and force magnitudes.
+    
+    Args:
+        num_types: Number of atom types.
+        shifts: Per-type energy shifts (e.g., isolated atom energies).
+            Can be a list/tensor of length num_types, a single float
+            (applied to all types), or a dict mapping species symbols
+            to shift values. Default: zeros.
+        scales: Per-type energy scales (e.g., from force RMS of training data).
+            Same format as shifts. Default: ones.
+        shifts_trainable: Whether the shifts are learnable parameters.
+        scales_trainable: Whether the scales are learnable parameters.
+        species: Optional list of species symbols (e.g., ['C', 'H', 'O']).
+            Used when shifts/scales are provided as dicts.
+    """
+    def __init__(
+        self,
+        num_types: int,
+        shifts: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]] = None,
+        scales: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]] = None,
+        shifts_trainable: bool = False,
+        scales_trainable: bool = False,
+        species: Optional[List[str]] = None,
+    ):
+        super().__init__()
+        self.num_types = num_types
+
+        # Process shifts
+        shifts_tensor = self._process_values(shifts, num_types, species, default=0.0)
+        # Process scales
+        scales_tensor = self._process_values(scales, num_types, species, default=1.0)
+
+        if shifts_trainable:
+            self.shifts = nn.Parameter(shifts_tensor)
+        else:
+            self.register_buffer("shifts", shifts_tensor)
+
+        if scales_trainable:
+            self.scales = nn.Parameter(scales_tensor)
+        else:
+            self.register_buffer("scales", scales_tensor)
+
+        self.has_shifts = shifts is not None
+        self.has_scales = scales is not None
+    
+    @staticmethod
+    def _process_values(
+        values: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]],
+        num_types: int,
+        species: Optional[List[str]],
+        default: float,
+    ) -> torch.Tensor:
+        """Convert various input formats to a [num_types, 1] tensor."""
+        if values is None:
+            return torch.full((num_types, 1), default)
+        elif isinstance(values, (int, float)):
+            return torch.full((num_types, 1), float(values))
+        elif isinstance(values, dict):
+            if species is None:
+                raise ValueError(
+                    "Must provide `species` when passing shifts/scales as a dict."
+                )
+            # Map species names to values in sorted order matching TypeMapper
+            numbers = [atomic_numbers[s] for s in species]
+            sorted_species = [e[1] for e in sorted(zip(numbers, species))]
+            tensor = torch.zeros(num_types, 1)
+            for idx, sp in enumerate(sorted_species):
+                if sp in values:
+                    tensor[idx, 0] = values[sp]
+            return tensor
+        elif isinstance(values, torch.Tensor):
+            return values.reshape(num_types, 1).float()
+        else:
+            return torch.tensor(values, dtype=torch.float32).reshape(num_types, 1)
+
+    def forward(
+        self, atomic_energy: torch.Tensor, atom_types: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Apply per-type scale and shift to atomic energies.
+        
+        Args:
+            atomic_energy: [n_atoms] raw per-atom energies from readout.
+            atom_types: [n_atoms] integer type indices (0-indexed).
+            
+        Returns:
+            Scaled and shifted per-atom energies [n_atoms].
+        """
+        per_atom_scales = torch.nn.functional.embedding(
+            atom_types, self.scales
+        ).squeeze(-1)
+        per_atom_shifts = torch.nn.functional.embedding(
+            atom_types, self.shifts
+        ).squeeze(-1)
+        # Fused multiply-add: shift + scale * energy
+        return torch.addcmul(per_atom_shifts, per_atom_scales, atomic_energy)
+
 def tp_path_exists(irreps_in1, irreps_in2, ir_out):
     irreps_in1 = o3.Irreps(irreps_in1).simplify()
     irreps_in2 = o3.Irreps(irreps_in2).simplify()
@@ -705,6 +811,10 @@ class NequIP(torch.nn.Module):
         norm_per_atom: bool = False,
         data_stddev: float = 1.0,
         data_mean: float = 0.0,
+        per_type_energy_shifts: Optional[Union[float, List[float], Dict[str, float]]] = None,
+        per_type_energy_scales: Optional[Union[float, List[float], Dict[str, float]]] = None,
+        per_type_shifts_trainable: bool = False,
+        per_type_scales_trainable: bool = False,
         **kwargs,
     ) -> None:
         """
@@ -730,10 +840,8 @@ class NequIP(torch.nn.Module):
 
         
         species: List[str] = kwargs.get('species', None)
-        if bool(species):
-            num_elements = len(species)
-        else:
-            num_elements = 119
+        num_elements = 119  # always 119 for foundation model compatibility
+        num_types = len(species) if species else 119  # for PerTypeScaleShift
         
         ## handling irreps
         # chemical embedding irreps
@@ -832,21 +940,103 @@ class NequIP(torch.nn.Module):
                 ),
             )
 
-        # Normalisation constants
+        # Normalisation constants (legacy global normalization)
         self.norm_data = torch.nn.Parameter(torch.tensor(norm_data), requires_grad=False)
         self.norm_per_atom = torch.nn.Parameter(torch.tensor(norm_per_atom), requires_grad=False)
         self.data_stddev = torch.nn.Parameter(torch.tensor(data_stddev), requires_grad=False)
         self.data_mean = torch.nn.Parameter(torch.tensor(data_mean), requires_grad=False)
+
+        # Per-type energy scale and shift (preferred over global normalization)
+        self.use_per_type_scale_shift = (
+            per_type_energy_shifts is not None or per_type_energy_scales is not None
+        )
+        if self.use_per_type_scale_shift:
+            self.per_type_scale_shift = PerTypeScaleShift(
+                num_types=num_types,
+                shifts=per_type_energy_shifts,
+                scales=per_type_energy_scales,
+                shifts_trainable=per_type_shifts_trainable,
+                scales_trainable=per_type_scales_trainable,
+                species=species,
+            )
         
         self.atomwise_reduce = AtomwiseReduce(output_key='energy')
         
-        self.compute_forces = False
-        if 'compute_forces' in kwargs.keys():
-            if kwargs['compute_forces']:
-                self.compute_forces = True
-                self.gradient_output = GradientOutput(model_outputs=['forces'])
+        self.compute_forces = kwargs.get('compute_forces', False)
+        self.compute_stress = kwargs.get('compute_stress', False)
+        self.compute_virial = kwargs.get('compute_virial', False)
+        
+        outputs = []
+        if self.compute_forces: outputs.append('forces')
+        if self.compute_stress: outputs.append('stress')
+        if self.compute_virial: outputs.append('virial')
+        
+        if outputs:
+            self.gradient_output = GradientOutput(model_outputs=outputs)
+        else:
+            self.gradient_output = None
 
-    def forward(self, data: AtomsData):
+    def _apply_displacement(self, data: AtomsData) -> AtomsData:
+        num_graphs = int(data.image_indices.max() + 1) if data.image_indices is not None else 1
+        displacement = torch.zeros(
+            (num_graphs, 3, 3), 
+            dtype=data.edge_vectors.dtype, 
+            device=data.edge_vectors.device, 
+            requires_grad=True
+        )
+        # Apply displacement to edge vectors: r_ij = r_ij + disp @ r_ij
+        if data.image_indices is not None:
+            graph_idx = data.image_indices[data.edge_indices[:, 0]]
+        else:
+            graph_idx = torch.zeros(data.edge_vectors.shape[0], dtype=torch.long, device=data.edge_vectors.device)
+        disp_batch = displacement[graph_idx]
+        edge_vectors = data.edge_vectors + torch.bmm(
+            disp_batch, data.edge_vectors.unsqueeze(-1)
+        ).squeeze(-1)
+        
+        return replace_properties(data, edge_vectors=edge_vectors, displacement=displacement)
+
+    def _forward_network(self, data: AtomsData) -> AtomsData:
+        for m in self.embeddings.values():
+            data = m(data)
+            
+        for m in self.interactions:
+            data = m(data)
+        
+        node_feat = data.node_feat
+        assert node_feat is not None
+        atomic_energy = self.readout_mlp(node_feat).reshape(-1)
+        assert atomic_energy is not None
+
+        return replace_properties(data, atomic_energy=atomic_energy)
+
+    def _apply_scale_shift(self, data: AtomsData) -> AtomsData:
+        atomic_energy = data.atomic_energy
+        
+        # Per-type scale/shift on atomic energies (before reduction)
+        if self.use_per_type_scale_shift:
+            if self.embeddings['onehot_embedding'].type_mapper is not None:
+                atom_types = self.embeddings['onehot_embedding'].type_mapper(data)
+            else:
+                atom_types = data.atomic_numbers - 1
+            atomic_energy = self.per_type_scale_shift(atomic_energy, atom_types)
+
+        data = replace_properties(data, atomic_energy=atomic_energy)
+        data = self.atomwise_reduce(data)
+
+        # Legacy global de-normalization (only if per-type is not used)
+        if not self.use_per_type_scale_shift and self.norm_data:
+            normalizer = self.data_stddev
+            energy = normalizer * data.energy
+            mean_shift = self.data_mean
+            if self.norm_per_atom:
+                mean_shift = len(data.edge_indices) * mean_shift
+            energy = energy + mean_shift
+            data = replace_properties(data, energy=energy)
+            
+        return data
+
+    def forward(self, data: AtomsData) -> AtomsData:
         """
         Parameters
         ----------
@@ -858,32 +1048,20 @@ class NequIP(torch.nn.Module):
         AtomsData
             Output data after applying the model.
         """
-        for m in self.embeddings.values():
-            data = m(data)
+        # 1. Pre-process for Stress/Virial
+        if self.compute_stress or self.compute_virial:
+            data = self._apply_displacement(data)
             
-        for m in self.interactions:
-            data = m(data)
+        # 2. Core Neural Network
+        data = self._forward_network(data)
         
-        node_feat = data.node_feat
-        assert node_feat is not None
-        atomic_energy = self.readout_mlp(node_feat).reshape(-1)
-        assert atomic_energy is not None
-        data = replace_properties(data, atomic_energy=atomic_energy)
-        data = self.atomwise_reduce(data)
-
-        # de-normalization
-        if self.norm_data:
-            normalizer = self.data_stddev
-            energy = normalizer * data.energy
-            mean_shift = self.data_mean
-            if self.norm_per_atom:
-                mean_shift = len(data.edge_indices) * mean_shift
-            energy = energy + mean_shift
-            data = replace_properties(data, energy=energy)
-
-        if self.compute_forces:
+        # 3. Post-process (Scaling & Reduction)
+        data = self._apply_scale_shift(data)
+        
+        # 4. Gradients (Forces, Stress, Virial)
+        if self.gradient_output is not None:
             data = self.gradient_output(data)
-
+            
         return data
     
     def get_optimization_info(self):
@@ -959,24 +1137,57 @@ class GradientOutput(torch.nn.Module):
             forces_dim = int(torch.sum(data.num_atoms))
             edge_indices = data.edge_indices
             assert energy is not None
-            if 'forces' in self.model_outputs:
-                grad_outputs : List[Optional[torch.Tensor]] = [torch.ones_like(energy)]    # for model deploy
-                dE_ddiff = torch.autograd.grad(
-                    [energy,],
-                    [edge_vectors,],
+            
+            grad_outputs : List[Optional[torch.Tensor]] = [torch.ones_like(energy)]
+            grad_inputs = []
+            
+            compute_forces = 'forces' in self.model_outputs
+            compute_virial = 'virial' in self.model_outputs
+            compute_stress = 'stress' in self.model_outputs
+            has_displacement = hasattr(data, 'displacement')
+            
+            if compute_forces:
+                grad_inputs.append(edge_vectors)
+            if has_displacement and (compute_virial or compute_stress):
+                grad_inputs.append(data.displacement)
+                
+            if grad_inputs:
+                grads = torch.autograd.grad(
+                    [energy],
+                    grad_inputs,
                     grad_outputs=grad_outputs,
                     retain_graph=training,
                     create_graph=training,
+                    allow_unused=True
                 )
-                dE_ddiff = torch.zeros_like(data.positions) if dE_ddiff is None else dE_ddiff[0]   # for torch.jit.script
-                assert dE_ddiff is not None
                 
-                # diff = R_j - R_i, so -dE/dR_j = -dE/ddiff, -dE/R_i = dE/ddiff
-                i_forces = torch.zeros((forces_dim, 3), device=edge_vectors.device, dtype=torch.float32)
-                j_forces = torch.zeros_like(i_forces)
-                i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
-                j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
-                forces = i_forces + j_forces
-                data = replace_properties(data, forces=forces)
+                idx = 0
+                if compute_forces:
+                    dE_ddiff = grads[idx]
+                    idx += 1
+                    dE_ddiff = torch.zeros_like(data.positions) if dE_ddiff is None else dE_ddiff   # for torch.jit.script
+                    assert dE_ddiff is not None
+                    
+                    # diff = R_j - R_i, so -dE/dR_j = -dE/ddiff, -dE/R_i = dE/ddiff
+                    i_forces = torch.zeros((forces_dim, 3), device=edge_vectors.device, dtype=torch.float32)
+                    j_forces = torch.zeros_like(i_forces)
+                    i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
+                    j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
+                    forces = i_forces + j_forces
+                    data = replace_properties(data, forces=forces)
+                
+                if has_displacement and (compute_virial or compute_stress):
+                    dE_ddisp = grads[idx]
+                    idx += 1
+                    if dE_ddisp is not None:
+                        virial = dE_ddisp
+                        if compute_virial:
+                            data = replace_properties(data, virial=virial)
+                        if compute_stress:
+                            volume = torch.abs(torch.linalg.det(data.cell)).view(-1, 1, 1)
+                            # Avoid division by zero for molecules in vacuum by clamping volume
+                            # or just relying on user not to ask for stress of non-periodic systems.
+                            stress = virial / volume.clamp(min=1e-6)
+                            data = replace_properties(data, stress=stress)
                     
         return data
