@@ -924,8 +924,7 @@ class NequIP(torch.nn.Module):
         self.irreps_in['node_feat'] = self.embeddings.chemical_embedding.irreps_out
         
         self.interactions = nn.ModuleList()
-        self.readouts = nn.ModuleList()
-        for i in range(num_layers):
+        for _ in range(num_layers):
             interaction = InteractionLayer(
                 irreps_in=self.irreps_in,
                 feature_irreps_hidden=self.hidden_irreps,
@@ -938,47 +937,34 @@ class NequIP(torch.nn.Module):
             )
             self.interactions.append(interaction)
             self.irreps_in.update(interaction.irreps_out)
-            
-            if i == num_layers - 1:
-                if self.use_cue:
-                    readout = nn.Sequential(
-                        cuet.Linear(
-                            irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
-                            irreps_out=cue.Irreps(cue.O3, self.MLP_irreps),
-                            layout=cue.mul_ir
-                        ),
-                        nn.SiLU(),
-                        cuet.Linear(
-                            irreps_in=cue.Irreps(cue.O3, self.MLP_irreps), 
-                            irreps_out=cue.Irreps(cue.O3, '1x0e'),
-                            layout=cue.mul_ir
-                        ),
-                    )
-                else:
-                    readout = nn.Sequential(
-                        o3.Linear(
-                            irreps_in=self.irreps_in['node_feat'],
-                            irreps_out=self.MLP_irreps,
-                        ),
-                        nn.SiLU(),
-                        o3.Linear(
-                            irreps_in=self.MLP_irreps,
-                            irreps_out=o3.Irreps('1x0e'),
-                        ),
-                    )
-            else:
-                if self.use_cue:
-                    readout = cuet.Linear(
-                        irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
-                        irreps_out=cue.Irreps(cue.O3, '1x0e'),
-                        layout=cue.mul_ir
-                    )
-                else:
-                    readout = o3.Linear(
-                        irreps_in=self.irreps_in['node_feat'],
-                        irreps_out=o3.Irreps('1x0e')
-                    )
-            self.readouts.append(readout)
+        
+        if self.use_cue:
+            self.readout_mlp = nn.Sequential(
+                cuet.Linear(
+                    irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
+                    irreps_out=cue.Irreps(cue.O3, self.MLP_irreps),
+                    layout=cue.mul_ir
+                ),
+                nn.SiLU(),
+                cuet.Linear(
+                    irreps_in=cue.Irreps(cue.O3, self.MLP_irreps), 
+                    irreps_out=cue.Irreps(cue.O3, '1x0e'),
+                    layout=cue.mul_ir
+                ),
+            )
+        else:
+            self.readout_mlp = nn.Sequential(
+                o3.Linear(
+                    irreps_in=self.irreps_in['node_feat'],
+                    irreps_out=self.MLP_irreps,
+                ),
+                nn.SiLU(),
+                o3.Linear(
+                    irreps_in=self.MLP_irreps,
+                    irreps_out=o3.Irreps('1x0e'),
+                ),
+            )
+
         # Normalisation constants (legacy global normalization)
         self.energy_bias = nn.Parameter(torch.zeros(1), requires_grad=True)
         self.norm_data = torch.nn.Parameter(torch.tensor(norm_data), requires_grad=False)
@@ -1040,15 +1026,13 @@ class NequIP(torch.nn.Module):
         for m in self.embeddings.values():
             data = m(data)
             
-        atomic_energy = 0.0
-            
-        for i, m in enumerate(self.interactions):
+        for m in self.interactions:
             data = m(data)
-            node_feat = data.node_feat
-            assert node_feat is not None
-            atomic_energy = atomic_energy + self.readouts[i](node_feat).reshape(-1)
-            
-        atomic_energy = atomic_energy + self.energy_bias
+        
+        node_feat = data.node_feat
+        assert node_feat is not None
+        atomic_energy = self.readout_mlp(node_feat).reshape(-1) + self.energy_bias
+        assert atomic_energy is not None
 
         return replace_properties(data, atomic_energy=atomic_energy)
 
