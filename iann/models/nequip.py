@@ -112,18 +112,26 @@ class OneHotAtomEncoding(torch.nn.Module):
         num_elements: int = 119,
         species: Optional[List[str]] = None,
         set_features: bool=True,
+        universal_onehot: bool = True,
     ):
         super().__init__()
-        self.num_elements = num_elements  # always 119 for foundation model compatibility
         self.set_features = set_features
         self.species = species
+        self.universal_onehot = universal_onehot
         
         # TypeMapper is kept for downstream use (e.g., PerTypeScaleShift)
-        # but one-hot encoding always uses Z-1 indexing with 119 classes
         if self.species is not None:
             self.type_mapper = TypeMapper(self.species)
         else:
             self.type_mapper = None
+
+        if self.universal_onehot:
+            self.num_elements = 119  # universal one-hot encoding
+        else:
+            if self.species is not None:
+                self.num_elements = len(self.species)
+            else:
+                self.num_elements = num_elements
 
         # output node feature irreps
         self.irreps_out = {
@@ -133,8 +141,14 @@ class OneHotAtomEncoding(torch.nn.Module):
             self.irreps_out['node_feat'] = self.irreps_out['node_attr']
             
     def forward(self, data: AtomsData) -> AtomsData:
-        # Always use Z-1 indexing for one-hot (foundation model compatible)
-        atomic_types = data.atomic_numbers - 1
+        if self.universal_onehot:
+            # Always use Z-1 indexing for universal one-hot
+            atomic_types = data.atomic_numbers - 1
+        else:
+            if self.type_mapper is not None:
+                atomic_types = self.type_mapper(data)
+            else:
+                atomic_types = data.atomic_numbers - 1
     
         onehot = torch.nn.functional.one_hot(
             atomic_types, num_classes=self.num_elements
@@ -840,7 +854,12 @@ class NequIP(torch.nn.Module):
 
         
         species: List[str] = kwargs.get('species', None)
-        num_elements = 119  # always 119 for foundation model compatibility
+        self.universal_onehot = kwargs.get('universal_onehot', True)
+        
+        if self.universal_onehot:
+            num_elements = 119
+        else:
+            num_elements = len(species) if species else 119
         num_types = len(species) if species else 119  # for PerTypeScaleShift
         
         ## handling irreps
@@ -880,7 +899,11 @@ class NequIP(torch.nn.Module):
             self.MLP_irreps = self.MLP_irreps
         
         self.embeddings = nn.ModuleDict()
-        self.embeddings['onehot_embedding'] = OneHotAtomEncoding(num_elements=num_elements, species=species)
+        self.embeddings['onehot_embedding'] = OneHotAtomEncoding(
+            num_elements=num_elements, 
+            species=species,
+            universal_onehot=self.universal_onehot
+        )
         self.embeddings['radial_basis'] = RadialBasisEdgeEncoding(
             basis=BesselBasis(cutoff=self.cutoff, num_basis=self.num_basis),
             cutoff_fn=PolynomialCutoff(cutoff=self.cutoff, power=self.power),
@@ -901,9 +924,10 @@ class NequIP(torch.nn.Module):
         self.irreps_in['node_feat'] = self.embeddings.chemical_embedding.irreps_out
         
         self.interactions = nn.ModuleList()
-        for _ in range(num_layers):
+        self.readouts = nn.ModuleList()
+        for i in range(num_layers):
             interaction = InteractionLayer(
-                irreps_in=self.irreps_in, 
+                irreps_in=self.irreps_in,
                 feature_irreps_hidden=self.hidden_irreps,
                 convolution_kwargs=self.convolution_kwargs,
                 resnet=self.resnet,
@@ -914,33 +938,49 @@ class NequIP(torch.nn.Module):
             )
             self.interactions.append(interaction)
             self.irreps_in.update(interaction.irreps_out)
-        
-        if self.use_cue:
-            self.readout_mlp = nn.Sequential(
-                cuet.Linear(
-                    irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
-                    irreps_out=cue.Irreps(cue.O3, self.MLP_irreps),
-                    layout=cue.mul_ir
-                ),
-                cuet.Linear(
-                    irreps_in=cue.Irreps(cue.O3, self.MLP_irreps), 
-                    irreps_out=cue.Irreps(cue.O3, '1x0e'),
-                    layout=cue.mul_ir
-                ),
-            )
-        else:
-            self.readout_mlp = nn.Sequential(
-                o3.Linear(
-                    irreps_in=self.irreps_in['node_feat'],
-                    irreps_out=self.MLP_irreps,
-                ),
-                o3.Linear(
-                    irreps_in=self.MLP_irreps,
-                    irreps_out=o3.Irreps('1x0e'),
-                ),
-            )
-
+            
+            if i == num_layers - 1:
+                if self.use_cue:
+                    readout = nn.Sequential(
+                        cuet.Linear(
+                            irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
+                            irreps_out=cue.Irreps(cue.O3, self.MLP_irreps),
+                            layout=cue.mul_ir
+                        ),
+                        nn.SiLU(),
+                        cuet.Linear(
+                            irreps_in=cue.Irreps(cue.O3, self.MLP_irreps), 
+                            irreps_out=cue.Irreps(cue.O3, '1x0e'),
+                            layout=cue.mul_ir
+                        ),
+                    )
+                else:
+                    readout = nn.Sequential(
+                        o3.Linear(
+                            irreps_in=self.irreps_in['node_feat'],
+                            irreps_out=self.MLP_irreps,
+                        ),
+                        nn.SiLU(),
+                        o3.Linear(
+                            irreps_in=self.MLP_irreps,
+                            irreps_out=o3.Irreps('1x0e'),
+                        ),
+                    )
+            else:
+                if self.use_cue:
+                    readout = cuet.Linear(
+                        irreps_in=cue.Irreps(cue.O3, self.irreps_in['node_feat']),
+                        irreps_out=cue.Irreps(cue.O3, '1x0e'),
+                        layout=cue.mul_ir
+                    )
+                else:
+                    readout = o3.Linear(
+                        irreps_in=self.irreps_in['node_feat'],
+                        irreps_out=o3.Irreps('1x0e')
+                    )
+            self.readouts.append(readout)
         # Normalisation constants (legacy global normalization)
+        self.energy_bias = nn.Parameter(torch.zeros(1), requires_grad=True)
         self.norm_data = torch.nn.Parameter(torch.tensor(norm_data), requires_grad=False)
         self.norm_per_atom = torch.nn.Parameter(torch.tensor(norm_per_atom), requires_grad=False)
         self.data_stddev = torch.nn.Parameter(torch.tensor(data_stddev), requires_grad=False)
@@ -1000,13 +1040,15 @@ class NequIP(torch.nn.Module):
         for m in self.embeddings.values():
             data = m(data)
             
-        for m in self.interactions:
+        atomic_energy = 0.0
+            
+        for i, m in enumerate(self.interactions):
             data = m(data)
-        
-        node_feat = data.node_feat
-        assert node_feat is not None
-        atomic_energy = self.readout_mlp(node_feat).reshape(-1)
-        assert atomic_energy is not None
+            node_feat = data.node_feat
+            assert node_feat is not None
+            atomic_energy = atomic_energy + self.readouts[i](node_feat).reshape(-1)
+            
+        atomic_energy = atomic_energy + self.energy_bias
 
         return replace_properties(data, atomic_energy=atomic_energy)
 
