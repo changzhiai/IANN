@@ -5,13 +5,13 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 trainer = Trainer(
    model="painn",
-   config={"num_channels": 128, # number of channels in the model
+   config={"num_channels": 132, # number of channels in the model
             "num_layers": 3, # number of layers in the model
             "cutoff": 5.5, # cutoff radius
             "batch_size": 16, # batch size
             "learning_rate": 0.0001, # initial learning rate
             "forces_weight": 0.9, # weight for forces
-            # "load_model": True, # load model from checkpoint
+            # "load_model": 'test/painn/output/model.pt', # load model from checkpoint
             "max_steps": 30000000, # maximum number of steps
             "random_seed": 888, # random seed for reproducibility
             "val_ratio": 0.003, # validation ratio
@@ -19,7 +19,7 @@ trainer = Trainer(
             "log_interval": 1, # log interval
             # "max_epochs": 5,
             'device': 'cuda',
-            'output_dir': 'test/painn/output',
+            'output_dir': 'test/painn/output_132',
             'output_log': 'output.log',
             'output_model': 'model.pt'},
    distributed=True,

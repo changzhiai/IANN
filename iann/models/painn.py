@@ -265,6 +265,7 @@ class PaiNN(nn.Module):
         self.use_per_type_scale_shift = kwargs.get('use_per_type_scale_shift', False)
         species = kwargs.get('species', None)
 
+        self.per_type_scale_shift: Optional[PerTypeScaleShift] = None
         if self.use_per_type_scale_shift:
             per_type_energy_shifts = kwargs.get('per_type_energy_shifts', None)
             per_type_energy_scales = kwargs.get('per_type_energy_scales', None)
@@ -351,9 +352,10 @@ class PaiNN(nn.Module):
 
         atomic_energy = node_scalar
 
-        if self.use_per_type_scale_shift:
+        per_type_scale_shift = self.per_type_scale_shift
+        if per_type_scale_shift is not None:
             atom_types = data.atomic_numbers
-            atomic_energy = self.per_type_scale_shift(atomic_energy, atom_types)
+            atomic_energy = per_type_scale_shift(atomic_energy, atom_types)
 
         data = replace_properties(data, atomic_energy=atomic_energy)
 
@@ -376,18 +378,23 @@ class PaiNN(nn.Module):
 
         data = replace_properties(data, energy=energy)
         
+        # Initialize dE_ddiff as a placeholder for TorchScript scope
+        dE_ddiff = torch.zeros_like(edge_vectors)
+        
         if self.compute_forces:
             # TorchScript requires explicit list types for grad arguments
             outputs_list = torch.jit.annotate(List[Tensor], [energy])
             inputs_list = torch.jit.annotate(List[Tensor], [edge_vectors])
             grad_outputs_list = torch.jit.annotate(Optional[List[Optional[Tensor]]], [torch.ones_like(energy)])
-            dE_ddiff = torch.autograd.grad(
+            dE_ddiff_opt = torch.autograd.grad(
                 outputs=outputs_list,
                 inputs=inputs_list,
                 grad_outputs=grad_outputs_list,
                 retain_graph=True,
                 create_graph=True,
             )[0]
+            assert dE_ddiff_opt is not None
+            dE_ddiff = dE_ddiff_opt
             dE_ddiff = self._make_contiguous(dE_ddiff)
             
             # Initialize forces with proper strides

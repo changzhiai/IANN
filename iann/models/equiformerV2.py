@@ -454,6 +454,16 @@ class SO3_Rotation(torch.nn.Module):
         return M
 
     @torch.jit.export
+    def _xyz_to_angles_script(self, xyz: torch.Tensor):
+        """TorchScript-compatible xyz_to_angles (User Provided Version)."""
+        xyz = torch.nn.functional.normalize(xyz, p=2.0, dim=-1)  # forward 0's instead of nan for zero-radius
+        xyz = xyz.clamp(-1.0, 1.0)
+
+        beta = torch.acos(xyz[..., 1])
+        alpha = torch.atan2(xyz[..., 0], xyz[..., 2])
+        return alpha, beta
+
+    @torch.jit.export
     def RotationToWignerDMatrix(self, edge_rot_mat: torch.Tensor, start_lmax: int, end_lmax: int):
         """
             Compute Wigner matrices from rotation matrix
@@ -461,8 +471,10 @@ class SO3_Rotation(torch.nn.Module):
         # Force float32 precision for e3nn operations
         edge_rot_mat = edge_rot_mat.float()
         
-        x = edge_rot_mat @ torch.tensor([0.0, 1.0, 0.0], dtype=edge_rot_mat.dtype, device=edge_rot_mat.device)
-        alpha, beta = o3.xyz_to_angles(x)
+        y_vec = torch.tensor([0.0, 1.0, 0.0], dtype=edge_rot_mat.dtype, device=edge_rot_mat.device)
+        x = edge_rot_mat @ y_vec
+        
+        alpha, beta = self._xyz_to_angles_script(x)
         R = (
             o3.angles_to_matrix(
                 alpha, beta, torch.zeros_like(alpha, device=edge_rot_mat.device, dtype=edge_rot_mat.dtype)
@@ -2558,6 +2570,15 @@ class EquiformerV2(nn.Module):
         self.atom_channels_all = self.num_resolutions * self.atom_channels
         self.atom_embedding = nn.Embedding(self.max_num_elements, self.atom_channels_all)
 
+        # Initialize element mapping for JIT compatibility
+        element_mapping = torch.arange(120).long() # Default: identity mapping
+        if not self.universal_elems and self.species is not None:
+            from ase.data import atomic_numbers
+            Zs = torch.tensor([atomic_numbers[s] for s in self.species], dtype=torch.long)
+            indices = torch.arange(len(Zs)).long()
+            element_mapping.index_copy_(0, Zs, indices)
+        self.register_buffer('element_mapping', element_mapping, persistent=False)
+
         # Initialize the blocks for each layer of EquiformerV2
         self.attn_hidden_channels = kwargs.get('attn_hidden_channels', num_channels)
         self.num_heads = kwargs.get('num_heads', 8)
@@ -2738,7 +2759,7 @@ class EquiformerV2(nn.Module):
         self.data_mean = torch.nn.Parameter(torch.tensor(data_mean), requires_grad=False)
 
         self.use_per_type_scale_shift = kwargs.get('use_per_type_scale_shift', False)
-
+        self.per_type_scale_shift: Optional[PerTypeScaleShift] = None
         if self.use_per_type_scale_shift:
             per_type_energy_shifts = kwargs.get('per_type_energy_shifts', None)
             per_type_energy_scales = kwargs.get('per_type_energy_scales', None)
@@ -2862,14 +2883,17 @@ class EquiformerV2(nn.Module):
 
 
     def _apply_displacement(self, data: AtomsData) -> AtomsData:
-        num_images = int(data.image_indices.max() + 1)
+        image_indices = data.image_indices
+        if image_indices is None:
+            return data
+        num_images = int(image_indices.max() + 1)
         displacement = torch.zeros(
             (num_images, 3, 3), 
             dtype=data.edge_vectors.dtype, 
             device=data.edge_vectors.device, 
-            requires_grad=True
-        )
-        image_idx = data.image_indices[data.edge_indices[:, 0]]
+        ).requires_grad_()
+        # Apply displacement to edge vectors: r_ij = r_ij + disp @ r_ij
+        image_idx = image_indices[data.edge_indices[:, 0]]
         disp_batch = displacement[image_idx]
         edge_vectors = data.edge_vectors + torch.bmm(
             disp_batch, data.edge_vectors.unsqueeze(-1)
@@ -2899,10 +2923,8 @@ class EquiformerV2(nn.Module):
         if self.universal_elems:
             atomic_numbers = data.atomic_numbers.long()
         else:
-            if self.species is not None:
-                atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device, dtype=torch.long)
-            else:
-                atomic_numbers = data.atomic_numbers.long()
+            # JIT-friendly element mapping
+            atomic_numbers = self.element_mapping[data.atomic_numbers.long()]
         edge_index = data.edge_indices.transpose(0, 1)
         edge_vectors = data.edge_vectors
         positions = data.positions
@@ -2965,8 +2987,9 @@ class EquiformerV2(nn.Module):
         node_energy = self.energy_block(x) # feedforward NN
         node_energy = node_energy.embedding.narrow(1, 0, 1)
         
-        if self.use_per_type_scale_shift:
-            node_energy = self.per_type_scale_shift(node_energy.view(-1), data.atomic_numbers.long()).view(-1, 1, 1)
+        per_type_scale_shift = self.per_type_scale_shift
+        if per_type_scale_shift is not None:
+            node_energy = per_type_scale_shift(node_energy.view(-1), data.atomic_numbers.long()).view(-1, 1, 1)
 
         atomic_energy = node_energy.view(-1)
         data = replace_properties(data, atomic_energy=atomic_energy)
@@ -2976,20 +2999,22 @@ class EquiformerV2(nn.Module):
         data = replace_properties(data, energy=energy)
 
         if not self.use_per_type_scale_shift and self.norm_data:
-            normalizer = self.data_stddev
-            energy = normalizer * data.energy
-            if self.norm_per_atom:
-                mean_shift = data.num_atoms.to(energy.dtype) * self.data_mean
-            else:
-                mean_shift = self.data_mean
-                
-            energy = energy + mean_shift
-            data = replace_properties(data, energy=energy)
+            opt_energy = data.energy
+            if opt_energy is not None:
+                normalizer = self.data_stddev
+                energy = normalizer * opt_energy
+                if self.norm_per_atom:
+                    mean_shift = data.num_atoms.to(energy.dtype) * self.data_mean
+                else:
+                    mean_shift = self.data_mean
+                    
+                energy = energy + mean_shift
+                data = replace_properties(data, energy=energy)
 
         # NaN/Inf checks for energy
-        if torch.isnan(data.energy).any():
+        if torch.isnan(energy).any():
             print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
-        if torch.isinf(data.energy).any():
+        if torch.isinf(energy).any():
             print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
 
         # Force estimation
@@ -3194,9 +3219,9 @@ class GradientOutput(torch.nn.Module):
             
             if compute_forces:
                 inputs_list.append(edge_vectors)
-            if has_displacement and (compute_virial or compute_stress):
-                displacement = data.displacement
-                assert displacement is not None
+            
+            displacement = data.displacement
+            if displacement is not None and (compute_virial or compute_stress):
                 inputs_list.append(displacement)
                 
             if len(inputs_list) > 0:
@@ -3223,7 +3248,7 @@ class GradientOutput(torch.nn.Module):
                     forces = i_forces + j_forces
                     data = replace_properties(data, forces=forces)
                 
-                if has_displacement and (compute_virial or compute_stress):
+                if displacement is not None and (compute_virial or compute_stress):
                     dE_ddisp = grads[idx]
                     idx += 1
                     if dE_ddisp is not None:

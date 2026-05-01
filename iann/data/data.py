@@ -60,7 +60,6 @@ class AtomsData(NamedTuple):
     edge_indices: torch.Tensor
     edge_vectors: torch.Tensor
     num_edges: torch.Tensor
-    global_attr: torch.Tensor
     energy: Optional[torch.Tensor] = None
     forces: Optional[torch.Tensor] = None
     stress: Optional[torch.Tensor] = None
@@ -80,6 +79,7 @@ class AtomsData(NamedTuple):
     forces_variance: Optional[torch.Tensor] = None
 
     # global
+    global_attr: Optional[torch.Tensor] = None
     global_embedding: Optional[torch.Tensor] = None
 
 
@@ -129,6 +129,7 @@ def replace_properties(
     edge_diff_embedding: Optional[torch.Tensor] = None,
     energy_variance: Optional[torch.Tensor] = None,
     forces_variance: Optional[torch.Tensor] = None,
+    global_attr: Optional[torch.Tensor] = None,
     global_embedding: Optional[torch.Tensor] = None,
 
 ) -> AtomsData:
@@ -156,7 +157,7 @@ def replace_properties(
         edge_diff_embedding=edge_diff_embedding if edge_diff_embedding is not None else data.edge_diff_embedding,
         energy_variance=energy_variance if energy_variance is not None else data.energy_variance,
         forces_variance=forces_variance if forces_variance is not None else data.forces_variance,
-        global_attr=data.global_attr,
+        global_attr=global_attr if global_attr is not None else data.global_attr,
         global_embedding=global_embedding if global_embedding is not None else data.global_embedding,
     )
 

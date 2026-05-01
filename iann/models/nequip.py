@@ -13,7 +13,8 @@ warnings.filterwarnings("ignore", message="Fused TP is not supported on CPU")
 
 from e3nn import o3
 from e3nn.o3 import Linear, TensorProduct, FullyConnectedTensorProduct
-from e3nn.nn import FullyConnectedNet, Gate, NormActivation
+from e3nn.nn import FullyConnectedNet, NormActivation
+from iann.tools import Gate
 
 import torch.compiler
 if not hasattr(torch.compiler, "is_compiling"):
@@ -987,6 +988,7 @@ class NequIP(torch.nn.Module):
         self.use_per_type_scale_shift = (
             per_type_energy_shifts is not None or per_type_energy_scales is not None
         )
+        self.per_type_scale_shift: Optional[PerTypeScaleShift] = None
         if self.use_per_type_scale_shift:
             self.per_type_scale_shift = PerTypeScaleShift(
                 num_types=119,
@@ -1014,15 +1016,16 @@ class NequIP(torch.nn.Module):
             self.gradient_output = None
 
     def _apply_displacement(self, data: AtomsData) -> AtomsData:
-        num_images = int(data.image_indices.max() + 1)
+        image_indices = data.image_indices
+        assert image_indices is not None, "No image indices found!"
+        num_images = int(image_indices.max() + 1)
         displacement = torch.zeros(
             (num_images, 3, 3), 
             dtype=data.edge_vectors.dtype, 
             device=data.edge_vectors.device, 
-            requires_grad=True
-        )
+        ).requires_grad_()
         # Apply displacement to edge vectors: r_ij = r_ij + disp @ r_ij
-        image_idx = data.image_indices[data.edge_indices[:, 0]]
+        image_idx = image_indices[data.edge_indices[:, 0]]
         disp_batch = displacement[image_idx]
         edge_vectors = data.edge_vectors + torch.bmm(
             disp_batch, data.edge_vectors.unsqueeze(-1)
@@ -1048,23 +1051,26 @@ class NequIP(torch.nn.Module):
         atomic_energy = data.atomic_energy
         
         # Per-type scale/shift on atomic energies (before reduction)
-        if self.use_per_type_scale_shift:
-            atomic_energy = self.per_type_scale_shift(atomic_energy, data.atomic_numbers.long())
+        per_type_scale_shift = self.per_type_scale_shift
+        if per_type_scale_shift is not None:
+            atomic_energy = per_type_scale_shift(atomic_energy, data.atomic_numbers.long())
 
         data = replace_properties(data, atomic_energy=atomic_energy)
         data = self.atomwise_reduce(data)
 
         # Legacy global de-normalization (only if per-type is not used)
         if not self.use_per_type_scale_shift and self.norm_data:
-            normalizer = self.data_stddev
-            energy = normalizer * data.energy
-            if self.norm_per_atom:
-                mean_shift = data.num_atoms.to(energy.dtype) * self.data_mean
-            else:
-                mean_shift = self.data_mean
-                
-            energy = energy + mean_shift
-            data = replace_properties(data, energy=energy)
+            energy = data.energy
+            if energy is not None:
+                normalizer = self.data_stddev
+                energy = normalizer * energy
+                if self.norm_per_atom:
+                    mean_shift = data.num_atoms.to(energy.dtype) * self.data_mean
+                else:
+                    mean_shift = self.data_mean
+                    
+                energy = energy + mean_shift
+                data = replace_properties(data, energy=energy)
             
         return data
 
@@ -1176,12 +1182,14 @@ class GradientOutput(torch.nn.Module):
             compute_forces = 'forces' in self.model_outputs
             compute_virial = 'virial' in self.model_outputs
             compute_stress = 'stress' in self.model_outputs
-            has_displacement = hasattr(data, 'displacement')
+            has_displacement = data.displacement is not None
             
             if compute_forces:
                 grad_inputs.append(edge_vectors)
-            if has_displacement and (compute_virial or compute_stress):
-                grad_inputs.append(data.displacement)
+            
+            displacement = data.displacement
+            if displacement is not None and (compute_virial or compute_stress):
+                grad_inputs.append(displacement)
                 
             if grad_inputs:
                 grads = torch.autograd.grad(

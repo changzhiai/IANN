@@ -20,6 +20,7 @@ trainer = Trainer(
            'log_interval': 1,
            'norm_data': True, # normalize data
            'norm_per_atom': True, # normalize per atom
+           'use_cue': False,
            # "max_epochs": 5,
            'device': 'cpu',
            'output_dir': 'test/nequip/output',

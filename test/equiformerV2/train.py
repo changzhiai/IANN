@@ -23,8 +23,7 @@ trainer = Trainer(
             'species': ['Pt'],
             'log_input': True,
             'output_model': 'model.pt',
-            'load_model': 'test/equiformerV2/output/model.pt',
-            'universal_elems': True,
+            # 'load_model': 'test/equiformerV2/output/model.pt',
             },
     distributed=False
     )

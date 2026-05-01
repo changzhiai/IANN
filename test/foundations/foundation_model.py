@@ -5,7 +5,7 @@ from ase.build import fcc100
 
 # Create calculator with the foundation model
 calc = MLCalculator(
-    model_path=foundation_model("painn_oc22.pt"),
+    model_path=foundation_model("painn_oc.pt"),
     compute_forces=True,  # Enable force calculations
     device='cpu'  # Use 'cuda' if you have GPU
 )
