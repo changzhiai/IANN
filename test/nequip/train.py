@@ -10,14 +10,16 @@ trainer = Trainer(
            "lmax": 1, # 128x0e + 128x1o
            "cutoff": 5.5, # cutoff radius
            "batch_size": 16, # batch size
-           "learning_rate": 0.0001, # initial learning rate
-           "forces_weight": 0.9, # weight for forces
+           "learning_rate": 0.001, # initial learning rate
+           "forces_weight": 0.99, # weight for forces
         #    "load_model": 'output/model.pt', # load model from checkpoint
            "max_steps": 30000000, # maximum number of steps
            "random_seed": 889, # random seed for reproducibility
            "val_ratio": 0.003, # validation ratio
            "stop_patience": 600, # patience for early stopping
            'log_interval': 1,
+           'norm_data': True, # normalize data
+           'norm_per_atom': True, # normalize per atom
            # "max_epochs": 5,
            'device': 'cpu',
            'output_dir': 'test/nequip/output',

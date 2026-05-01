@@ -11,7 +11,7 @@ trainer = Trainer(
             "batch_size": 16, # batch size
             "learning_rate": 0.0001, # initial learning rate
             "forces_weight": 0.9, # weight for forces
-            "load_model": True, # load model from checkpoint
+            # "load_model": True, # load model from checkpoint
             "max_steps": 30000000, # maximum number of steps
             "random_seed": 888, # random seed for reproducibility
             "val_ratio": 0.003, # validation ratio

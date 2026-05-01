@@ -3,8 +3,7 @@ from torch import nn
 import copy, os
 from e3nn import o3
 import math
-import torch_geometric
-from typing import List, Optional, Callable, Union
+from typing import List, Optional, Callable, Union, Dict
 from iann.data import AtomsData, replace_properties
 import iann
 import sys
@@ -747,6 +746,32 @@ class RadialFunction(nn.Module):
     def forward(self, inputs):
         return self.net(inputs)
         
+
+def scatter_softmax(src: torch.Tensor, index: torch.Tensor, dim: int = 0, dim_size: Optional[int] = None) -> torch.Tensor:
+    if dim_size is None:
+        dim_size = int(index.max()) + 1
+    
+    # Broadcast index to match src dimensions
+    index_expand = index
+    for _ in range(src.dim() - index.dim()):
+        index_expand = index_expand.unsqueeze(-1)
+    index_expand = index_expand.expand_as(src)
+    
+    size = list(src.shape)
+    size[dim] = dim_size
+    
+    # Initialize with highly negative values for max reduction
+    max_value = torch.full(size, -1e10, dtype=src.dtype, device=src.device)
+    max_value.scatter_reduce_(dim, index_expand, src, reduce='amax', include_self=False)
+    
+    out = src - max_value.gather(dim, index_expand)
+    out = out.exp()
+    
+    sum_value = torch.zeros(size, dtype=src.dtype, device=src.device)
+    sum_value.scatter_add_(dim, index_expand, out)
+    
+    out = out / (sum_value.gather(dim, index_expand) + 1e-16)
+    return out
 
 class EdgeDegreeEmbedding(torch.nn.Module):
     """
@@ -1955,7 +1980,7 @@ class SO2EquivariantGraphAttention(torch.nn.Module):
         if alpha is None:
             alpha = torch.ones(edge_index[1].shape[0], device=self.x_message.embedding.device) # TODO: check if this is correct
 
-        alpha = torch_geometric.utils.softmax(alpha, edge_index[1])
+        alpha = scatter_softmax(alpha, edge_index[1], dim_size=self.x_message.embedding.shape[0])
 
         alpha = alpha.reshape(alpha.shape[0], 1, self.num_heads, 1)
         if self.alpha_dropout is not None:
@@ -2411,6 +2436,83 @@ class ModuleListInfo(torch.nn.ModuleList):
         return self.info_str 
     
 
+class PerTypeScaleShift(torch.nn.Module):
+    """Per-element energy scale and shift."""
+    def __init__(
+        self,
+        num_types: int,
+        shifts: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]] = None,
+        scales: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]] = None,
+        shifts_trainable: bool = False,
+        scales_trainable: bool = False,
+        species: Optional[List[str]] = None,
+    ):
+        super().__init__()
+        self.num_types = num_types
+
+        shifts_tensor = self._process_values(shifts, num_types, species, default=0.0)
+        scales_tensor = self._process_values(scales, num_types, species, default=1.0)
+
+        if shifts_trainable:
+            self.shifts = nn.Parameter(shifts_tensor)
+        else:
+            self.register_buffer("shifts", shifts_tensor)
+
+        if scales_trainable:
+            self.scales = nn.Parameter(scales_tensor)
+        else:
+            self.register_buffer("scales", scales_tensor)
+
+        self.has_shifts = shifts is not None
+        self.has_scales = scales is not None
+    
+    @staticmethod
+    def _process_values(
+        values: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]],
+        num_types: int,
+        species: Optional[List[str]],
+        default: float,
+    ) -> torch.Tensor:
+        """Convert various input formats to a [num_types, 1] tensor."""
+        from ase.data import atomic_numbers
+        if values is None:
+            return torch.full((num_types, 1), default)
+        elif isinstance(values, (int, float)):
+            return torch.full((num_types, 1), float(values))
+        elif isinstance(values, dict):
+            tensor = torch.full((num_types, 1), default)
+            for sp, val in values.items():
+                if sp in atomic_numbers:
+                    idx = atomic_numbers[sp]
+                    if idx < num_types:
+                        tensor[idx, 0] = val
+            return tensor
+        elif isinstance(values, (list, tuple)):
+            if species is not None and len(values) == len(species):
+                tensor = torch.full((num_types, 1), default)
+                for sp, val in zip(species, values):
+                    if sp in atomic_numbers:
+                        idx = atomic_numbers[sp]
+                        if idx < num_types:
+                            tensor[idx, 0] = val
+                return tensor
+            else:
+                return torch.tensor(values, dtype=torch.float32).reshape(num_types, 1)
+        elif isinstance(values, torch.Tensor):
+            return values.reshape(num_types, 1).float()
+        else:
+            return torch.tensor(values, dtype=torch.float32).reshape(num_types, 1)
+
+    def forward(
+        self, atomic_energy: torch.Tensor, atom_types: torch.Tensor
+    ) -> torch.Tensor:
+        if self.has_scales:
+            atomic_energy = atomic_energy * self.scales[atom_types].view(-1)
+        if self.has_shifts:
+            atomic_energy = atomic_energy + self.shifts[atom_types].view(-1)
+        return atomic_energy
+
+
 class EquiformerV2(nn.Module):
     """
     A class to set up the EquiformerV2 model.
@@ -2442,13 +2544,17 @@ class EquiformerV2(nn.Module):
         self.num_layers = num_layers
         
         self.atom_channels=num_channels
-        if self.species is None:
-            self.max_num_elements = 119
+        self.universal_elems = kwargs.get('universal_elems', True)
+        if self.universal_elems:
+            self.max_num_elements = 119  # universal one-hot encoding
         else:
-            from ase.data import atomic_numbers
-            self.max_num_elements = len(self.species)
-            Zs = [atomic_numbers[s] for s in self.species]
-            self.element_to_index = {Z: i for i, Z in enumerate(Zs)}
+            if self.species is not None:
+                from ase.data import atomic_numbers
+                self.max_num_elements = len(self.species)
+                Zs = [atomic_numbers[s] for s in self.species]
+                self.element_to_index = {Z: i for i, Z in enumerate(Zs)}
+            else:
+                self.max_num_elements = 119
         self.atom_channels_all = self.num_resolutions * self.atom_channels
         self.atom_embedding = nn.Embedding(self.max_num_elements, self.atom_channels_all)
 
@@ -2631,8 +2737,34 @@ class EquiformerV2(nn.Module):
         self.data_stddev = torch.nn.Parameter(torch.tensor(data_stddev), requires_grad=False)
         self.data_mean = torch.nn.Parameter(torch.tensor(data_mean), requires_grad=False)
 
-        if self.compute_forces:
-            self.gradient_output = GradientOutput(model_outputs=['forces'])
+        self.use_per_type_scale_shift = kwargs.get('use_per_type_scale_shift', False)
+
+        if self.use_per_type_scale_shift:
+            per_type_energy_shifts = kwargs.get('per_type_energy_shifts', None)
+            per_type_energy_scales = kwargs.get('per_type_energy_scales', None)
+            per_type_shifts_trainable = kwargs.get('per_type_shifts_trainable', False)
+            per_type_scales_trainable = kwargs.get('per_type_scales_trainable', False)
+            self.per_type_scale_shift = PerTypeScaleShift(
+                num_types=119,
+                shifts=per_type_energy_shifts,
+                scales=per_type_energy_scales,
+                shifts_trainable=per_type_shifts_trainable,
+                scales_trainable=per_type_scales_trainable,
+                species=self.species,
+            )
+
+        self.compute_stress = kwargs.get('compute_stress', False)
+        self.compute_virial = kwargs.get('compute_virial', False)
+
+        outputs = []
+        if self.compute_forces: outputs.append('forces')
+        if self.compute_stress: outputs.append('stress')
+        if self.compute_virial: outputs.append('virial')
+
+        if outputs:
+            self.gradient_output = GradientOutput(model_outputs=outputs)
+        else:
+            self.gradient_output = None
 
     def _get_grid_index(self, l: int, m: int, max_l: int) -> int:
         return l * (max_l + 1) + m
@@ -2729,6 +2861,22 @@ class EquiformerV2(nn.Module):
         return edge_rot_mat.detach()
 
 
+    def _apply_displacement(self, data: AtomsData) -> AtomsData:
+        num_images = int(data.image_indices.max() + 1)
+        displacement = torch.zeros(
+            (num_images, 3, 3), 
+            dtype=data.edge_vectors.dtype, 
+            device=data.edge_vectors.device, 
+            requires_grad=True
+        )
+        image_idx = data.image_indices[data.edge_indices[:, 0]]
+        disp_batch = displacement[image_idx]
+        edge_vectors = data.edge_vectors + torch.bmm(
+            disp_batch, data.edge_vectors.unsqueeze(-1)
+        ).squeeze(-1)
+        
+        return replace_properties(data, edge_vectors=edge_vectors, displacement=displacement)
+
     def forward(self, data: AtomsData):
         """
         Parameters
@@ -2745,10 +2893,16 @@ class EquiformerV2(nn.Module):
         # Reset all embeddings at the start of each forward pass to avoid state mutation
         self._reset_all_embeddings()
         
-        if self.species is None:
+        if self.compute_stress or self.compute_virial:
+            data = self._apply_displacement(data)
+        
+        if self.universal_elems:
             atomic_numbers = data.atomic_numbers.long()
         else:
-            atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device, dtype=torch.long)
+            if self.species is not None:
+                atomic_numbers = torch.tensor([self.element_to_index[Z.item()] for Z in data.atomic_numbers], device=data.atomic_numbers.device, dtype=torch.long)
+            else:
+                atomic_numbers = data.atomic_numbers.long()
         edge_index = data.edge_indices.transpose(0, 1)
         edge_vectors = data.edge_vectors
         positions = data.positions
@@ -2810,25 +2964,33 @@ class EquiformerV2(nn.Module):
         # Energy estimation
         node_energy = self.energy_block(x) # feedforward NN
         node_energy = node_energy.embedding.narrow(1, 0, 1)
-        energy = torch.zeros(data.num_atoms.shape[0], device=node_energy.device, dtype=torch.float32) 
-        energy.index_add_(0, image_indices, node_energy.view(-1))
+        
+        if self.use_per_type_scale_shift:
+            node_energy = self.per_type_scale_shift(node_energy.view(-1), data.atomic_numbers.long()).view(-1, 1, 1)
 
-        # Apply de-normalization
-        if self.norm_data:
-            normalizer = self.data_stddev
-            energy = normalizer * energy
-            mean_shift = self.data_mean
-            if self.norm_per_atom:
-                mean_shift = data.num_atoms * mean_shift
-            energy = energy + mean_shift
-        # NaN/Inf checks for energy
-        if torch.isnan(energy).any():
-            print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
-        if torch.isinf(energy).any():
-            print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
-        data = replace_properties(data, energy=energy)
         atomic_energy = node_energy.view(-1)
         data = replace_properties(data, atomic_energy=atomic_energy)
+
+        energy = torch.zeros(data.num_atoms.shape[0], device=node_energy.device, dtype=torch.float32) 
+        energy.index_add_(0, image_indices, atomic_energy)
+        data = replace_properties(data, energy=energy)
+
+        if not self.use_per_type_scale_shift and self.norm_data:
+            normalizer = self.data_stddev
+            energy = normalizer * data.energy
+            if self.norm_per_atom:
+                mean_shift = data.num_atoms.to(energy.dtype) * self.data_mean
+            else:
+                mean_shift = self.data_mean
+                
+            energy = energy + mean_shift
+            data = replace_properties(data, energy=energy)
+
+        # NaN/Inf checks for energy
+        if torch.isnan(data.energy).any():
+            print("[WARNING] NaN detected in energy in EquiformerV2 forward!")
+        if torch.isinf(data.energy).any():
+            print("[WARNING] Inf detected in energy in EquiformerV2 forward!")
 
         # Force estimation
         # if self.compute_forces:
@@ -2841,7 +3003,7 @@ class EquiformerV2(nn.Module):
             # forces = forces.view(-1, 3)
             # data = replace_properties(data, forces=forces)
 
-        if self.compute_forces:
+        if getattr(self, 'gradient_output', None) is not None:
             data = self.gradient_output(data)
 
         return data
@@ -3017,32 +3179,62 @@ class GradientOutput(torch.nn.Module):
         if self.grad_on_edge_diff:
             energy = data.energy
             edge_vectors = data.edge_vectors
-            positions = data.positions
+            forces_dim = int(torch.sum(data.num_atoms))
             edge_indices = data.edge_indices
             assert energy is not None
             
-            if 'forces' in self.model_outputs:
-                outputs_list = torch.jit.annotate(List[torch.Tensor], [energy])
-                inputs_list = torch.jit.annotate(List[torch.Tensor], [edge_vectors])
-                grad_outputs_list = torch.jit.annotate(Optional[List[Optional[torch.Tensor]]], [torch.ones_like(energy, dtype=torch.float32)])
-                dE_ddiff = torch.autograd.grad(
+            outputs_list = torch.jit.annotate(List[torch.Tensor], [energy])
+            inputs_list = torch.jit.annotate(List[torch.Tensor], [])
+            grad_outputs_list = torch.jit.annotate(Optional[List[Optional[torch.Tensor]]], [torch.ones_like(energy, dtype=torch.float32)])
+            
+            compute_forces = 'forces' in self.model_outputs
+            compute_virial = 'virial' in self.model_outputs
+            compute_stress = 'stress' in self.model_outputs
+            has_displacement = data.displacement is not None
+            
+            if compute_forces:
+                inputs_list.append(edge_vectors)
+            if has_displacement and (compute_virial or compute_stress):
+                displacement = data.displacement
+                assert displacement is not None
+                inputs_list.append(displacement)
+                
+            if len(inputs_list) > 0:
+                grads = torch.autograd.grad(
                     outputs=outputs_list,
                     inputs=inputs_list,
                     grad_outputs=grad_outputs_list,
                     retain_graph=training,
                     create_graph=training,
-                )[0]
-
-                # Initialize forces with proper strides
-                assert dE_ddiff is not None
-                i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
-                j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
-                i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
-                j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
-                forces = i_forces + j_forces
+                    allow_unused=True
+                )
                 
-                data = replace_properties(data, forces=forces)
-        
+                idx = 0
+                if compute_forces:
+                    dE_ddiff = grads[idx]
+                    idx += 1
+                    dE_ddiff = torch.zeros_like(data.positions) if dE_ddiff is None else dE_ddiff
+                    assert dE_ddiff is not None
+                    
+                    i_forces = torch.zeros((forces_dim, 3), device=edge_vectors.device, dtype=torch.float32)
+                    j_forces = torch.zeros_like(i_forces)
+                    i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
+                    j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
+                    forces = i_forces + j_forces
+                    data = replace_properties(data, forces=forces)
+                
+                if has_displacement and (compute_virial or compute_stress):
+                    dE_ddisp = grads[idx]
+                    idx += 1
+                    if dE_ddisp is not None:
+                        virial = dE_ddisp
+                        if compute_virial:
+                            data = replace_properties(data, virial=virial)
+                        if compute_stress:
+                            volume = torch.abs(torch.linalg.det(data.cell)).view(-1, 1, 1)
+                            stress = virial / volume.clamp(min=1e-6)
+                            data = replace_properties(data, stress=stress)
+                    
         return data
 
 

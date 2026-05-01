@@ -1,8 +1,84 @@
 from iann.data import AtomsData, replace_properties
 import torch
 from torch import nn
-from typing import List, Optional
+from typing import List, Optional, Union, Dict
 from torch import Tensor
+
+
+class PerTypeScaleShift(torch.nn.Module):
+    """Per-element energy scale and shift."""
+    def __init__(
+        self,
+        num_types: int,
+        shifts: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]] = None,
+        scales: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]] = None,
+        shifts_trainable: bool = False,
+        scales_trainable: bool = False,
+        species: Optional[List[str]] = None,
+    ):
+        super().__init__()
+        self.num_types = num_types
+
+        shifts_tensor = self._process_values(shifts, num_types, species, default=0.0)
+        scales_tensor = self._process_values(scales, num_types, species, default=1.0)
+
+        if shifts_trainable:
+            self.shifts = nn.Parameter(shifts_tensor)
+        else:
+            self.register_buffer("shifts", shifts_tensor)
+
+        if scales_trainable:
+            self.scales = nn.Parameter(scales_tensor)
+        else:
+            self.register_buffer("scales", scales_tensor)
+
+        self.has_shifts = shifts is not None
+        self.has_scales = scales is not None
+    
+    @staticmethod
+    def _process_values(
+        values: Optional[Union[float, List[float], Dict[str, float], torch.Tensor]],
+        num_types: int,
+        species: Optional[List[str]],
+        default: float,
+    ) -> torch.Tensor:
+        """Convert various input formats to a [num_types, 1] tensor."""
+        if values is None:
+            return torch.full((num_types, 1), default)
+        elif isinstance(values, (int, float)):
+            return torch.full((num_types, 1), float(values))
+        elif isinstance(values, dict):
+            tensor = torch.full((num_types, 1), default)
+            for sp, val in values.items():
+                if sp in atomic_numbers:
+                    idx = atomic_numbers[sp]
+                    if idx < num_types:
+                        tensor[idx, 0] = val
+            return tensor
+        elif isinstance(values, (list, tuple)):
+            if species is not None and len(values) == len(species):
+                tensor = torch.full((num_types, 1), default)
+                for sp, val in zip(species, values):
+                    if sp in atomic_numbers:
+                        idx = atomic_numbers[sp]
+                        if idx < num_types:
+                            tensor[idx, 0] = val
+                return tensor
+            else:
+                return torch.tensor(values, dtype=torch.float32).reshape(num_types, 1)
+        elif isinstance(values, torch.Tensor):
+            return values.reshape(num_types, 1).float()
+        else:
+            return torch.tensor(values, dtype=torch.float32).reshape(num_types, 1)
+
+    def forward(
+        self, atomic_energy: torch.Tensor, atom_types: torch.Tensor
+    ) -> torch.Tensor:
+        if self.has_scales:
+            atomic_energy = atomic_energy * self.scales[atom_types].view(-1)
+        if self.has_shifts:
+            atomic_energy = atomic_energy + self.shifts[atom_types].view(-1)
+        return atomic_energy
 
 def sinc_expansion(edge_dist: torch.Tensor, edge_channels: int, cutoff: float):
     """
@@ -183,8 +259,25 @@ class PaiNN(nn.Module):
         )
 
         self.compute_forces = kwargs.get('compute_forces', False)
-
         self.compute_stress = kwargs.get('compute_stress', False)
+        self.compute_virial = kwargs.get('compute_virial', False)
+
+        self.use_per_type_scale_shift = kwargs.get('use_per_type_scale_shift', False)
+        species = kwargs.get('species', None)
+
+        if self.use_per_type_scale_shift:
+            per_type_energy_shifts = kwargs.get('per_type_energy_shifts', None)
+            per_type_energy_scales = kwargs.get('per_type_energy_scales', None)
+            per_type_shifts_trainable = kwargs.get('per_type_shifts_trainable', False)
+            per_type_scales_trainable = kwargs.get('per_type_scales_trainable', False)
+            self.per_type_scale_shift = PerTypeScaleShift(
+                num_types=119,
+                shifts=per_type_energy_shifts,
+                scales=per_type_energy_scales,
+                shifts_trainable=per_type_shifts_trainable,
+                scales_trainable=per_type_scales_trainable,
+                species=species,
+            )
                 
         # Initialize parameters with proper memory layout
         self.reset_parameters()
@@ -256,24 +349,29 @@ class PaiNN(nn.Module):
         node_scalar = self._make_contiguous(node_scalar)
         node_scalar = node_scalar.squeeze(-1)
 
+        atomic_energy = node_scalar
+
+        if self.use_per_type_scale_shift:
+            atom_types = data.atomic_numbers
+            atomic_energy = self.per_type_scale_shift(atomic_energy, atom_types)
+
+        data = replace_properties(data, atomic_energy=atomic_energy)
+
         image_idx = torch.arange(num_atoms.shape[0],
                                  device=edge_indices.device)
         image_idx = torch.repeat_interleave(image_idx, num_atoms)
         
         # Initialize energy with proper strides
         energy = torch.zeros(num_atoms.shape[0], device=num_atoms.device, dtype=torch.float32)
-        energy.index_add_(0, image_idx, node_scalar)
-
-        atomic_energy = node_scalar
-        data = replace_properties(data, atomic_energy=atomic_energy)
+        energy.index_add_(0, image_idx, atomic_energy)
 
         # Apply (de-)norm_data
-        if self.norm_data:
+        if not self.use_per_type_scale_shift and self.norm_data:
             normalizer = self.normalize_stddev
             energy = self._make_contiguous(normalizer * energy)
             mean_shift = self.data_mean
             if self.norm_per_atom:
-                mean_shift = self._make_contiguous(num_edges * mean_shift)
+                mean_shift = self._make_contiguous(num_atoms * mean_shift)
             energy = self._make_contiguous(energy + mean_shift)
 
         data = replace_properties(data, energy=energy)
@@ -301,18 +399,11 @@ class PaiNN(nn.Module):
             
             data = replace_properties(data, forces=forces)
         
-        # if self.compute_stress:
-        #     cell = data.cell
-        #     volume = torch.abs(torch.det(cell))
-        #     stress_virial = -torch.einsum('ij,ik->jk', forces, positions) / volume
-        #     stress_virial_sym = 0.5 * (stress_virial + stress_virial.t())
-        #     stress_virial_sym = self._make_contiguous(stress_virial_sym)
-        #     data = replace_properties(data, stress=stress_virial_sym)
-        
-        if self.compute_stress:
-            # Stress = -(1/V) * Σ_edges (edge_vector ⊗ dE_ddiff)
+        if self.compute_stress or self.compute_virial:
+            # Virial = -Σ_edges (edge_vector ⊗ dE_ddiff)
+            # Stress = Virial / V
             if not self.compute_forces:
-                raise ValueError("compute_forces must be True to compute stress")
+                raise ValueError("compute_forces must be True to compute stress/virial")
             
             cell = data.cell
             if cell.dim() == 3 and cell.shape[0] == num_atoms.shape[0]: # Batched cells: (N, 3, 3)
@@ -324,32 +415,38 @@ class PaiNN(nn.Module):
             
             volumes = torch.abs(torch.det(cells_per_image))  # (N,)
             
-            stress_contrib = -torch.einsum('ij,ik->ijk', edge_vectors, dE_ddiff)  # (num_edges, 3, 3)
+            virial_contrib = -torch.einsum('ij,ik->ijk', edge_vectors, dE_ddiff)  # (num_edges, 3, 3)
             
-            stress_per_image = torch.zeros(num_atoms.shape[0], 3, 3, device=energy.device, dtype=torch.float32)
-            stress_contrib_flat = stress_contrib.view(stress_contrib.shape[0], -1)  # (num_edges, 9)
-            stress_per_image_flat = stress_per_image.view(stress_per_image.shape[0], -1)  # (N, 9)
-            stress_per_image_flat.index_add_(0, image_idx[edge_indices[:, 0]], stress_contrib_flat)
-            stress_per_image = stress_per_image_flat.view(stress_per_image.shape[0], 3, 3)
+            virial_per_image = torch.zeros(num_atoms.shape[0], 3, 3, device=energy.device, dtype=torch.float32)
+            virial_contrib_flat = virial_contrib.view(virial_contrib.shape[0], -1)  # (num_edges, 9)
+            virial_per_image_flat = virial_per_image.view(virial_per_image.shape[0], -1)  # (N, 9)
+            virial_per_image_flat.index_add_(0, image_idx[edge_indices[:, 0]], virial_contrib_flat)
+            virial_per_image = virial_per_image_flat.view(virial_per_image.shape[0], 3, 3)
             
-            valid_volume_mask = volumes > 1e-10
-            volumes_expanded = volumes.unsqueeze(-1).unsqueeze(-1).expand(-1, 3, 3)
-            stress_per_image = torch.where(
-                valid_volume_mask.unsqueeze(-1).unsqueeze(-1).expand(-1, 3, 3),
-                stress_per_image / volumes_expanded,
-                torch.zeros_like(stress_per_image)
-            )
+            # Symmetrize virial tensor for all images at once
+            virial_per_image = (virial_per_image + virial_per_image.transpose(-1, -2)) / 2.0
             
-            # Symmetrize stress tensor for all images at once
-            stress_per_image = (stress_per_image + stress_per_image.transpose(-1, -2)) / 2.0
-            
-            if num_atoms.shape[0] == 1:
-                stress = stress_per_image[0]
-            else:
-                stress = stress_per_image
-            
-            stress = self._make_contiguous(stress)
-            
-            data = replace_properties(data, stress=stress)
+            if self.compute_virial:
+                if num_atoms.shape[0] == 1:
+                    virial = virial_per_image[0]
+                else:
+                    virial = virial_per_image
+                virial = self._make_contiguous(virial)
+                data = replace_properties(data, virial=virial)
+                
+            if self.compute_stress:
+                valid_volume_mask = volumes > 1e-10
+                volumes_expanded = volumes.unsqueeze(-1).unsqueeze(-1).expand(-1, 3, 3)
+                stress_per_image = torch.where(
+                    valid_volume_mask.unsqueeze(-1).unsqueeze(-1).expand(-1, 3, 3),
+                    virial_per_image / volumes_expanded,
+                    torch.zeros_like(virial_per_image)
+                )
+                if num_atoms.shape[0] == 1:
+                    stress = stress_per_image[0]
+                else:
+                    stress = stress_per_image
+                stress = self._make_contiguous(stress)
+                data = replace_properties(data, stress=stress)
         
         return data

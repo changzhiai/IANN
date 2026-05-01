@@ -121,12 +121,12 @@ class OneHotAtomEncoding(torch.nn.Module):
         num_elements: int = 119,
         species: Optional[List[str]] = None,
         set_features: bool=True,
-        universal_onehot: bool = True,
+        universal_elems: bool = True,
     ):
         super().__init__()
         self.set_features = set_features
         self.species = species
-        self.universal_onehot = universal_onehot
+        self.universal_elems = universal_elems
         
         # TypeMapper is kept for downstream use (e.g., PerTypeScaleShift)
         if self.species is not None:
@@ -134,7 +134,7 @@ class OneHotAtomEncoding(torch.nn.Module):
         else:
             self.type_mapper = None
 
-        if self.universal_onehot:
+        if self.universal_elems:
             self.num_elements = 119  # universal one-hot encoding
         else:
             if self.species is not None:
@@ -150,7 +150,7 @@ class OneHotAtomEncoding(torch.nn.Module):
             self.irreps_out['node_feat'] = self.irreps_out['node_attr']
             
     def forward(self, data: AtomsData):
-        if self.universal_onehot:
+        if self.universal_elems:
             # Always use Z-1 indexing for universal one-hot
             atomic_types = data.atomic_numbers - 1
         else:
@@ -943,15 +943,26 @@ class PerTypeScaleShift(torch.nn.Module):
         elif isinstance(values, (int, float)):
             return torch.full((num_types, 1), float(values))
         elif isinstance(values, dict):
-            if species is None:
-                raise ValueError("Must provide `species` when passing shifts/scales as a dict.")
-            numbers = [atomic_numbers[s] for s in species]
-            sorted_species = [e[1] for e in sorted(zip(numbers, species))]
-            tensor = torch.zeros(num_types, 1)
-            for idx, sp in enumerate(sorted_species):
-                if sp in values:
-                    tensor[idx, 0] = values[sp]
+            from ase.data import atomic_numbers
+            tensor = torch.full((num_types, 1), default)
+            for sp, val in values.items():
+                if sp in atomic_numbers:
+                    idx = atomic_numbers[sp]
+                    if idx < num_types:
+                        tensor[idx, 0] = val
             return tensor
+        elif isinstance(values, (list, tuple)):
+            from ase.data import atomic_numbers
+            if species is not None and len(values) == len(species):
+                tensor = torch.full((num_types, 1), default)
+                for sp, val in zip(species, values):
+                    if sp in atomic_numbers:
+                        idx = atomic_numbers[sp]
+                        if idx < num_types:
+                            tensor[idx, 0] = val
+                return tensor
+            else:
+                return torch.tensor(values, dtype=torch.float32).reshape(num_types, 1)
         elif isinstance(values, torch.Tensor):
             return values.reshape(num_types, 1).float()
         else:
@@ -1052,12 +1063,12 @@ class MACE(nn.Module):
             self.correlation = [self.correlation] * num_layers
 
         species: List[str] = kwargs.get('species', None)
-        self.universal_onehot = kwargs.get('universal_onehot', True)
+        self.universal_elems = kwargs.get('universal_elems', True)
 
-        if self.universal_onehot:
+        if self.universal_elems:
             num_elements = 119  # always 119 for universal one-hot
         else:
-            if bool(species):
+            if species is not None:
                 num_elements = len(species)
             else:
                 num_elements = 119
@@ -1106,7 +1117,7 @@ class MACE(nn.Module):
         self.embeddings['onehot_embedding'] = OneHotAtomEncoding(
             num_elements=num_elements, 
             species=species,
-            universal_onehot=self.universal_onehot
+            universal_elems=self.universal_elems
         )
         self.embeddings['radial_basis'] = RadialBasisEdgeEncoding(
             basis=BesselBasis(cutoff=self.cutoff, num_basis=self.num_basis),
@@ -1189,9 +1200,8 @@ class MACE(nn.Module):
             per_type_energy_scales = kwargs.get('per_type_energy_scales', None)
             per_type_shifts_trainable = kwargs.get('per_type_shifts_trainable', False)
             per_type_scales_trainable = kwargs.get('per_type_scales_trainable', False)
-            num_types = len(species) if species else 119
             self.per_type_scale_shift = PerTypeScaleShift(
-                num_types=num_types,
+                num_types=119,
                 shifts=per_type_energy_shifts,
                 scales=per_type_energy_scales,
                 shifts_trainable=per_type_shifts_trainable,
@@ -1214,18 +1224,15 @@ class MACE(nn.Module):
             self.gradient_output = None
             
     def _apply_displacement(self, data: AtomsData) -> AtomsData:
-        num_graphs = int(data.image_indices.max() + 1) if data.image_indices is not None else 1
+        num_images = int(data.image_indices.max() + 1)
         displacement = torch.zeros(
-            (num_graphs, 3, 3), 
+            (num_images, 3, 3), 
             dtype=data.edge_vectors.dtype, 
             device=data.edge_vectors.device, 
             requires_grad=True
         )
-        if data.image_indices is not None:
-            graph_idx = data.image_indices[data.edge_indices[:, 0]]
-        else:
-            graph_idx = torch.zeros(data.edge_vectors.shape[0], dtype=torch.long, device=data.edge_vectors.device)
-        disp_batch = displacement[graph_idx]
+        image_idx = data.image_indices[data.edge_indices[:, 0]]
+        disp_batch = displacement[image_idx]
         edge_vectors = data.edge_vectors + torch.bmm(
             disp_batch, data.edge_vectors.unsqueeze(-1)
         ).squeeze(-1)
@@ -1271,21 +1278,19 @@ class MACE(nn.Module):
         atomic_energy = data.atomic_energy
         
         if self.use_per_type_scale_shift:
-            if self.embeddings['onehot_embedding'].type_mapper is not None:
-                atom_types = self.embeddings['onehot_embedding'].type_mapper(data)
-            else:
-                atom_types = data.atomic_numbers - 1
-            atomic_energy = self.per_type_scale_shift(atomic_energy, atom_types)
-
-        data = replace_properties(data, atomic_energy=atomic_energy)
+            atomic_energy = self.per_type_scale_shift(atomic_energy, data.atomic_numbers.long())
+            data = replace_properties(data, atomic_energy=atomic_energy)
+        
         data = self.atomwise_reduce(data)
 
         if not self.use_per_type_scale_shift and self.norm_data:
             normalizer = self.data_stddev
             energy = normalizer * data.energy
-            mean_shift = self.data_mean
             if self.norm_per_atom:
-                mean_shift = len(data.edge_indices) * mean_shift
+                mean_shift = data.num_atoms.to(energy.dtype) * self.data_mean
+            else:
+                mean_shift = self.data_mean
+                
             energy = energy + mean_shift
             data = replace_properties(data, energy=energy)
             

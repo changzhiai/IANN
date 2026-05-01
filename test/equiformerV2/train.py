@@ -24,6 +24,7 @@ trainer = Trainer(
             'log_input': True,
             'output_model': 'model.pt',
             'load_model': 'test/equiformerV2/output/model.pt',
+            'universal_elems': True,
             },
     distributed=False
     )
