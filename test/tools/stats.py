@@ -48,10 +48,13 @@ def test_calc_energy_statistics():
     print("Generating synthetic dataset...")
     images, gt_shifts, gt_rms = create_synthetic_dataset(200)
     
+    # Resolve script directory to save logs there
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
     # 1. Test with explicit species
     print("\nTest 1: Explicit species")
     species = ['H', 'O', 'Si']
-    stats = calc_energy_statistics(images, species=species, log_file="test_explicit.log")
+    stats = calc_energy_statistics(images, species=species, log_file=os.path.join(script_dir, "test_explicit.log"))
     
     for s in species:
         recovered = stats['per_type_energy_shifts'][s]
@@ -62,13 +65,13 @@ def test_calc_energy_statistics():
 
     # 2. Test with auto-discovery
     print("\nTest 2: Auto-discovery")
-    stats_auto = calc_energy_statistics(images, species=None, log_file="test_auto.log")
+    stats_auto = calc_energy_statistics(images, species=None, log_file=os.path.join(script_dir, "test_auto.log"))
     assert sorted(stats_auto['species']) == sorted(['H', 'O', 'Si'])
     print(f"  Auto-discovered species: {stats_auto['species']}")
 
     # 3. Test sampling
     print("\nTest 3: Sampling")
-    stats_sample = calc_energy_statistics(images, max_samples=50, log_file="test_sample.log")
+    stats_sample = calc_energy_statistics(images, max_samples=50, log_file=os.path.join(script_dir, "test_sample.log"))
     # Shifts should still be reasonably close
     for s in species:
         recovered = stats_sample['per_type_energy_shifts'][s]
