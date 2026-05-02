@@ -24,6 +24,11 @@ def _load_fastpot():
     from .fastpot import FastPot
     return FastPot
 
+def _load_allegro():
+    """Lazy load Allegro model"""
+    from .allegro import Allegro
+    return Allegro
+
 def _load_demo():
     """Lazy load Demo model"""
     from .demo import Demo
@@ -34,6 +39,7 @@ __all__ = [
     "PaiNN", 
     "NequIP",
     "EquiformerV2",
+    "Allegro",
     "FastPot",
     "Demo",
     "get_model_class",
@@ -45,6 +51,7 @@ MODEL_REGISTRY = {
     "painn": _load_painn,
     "nequip": _load_nequip,
     "equiformerV2": _load_equiformerV2,
+    "allegro": _load_allegro,
     "fastpot": _load_fastpot,
     "demo": _load_demo,
 }
@@ -69,6 +76,8 @@ def __getattr__(name):
         return _load_nequip()
     elif name == "EquiformerV2":
         return _load_equiformerV2()
+    elif name == "Allegro":
+        return _load_allegro()
     elif name == "FastPot":
         return _load_fastpot()
     elif name == "Demo":
