@@ -29,14 +29,4 @@ trainer = Trainer(
    distributed=False,
    )
 
-# trainer = Trainer(
-#     model="nequip",
-#     config={"device": "cpu",
-#             'num_channels': 32,
-
-#             'output_dir': 'test/nequip/model_output',
-#             # 'load_model': 'test/nequip/model_output/model.pt',
-#             'log_interval': 1},
-#     distributed=False
-#     )
 trainer.train("test/Pt_ads.traj")

@@ -116,6 +116,13 @@ class AtomsData(NamedTuple):
 
 def replace_properties(
     data: AtomsData,
+    num_atoms: Optional[torch.Tensor] = None,
+    atomic_numbers: Optional[torch.Tensor] = None,
+    positions: Optional[torch.Tensor] = None,
+    cell: Optional[torch.Tensor] = None,
+    edge_indices: Optional[torch.Tensor] = None,
+    edge_vectors: Optional[torch.Tensor] = None,
+    num_edges: Optional[torch.Tensor] = None,
     energy: Optional[torch.Tensor] = None,
     forces: Optional[torch.Tensor] = None,
     stress: Optional[torch.Tensor] = None,
@@ -131,19 +138,18 @@ def replace_properties(
     forces_variance: Optional[torch.Tensor] = None,
     global_attr: Optional[torch.Tensor] = None,
     global_embedding: Optional[torch.Tensor] = None,
-
 ) -> AtomsData:
     """
     Replace the properties of the AtomsData object.
     """
     return AtomsData(
-        num_atoms=data.num_atoms,
-        atomic_numbers=data.atomic_numbers,
-        positions=data.positions,
-        cell=data.cell,
-        edge_indices=data.edge_indices,
-        edge_vectors=data.edge_vectors,
-        num_edges=data.num_edges,
+        num_atoms=num_atoms if num_atoms is not None else data.num_atoms,
+        atomic_numbers=atomic_numbers if atomic_numbers is not None else data.atomic_numbers,
+        positions=positions if positions is not None else data.positions,
+        cell=cell if cell is not None else data.cell,
+        edge_indices=edge_indices if edge_indices is not None else data.edge_indices,
+        edge_vectors=edge_vectors if edge_vectors is not None else data.edge_vectors,
+        num_edges=num_edges if num_edges is not None else data.num_edges,
         energy=energy if energy is not None else data.energy,
         forces=forces if forces is not None else data.forces,
         stress=stress if stress is not None else data.stress,

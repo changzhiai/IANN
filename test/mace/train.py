@@ -12,7 +12,7 @@ trainer = Trainer(
            "batch_size": 16, # batch size
            "learning_rate": 0.0001, # initial learning rate
            "forces_weight": 0.9, # weight for forces
-        #    "load_model": 'test/mace/output', # load model from checkpoint
+           # "load_model": 'test/mace/output', # load model from checkpoint
            "max_steps": 30000000, # maximum number of steps
            "random_seed": 777, # random seed for reproducibility
            "val_ratio": 0.003, # validation ratio
@@ -20,7 +20,7 @@ trainer = Trainer(
            'log_interval': 1,
            'norm_data': True, # normalize data
            'norm_per_atom': True, # normalize per atom
-           'use_cue': False, # use cue
+           'use_cue': True, # use cue
            # "max_epochs": 5,
            'device': 'cpu',
            'output_dir': 'test/mace/output',
@@ -29,14 +29,4 @@ trainer = Trainer(
    distributed=True,
    )
 
-# trainer = Trainer(
-#     model="mace",
-#     config={"device": "cpu", 
-#             'num_channels': 32,
-#             'output_dir': 'test/mace/output',
-#             # 'load_model': 'test/mace/output/model.pt',
-#             'norm_data': True,
-#             'log_interval': 1},
-#     distributed=False
-#     )
 trainer.train("test/Pt_ads.traj")

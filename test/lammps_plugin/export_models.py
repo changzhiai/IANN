@@ -53,6 +53,7 @@ if __name__ == "__main__":
                    log_interval=1,
                    norm_data=True, 
                    norm_per_atom=True, 
+                   use_cue=False,
                    device='cpu',
                    output_dir='test/nequip/output',
                    output_log='output.log',
@@ -72,7 +73,7 @@ if __name__ == "__main__":
                     log_interval=1,
                     norm_data=True, # normalize data
                     norm_per_atom=True, # normalize per atom
-                    use_cue=False, # use cue
+                    use_cue=True, # use cue
                     device='cpu',
                     output_dir='test/mace/output',
                     output_log='output.log',
