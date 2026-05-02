@@ -193,7 +193,7 @@ class AseDataReader:
         num_atoms = torch.tensor([atoms.get_global_number_of_atoms()])
         atomic_numbers = torch.tensor(atoms.numbers, dtype=torch.long)
         positions = torch.tensor(atoms.positions, dtype=torch.float32)
-        cell = torch.tensor(atoms.cell[:], dtype=torch.float32)
+        cell = torch.tensor(atoms.cell[:], dtype=torch.float32).unsqueeze(0)
         
         if atoms.pbc.any():
             edge_indices, edge_vectors = self.get_neighborlist(atoms)
@@ -231,9 +231,9 @@ class AseDataReader:
                 # ASE stress is usually a 6-element Voigt array or 3x3 matrix.
                 # get_stress(voigt=False) returns a 3x3 matrix.
                 stress_mat = atoms.get_stress(voigt=False)
-                stress = torch.tensor([stress_mat], dtype=torch.float32) if self.compute_stress else None
+                stress = torch.from_numpy(stress_mat).float().unsqueeze(0) if self.compute_stress else None
                 # Virial is stress * volume (with appropriate sign conventions, usually just V * stress)
-                virial = torch.tensor([stress_mat * atoms.get_volume()], dtype=torch.float32) if self.compute_virial else None
+                virial = torch.from_numpy(stress_mat * atoms.get_volume()).float().unsqueeze(0) if self.compute_virial else None
             except (AttributeError, RuntimeError, ValueError):
                 stress = None
                 virial = None
@@ -301,7 +301,7 @@ class AseDataReader:
         volume = atoms.get_volume()
         density = atoms.get_masses().sum() / volume
         global_attr = torch.tensor(
-            [a, b, c, alpha, beta, gamma, volume, density],
+            [[a, b, c, alpha, beta, gamma, volume, density]],
             dtype=torch.float32
         )
         # Standardization

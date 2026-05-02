@@ -434,11 +434,7 @@ class PaiNN(nn.Module):
             virial_per_image = (virial_per_image + virial_per_image.transpose(-1, -2)) / 2.0
             
             if self.compute_virial:
-                if num_atoms.shape[0] == 1:
-                    virial = virial_per_image[0]
-                else:
-                    virial = virial_per_image
-                virial = self._make_contiguous(virial)
+                virial = self._make_contiguous(virial_per_image)
                 data = replace_properties(data, virial=virial)
                 
             if self.compute_stress:
@@ -449,11 +445,7 @@ class PaiNN(nn.Module):
                     virial_per_image / volumes_expanded,
                     torch.zeros_like(virial_per_image)
                 )
-                if num_atoms.shape[0] == 1:
-                    stress = stress_per_image[0]
-                else:
-                    stress = stress_per_image
-                stress = self._make_contiguous(stress)
+                stress = self._make_contiguous(stress_per_image)
                 data = replace_properties(data, stress=stress)
         
         return data

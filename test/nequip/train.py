@@ -13,7 +13,7 @@ trainer = Trainer(
            "learning_rate": 0.001, # initial learning rate
            "forces_weight": 0.99, # weight for forces
         #    "load_model": 'output/model.pt', # load model from checkpoint
-           "max_steps": 30000000, # maximum number of steps
+           "max_steps": 30000000, # maximum number of steps.
            "random_seed": 889, # random seed for reproducibility
            "val_ratio": 0.003, # validation ratio
            "stop_patience": 600, # patience for early stopping
