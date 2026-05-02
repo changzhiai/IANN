@@ -26,7 +26,7 @@ trainer = Trainer(
            'output_dir': 'test/mace/output',
            'output_log': 'output.log',
            'output_model': 'model.pt'},
-   distributed=True,
+   distributed=False,
    )
 
 trainer.train("test/Pt_ads.traj")

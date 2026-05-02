@@ -18,3 +18,4 @@ test/dft*.traj
 test/*/*.traj
 test/*/*.pt
 test/test
+*.log
