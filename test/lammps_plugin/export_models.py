@@ -92,8 +92,8 @@ if __name__ == "__main__":
                     lmax_list = [4],
                     mmax_list = [2],
                     stop_patience = 1000,
-                    norm_data = False,
-                    species = ['Pt'],
+                    norm_data = True,
+                    norm_per_atom=True,
                     log_input = True,
             output_model = 'model.pt')
     export_models(export="ensemble_painn")

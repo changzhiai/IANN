@@ -23,6 +23,14 @@ def _load_model(model_path, device, compute_forces, **kwargs):
         else:
             raise ValueError("Could not determine model type from state dict!")
 
+    # Clean up kwargs
+    model_kwargs = kwargs.copy()
+    
+    # compute_forces can be toggled at inference time if the model supports it
+    forces_enabled = model_kwargs.pop("compute_forces", state_dict.get("compute_forces", False))
+    if compute_forces is not None:
+        forces_enabled = compute_forces
+
     # Create appropriate model
     if model_type == "painn":
         from iann.models.painn import PaiNN
@@ -30,35 +38,69 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
-            **kwargs,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
     elif model_type == "nequip":
         from iann.models.nequip import NequIP
+        # Structural parameters are fixed at training time and should not be overridden
+        model_kwargs.pop("lmax", None)
+        model_kwargs.pop("parity", None)
+        model_kwargs.pop("use_cue", None)
+        
+        lmax_sd = state_dict.get("lmax")
+        if lmax_sd is None: lmax_sd = 2
+        parity_sd = state_dict.get("parity")
+        if parity_sd is None: parity_sd = True
+        use_cue_sd = state_dict.get("use_cue", False)
+
         model = NequIP(
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
-            **kwargs,
+            lmax=lmax_sd,
+            parity=parity_sd,
+            use_cue=use_cue_sd,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
     elif model_type == "mace":
         from iann.models.mace import MACE
+        # Structural parameters are fixed at training time and should not be overridden
+        model_kwargs.pop("lmax", None)
+        model_kwargs.pop("use_cue", None)
+        
+        lmax_sd = state_dict.get("lmax")
+        if lmax_sd is None: lmax_sd = 3
+        use_cue_sd = state_dict.get("use_cue", False)
+        
         model = MACE(
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
-            **kwargs,
+            lmax=lmax_sd,
+            use_cue=use_cue_sd,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
     elif model_type == "equiformerv2":
         from iann.models.equiformerV2 import EquiformerV2
+        # Structural parameters are fixed at training time and should not be overridden
+        model_kwargs.pop("lmax", None)
+        model_kwargs.pop("parity", None)
+        
+        lmax_sd = state_dict.get("lmax")
+        if lmax_sd is None: lmax_sd = 2
+        parity_sd = state_dict.get("parity")
+        if parity_sd is None: parity_sd = True
+        
         model = EquiformerV2(
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
-            **kwargs,
+            # EquiformerV2 does not support use_cue
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
     elif model_type == "fastpot":
         from iann.models.fastpot import FastPot
@@ -66,8 +108,8 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
-            **kwargs,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
     elif model_type == "demo":
         from iann.models.demo import Demo
@@ -75,8 +117,8 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
-            compute_forces=state_dict["compute_forces"] if compute_forces is None else compute_forces,
-            **kwargs,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, equiformerV2, fastpot, and demo!")

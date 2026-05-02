@@ -18,7 +18,9 @@ dft_forces = []
 nnp_energies = []
 nnp_forces = []
 
-for atoms in images:
+print(f"Starting predictions for {len(images)} images...")
+for i, atoms in enumerate(images):
+    print(f"Processing image {i+1}/{len(images)}...")
     dft_energy = atoms.get_potential_energy()
     dft_force = atoms.get_forces()
     mean_dft_force = np.mean(np.linalg.norm(dft_force, axis=1))
@@ -53,8 +55,8 @@ plt.plot([min(dft_energies), max(dft_energies)], [min(dft_energies), max(dft_ene
 plt.xlabel('DFT Energy')
 plt.ylabel('NNP Energy')
 plt.title(f'PaiNN: DFT vs NNP Energy (RMSE: {rmse:.4f})')
-plt.savefig('test/painn/output/energy_comparison.png')
-plt.show()
+plt.savefig('test/painn/output/energy_fitting.png')
+# plt.show()
 
     
 

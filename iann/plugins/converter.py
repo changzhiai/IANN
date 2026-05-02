@@ -10,6 +10,7 @@ Supports all four model types with proper error handling
 from iann.data import AseDataReader, AtomsData
 import argparse
 import torch
+import os
 from pathlib import Path
 from typing import Dict
 import warnings
@@ -182,12 +183,23 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
     Returns:
         str: Path to the exported TorchScript model
     """
-    print(f"Loading model from {model_path}")
-    
+    # Check if file exists and is not empty
+    if not os.path.exists(model_path):
+        print(f"Error: Model file {model_path} not found.")
+        return None
+    if os.path.getsize(model_path) == 0:
+        print(f"Error: Model file {model_path} is empty (0 bytes). Skipping.")
+        return None
+
     # Load the model checkpoint
     device = torch.device('cpu')
-    state_dict = torch.load(model_path, map_location=device)
-
+    try:
+        state_dict = torch.load(model_path, map_location=device)
+    except (EOFError, RuntimeError, Exception) as e:
+        print(f"Error loading model from {model_path}: {e}")
+        return None
+        
+    print(f"Loading model from {model_path}...")
     if model_type is None:
         # Determine model type from state dict
         if "model_type" in state_dict:
@@ -205,23 +217,23 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
             else:
                 raise ValueError("Could not determine model type, please provide model type explicitly!")
     
-    # Extract hyperparameters, allowing kwargs to override state_dict
-    num_layers = kwargs.pop("num_layers", state_dict.get("num_layers", 3))
-    num_channels = kwargs.pop("num_channels", state_dict.get("num_channels", 128))
-    cutoff = kwargs.pop("cutoff", state_dict.get("cutoff", 5.5))
-    compute_forces = kwargs.pop("compute_forces", True)
+    # Extract base hyperparameters from state_dict
+    num_layers = state_dict.get("num_layers", 3)
+    num_channels = state_dict.get("num_channels", 128)
+    cutoff = state_dict.get("cutoff", 5.5)
+    
+    # Allow kwargs to override and remove to prevent double-passing
+    model_kwargs = kwargs.copy()
+    num_layers = model_kwargs.pop("num_layers", num_layers)
+    num_channels = model_kwargs.pop("num_channels", num_channels)
+    cutoff = model_kwargs.pop("cutoff", cutoff)
+    forces_enabled = model_kwargs.pop("compute_forces", True)
 
     # Automatically detect if the model was trained with cuEquivariance
-    if "use_cue" not in kwargs:
-        if "use_cue" in state_dict:
-            kwargs["use_cue"] = state_dict["use_cue"]
-        else:
-            is_cue_model = any("graph" in k for k in state_dict["model"].keys())
-            kwargs["use_cue"] = is_cue_model
-            if is_cue_model:
-                print("Detected cuEquivariance (cuet) model from checkpoint.")
-            else:
-                print("Detected standard e3nn model from checkpoint.")
+    if "use_cue" in state_dict:
+        use_cue_sd = state_dict["use_cue"]
+    else:
+        use_cue_sd = any("graph" in k for k in state_dict["model"].keys())
 
     # Create appropriate model wrapper based on type
     if model_type.lower() == "painn":
@@ -230,44 +242,65 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
             num_layers=num_layers,
             num_channels=num_channels,
             cutoff=cutoff,
-            compute_forces=compute_forces,
-            **kwargs,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
-        raw_model.load_state_dict(state_dict["model"])
     elif model_type.lower() == "nequip":
         from iann.models.nequip import NequIP
+        model_kwargs.pop("lmax", None)
+        model_kwargs.pop("parity", None)
+        model_kwargs.pop("use_cue", None)
+        
+        lmax_sd = state_dict.get("lmax")
+        if lmax_sd is None: lmax_sd = 2
+        parity_sd = state_dict.get("parity")
+        if parity_sd is None: parity_sd = True
+        
         raw_model = NequIP(
             num_layers=num_layers,
             num_channels=num_channels,
             cutoff=cutoff,
-            compute_forces=compute_forces,
-            **kwargs,
+            lmax=lmax_sd,
+            parity=parity_sd,
+            use_cue=use_cue_sd,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
-        raw_model.load_state_dict(state_dict["model"])
     elif model_type.lower() == "mace":
         from iann.models.mace import MACE
+        model_kwargs.pop("lmax", None)
+        model_kwargs.pop("use_cue", None)
+        
+        lmax_sd = state_dict.get("lmax")
+        if lmax_sd is None: lmax_sd = 3
+        
         raw_model = MACE(
             num_layers=num_layers,
             num_channels=num_channels,
             cutoff=cutoff,
-            compute_forces=compute_forces,
-            **kwargs,
+            lmax=lmax_sd,
+            use_cue=use_cue_sd,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
-        raw_model.load_state_dict(state_dict["model"])
-    elif model_type.lower() == "equiformerv2":
+    elif model_type.lower() in ["equiformerv2", "equiformer2"]:
         from iann.models.equiformerV2 import EquiformerV2
+        model_kwargs.pop("lmax", None)
+        model_kwargs.pop("parity", None)
+        
         raw_model = EquiformerV2(
             num_layers=num_layers,
             num_channels=num_channels,
             cutoff=cutoff,
-            compute_forces=compute_forces,
-            **kwargs,
+            compute_forces=forces_enabled,
+            **model_kwargs,
         )
-        raw_model.load_state_dict(state_dict["model"])
     else:
         raise ValueError(f"Unknown model type: {model_type}")
+
+    raw_model.load_state_dict(state_dict["model"])
     raw_model.eval()
-    wrapped_model = LAMMPSModelWrapper(raw_model, compute_forces=kwargs.get("compute_forces", True))
+    wrapped_model = LAMMPSModelWrapper(raw_model, compute_forces=forces_enabled)
     wrapped_model.eval()
     # Example test: verify the wrapper with dummy ASE atoms
     if debug:
@@ -313,8 +346,20 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=F
     models = torch.nn.ModuleList()
     
     for model_path in model_paths:
+        # Check if file exists and is not empty
+        if not os.path.exists(model_path):
+            print(f"Error: Model file {model_path} not found. Skipping.")
+            continue
+        if os.path.getsize(model_path) == 0:
+            print(f"Error: Model file {model_path} is empty (0 bytes). Skipping.")
+            continue
+
         print(f"Loading model from {model_path}")
-        state_dict = torch.load(model_path, map_location=device)
+        try:
+            state_dict = torch.load(model_path, map_location=device)
+        except (EOFError, RuntimeError, Exception) as e:
+            print(f"Error loading model from {model_path}: {e}")
+            continue
 
         if model_type is None:
             # Determine model type from state dict
@@ -332,54 +377,81 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=F
                 else:
                     raise ValueError("Could not determine model type, please provide model type explicitly!")
         
+        # Extract hyperparameters
+        num_layers = state_dict.get("num_layers", 3)
+        num_channels = state_dict.get("num_channels", 128)
+        cutoff = state_dict.get("cutoff", 5.5)
+        
+        model_kwargs = kwargs.copy()
+        num_layers = model_kwargs.pop("num_layers", num_layers)
+        num_channels = model_kwargs.pop("num_channels", num_channels)
+        cutoff = model_kwargs.pop("cutoff", cutoff)
+        forces_enabled = model_kwargs.pop("compute_forces", True)
+
+        if "use_cue" in state_dict:
+            use_cue_sd = state_dict["use_cue"]
+        else:
+            use_cue_sd = any("graph" in k for k in state_dict["model"].keys())
+
         # Create appropriate model based on type
         if model_type.lower() == "painn":
             from iann.models.painn import PaiNN
-            num_channels = state_dict.get("num_channels", 128)
-            num_layers = state_dict.get("num_layers", 3)
-            cutoff = state_dict.get("cutoff", 5.5)
             raw_model = PaiNN(
-                num_channels=num_channels,
                 num_layers=num_layers,
+                num_channels=num_channels,
                 cutoff=cutoff,
-                compute_forces=kwargs.get("compute_forces", True),
-                **kwargs,
+                compute_forces=forces_enabled,
+                **model_kwargs,
             )
         elif model_type.lower() == "nequip":
             from iann.models.nequip import NequIP
-            num_layers = state_dict.get("num_layers", 3)
-            num_channels = state_dict.get("num_channels", 128)
-            cutoff = state_dict.get("cutoff", 5.5)
+            model_kwargs.pop("lmax", None)
+            model_kwargs.pop("parity", None)
+            model_kwargs.pop("use_cue", None)
+            
+            lmax_sd = state_dict.get("lmax")
+            if lmax_sd is None: lmax_sd = 2
+            parity_sd = state_dict.get("parity")
+            if parity_sd is None: parity_sd = True
+            
             raw_model = NequIP(
                 num_layers=num_layers,
                 num_channels=num_channels,
                 cutoff=cutoff,
-                compute_forces=kwargs.get("compute_forces", True),
-                **kwargs,
+                lmax=lmax_sd,
+                parity=parity_sd,
+                use_cue=use_cue_sd,
+                compute_forces=forces_enabled,
+                **model_kwargs,
             )
         elif model_type.lower() == "mace":
             from iann.models.mace import MACE
-            num_layers = state_dict.get("num_layers", 3)
-            num_channels = state_dict.get("num_channels", 128)
-            cutoff = state_dict.get("cutoff", 5.5)
+            model_kwargs.pop("lmax", None)
+            model_kwargs.pop("use_cue", None)
+            
+            lmax_sd = state_dict.get("lmax")
+            if lmax_sd is None: lmax_sd = 3
+            
             raw_model = MACE(
                 num_layers=num_layers,
                 num_channels=num_channels,
                 cutoff=cutoff,
-                compute_forces=kwargs.get("compute_forces", True),
-                **kwargs,
+                lmax=lmax_sd,
+                use_cue=use_cue_sd,
+                compute_forces=forces_enabled,
+                **model_kwargs,
             )
-        elif model_type.lower() == "equiformerv2":
+        elif model_type.lower() in ["equiformerv2", "equiformer2"]:
             from iann.models.equiformerV2 import EquiformerV2
-            num_layers = state_dict.get("num_layers", 3)
-            num_channels = state_dict.get("num_channels", 128)
-            cutoff = state_dict.get("cutoff", 5.5)
+            model_kwargs.pop("lmax", None)
+            model_kwargs.pop("parity", None)
+            
             raw_model = EquiformerV2(
                 num_layers=num_layers,
                 num_channels=num_channels,
                 cutoff=cutoff,
-                compute_forces=kwargs.get("compute_forces", True),
-                **kwargs,
+                compute_forces=forces_enabled,
+                **model_kwargs,
             )
         else:
             raise ValueError(f"Unknown model type: {model_type}")

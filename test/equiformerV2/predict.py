@@ -9,7 +9,6 @@ calc = MLCalculator(model_path=model_path, model_type=model_type,
             grid_resolution=12,
             lmax_list=[4],
             mmax_list=[2],
-            species=['Pt'],
             device='cpu')
 
 from ase.build import fcc100
