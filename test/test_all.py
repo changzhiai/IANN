@@ -88,7 +88,7 @@ def run_script(script_path, args=None, cwd=None, timeout=None):
 
 def clean_outputs(test_dir):
     print("Cleaning output directories...")
-    dirs = ["painn", "nequip", "mace", "equiformerV2", "uma", "md", "lammps_plugin", "tools"]
+    dirs = ["painn", "nequip", "mace", "equiformerV2", "allegro", "uma", "md", "lammps_plugin", "tools"]
     for d in dirs:
         p = os.path.join(test_dir, d)
         if not os.path.exists(p): continue
@@ -145,6 +145,7 @@ def main():
     run_and_log("NequIP Train", "nequip/train.py")
     run_and_log("MACE Train", "mace/train.py")
     run_and_log("EquiformerV2 Train", "equiformerV2/train.py", t=300)
+    run_and_log("Allegro Train", "allegro/allegro.py", t=300)
     run_and_log("UMA Train", "uma/uma.py", t=300)
     run_and_log("LAMMPS Model Export", "lammps_plugin/export_models.py")
     run_and_log("Foundation Model Test", "foundations/foundation_model.py")
