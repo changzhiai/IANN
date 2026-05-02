@@ -83,7 +83,7 @@ def get_arguments(arg_list=None):
     parser.add_argument(
         "--model_type",
         type=str,
-        choices=["painn", "nequip", "mace", "equiformer2", "allegro", "fastpot", "demo"],
+        choices=["painn", "nequip", "mace", "equiformer2", "allegro", "uma", "fastpot", "demo"],
         help="Type of model to use"
     )
     parser.add_argument(
@@ -200,7 +200,7 @@ class Trainer:
         
         # Set model type
         self.model_type = model.lower()
-        if self.model_type not in ["painn", "nequip", "mace", "equiformerv2", "allegro", "fastpot", "demo"]:
+        if self.model_type not in ["painn", "nequip", "mace", "equiformerv2", "allegro", "uma", "fastpot", "demo"]:
             raise ValueError(f"Unknown model type: {self.model_type}")
         
         # Auto-detect SLURM to avoid spawning when SLURM is already managing processes
@@ -510,6 +510,21 @@ class Trainer:
             model = Allegro(
                 num_layers=self.config["num_layers"],
                 num_channels=self.config["num_channels"],
+                norm_data=self.config["norm_data"],
+                data_mean=self.data_mean.tolist() if self.config["norm_data"] else [0.0],
+                data_stddev=self.data_stddev.tolist() if self.config["norm_data"] else [1.0],
+                norm_per_atom=self.config["norm_per_atom"],
+                **model_params
+            )
+        elif self.model_type == "uma":
+            try:
+                from iann.models.uma import UMA
+            except ImportError:
+                raise ImportError("UMA is not available")
+            model = UMA(
+                num_layers=self.config["num_layers"],
+                num_channels=self.config["num_channels"],
+                device=self.device,
                 norm_data=self.config["norm_data"],
                 data_mean=self.data_mean.tolist() if self.config["norm_data"] else [0.0],
                 data_stddev=self.data_stddev.tolist() if self.config["norm_data"] else [1.0],

@@ -29,6 +29,11 @@ def _load_allegro():
     from .allegro import Allegro
     return Allegro
 
+def _load_uma():
+    """Lazy load UMA model"""
+    from .uma import UMA
+    return UMA
+
 def _load_demo():
     """Lazy load Demo model"""
     from .demo import Demo
@@ -40,6 +45,7 @@ __all__ = [
     "NequIP",
     "EquiformerV2",
     "Allegro",
+    "UMA",
     "FastPot",
     "Demo",
     "get_model_class",
@@ -52,6 +58,7 @@ MODEL_REGISTRY = {
     "nequip": _load_nequip,
     "equiformerV2": _load_equiformerV2,
     "allegro": _load_allegro,
+    "uma": _load_uma,
     "fastpot": _load_fastpot,
     "demo": _load_demo,
 }
@@ -80,6 +87,8 @@ def __getattr__(name):
         return _load_allegro()
     elif name == "FastPot":
         return _load_fastpot()
+    elif name == "UMA":
+        return _load_uma()
     elif name == "Demo":
         return _load_demo()
     else:
