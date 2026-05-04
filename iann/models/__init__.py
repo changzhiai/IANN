@@ -19,6 +19,11 @@ def _load_equiformerV2():
     from .equiformerV2 import EquiformerV2
     return EquiformerV2
 
+def _load_equiformerV3():
+    """Lazy load EquiformerV3 model"""
+    from .equiformerV3 import EquiformerV3
+    return EquiformerV3
+
 def _load_fastpot():
     """Lazy load FastPot model"""
     from .fastpot import FastPot
@@ -44,6 +49,7 @@ __all__ = [
     "PaiNN", 
     "NequIP",
     "EquiformerV2",
+    "EquiformerV3",
     "Allegro",
     "UMA",
     "FastPot",
@@ -57,6 +63,7 @@ MODEL_REGISTRY = {
     "painn": _load_painn,
     "nequip": _load_nequip,
     "equiformerV2": _load_equiformerV2,
+    "equiformerV3": _load_equiformerV3,
     "allegro": _load_allegro,
     "uma": _load_uma,
     "fastpot": _load_fastpot,
@@ -83,6 +90,8 @@ def __getattr__(name):
         return _load_nequip()
     elif name == "EquiformerV2":
         return _load_equiformerV2()
+    elif name == "EquiformerV3":
+        return _load_equiformerV3()
     elif name == "Allegro":
         return _load_allegro()
     elif name == "FastPot":

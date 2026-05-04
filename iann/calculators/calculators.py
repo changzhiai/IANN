@@ -102,6 +102,19 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             compute_forces=forces_enabled,
             **model_kwargs,
         )
+    elif model_type == "equiformerv3":
+        from iann.models.equiformerV3 import EquiformerV3
+        # Structural parameters are fixed at training time and should not be overridden
+        model_kwargs.pop("parity", None)
+        model_kwargs.pop("use_cue", None)
+
+        model = EquiformerV3(
+            num_layers=state_dict["num_layers"],
+            num_channels=state_dict["num_channels"],
+            cutoff=state_dict["cutoff"],
+            compute_forces=forces_enabled,
+            **model_kwargs,
+        )
     elif model_type == "fastpot":
         from iann.models.fastpot import FastPot
         model = FastPot(
@@ -121,7 +134,7 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             **model_kwargs,
         )
     else:
-        raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, equiformerV2, fastpot, and demo!")
+        raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, equiformerV2, equiformerV3, fastpot, and demo!")
     
     model.load_state_dict(state_dict["model"])
     model.to(device)
