@@ -44,6 +44,8 @@ DEFAULT_CONFIG = {
     "load_split": False, # load split file name
     "norm_data": False, # normalize data
     "norm_per_atom": False, # normalize data per atom
+    "norm_sample_size": None, # if int, estimate norm stats from a random subsample of this size (None = use all training data)
+    "norm_num_workers": 0, # parallel I/O threads for computing norm stats (0 = serial)
     # parameters for DDP (Parallelization)
     "dist_timeout": 600,  # timeout (seconds) for distributed operations
     "master_port": 12356, # port for distributed operations
@@ -105,29 +107,71 @@ def forces_criterion(predicted, target, reduction="mean"):
         raise ValueError("Reduction must be 'mean' or 'sum'")
     return scalar
 
-def get_norm_data(dataset, per_atom=True):
-    x_sum = torch.zeros(1, dtype=torch.float32)
-    x_2 = torch.zeros(1, dtype=torch.float32)
-    num_objects = 0
-    for i, sample in enumerate(dataset):
-        if i == 0:
-            if per_atom:
-                bias = sample.energy / sample.num_atoms
-            else:
-                bias = sample.energy
-        x = sample.energy
-        if per_atom:
-            x = x / sample.num_atoms
-        x -= bias
-        x_sum += x
-        x_2 += x ** 2.0
-        num_objects += 1
-    x_mean = x_sum / num_objects
-    x_var = x_2 / num_objects - x_mean ** 2.0
-    x_mean = x_mean + bias
-    default_type = torch.get_default_dtype()
+def get_norm_data(dataset, per_atom=True, sample_size=None, num_workers=0, seed=0):
+    """
+    Compute energy mean and standard deviation over `dataset`.
 
-    return x_mean.type(default_type), torch.sqrt(x_var).type(default_type)
+    Parameters
+    ----------
+    dataset : AseDataset or torch.utils.data.Subset wrapping one
+    per_atom : bool
+        Normalize each energy by num_atoms before accumulating.
+    sample_size : Optional[int]
+        If set, estimate stats from a random subsample of this size.
+    num_workers : int
+        Parallel I/O threads (0 = serial). Threads are used (not processes)
+        because ase ``Trajectory`` objects are not reliably picklable and
+        frame reads release the GIL during file I/O.
+    seed : int
+        Seed for the subsampling RNG (only used if ``sample_size`` is set).
+    """
+    indices = None
+    if isinstance(dataset, torch.utils.data.Subset):
+        indices = list(dataset.indices)
+        dataset = dataset.dataset
+    db = getattr(dataset, "db", None)  # ase.io.Trajectory inside AseDataset
+
+    n_total = len(indices) if indices is not None else len(dataset)
+    if sample_size is not None and 0 < sample_size < n_total:
+        rng = np.random.default_rng(seed)
+        sel = rng.choice(n_total, size=sample_size, replace=False)
+        indices = (sel.tolist() if indices is None
+                   else [indices[int(i)] for i in sel])
+
+    iter_indices = indices if indices is not None else range(n_total)
+    n = len(iter_indices)
+    if n == 0:
+        raise ValueError("get_norm_data: empty dataset")
+
+    energies = np.empty(n, dtype=np.float64)
+    num_atoms = np.empty(n, dtype=np.int64)
+
+    def _read(idx):
+        a = db[idx]
+        return a.get_potential_energy(), a.get_global_number_of_atoms()
+
+    if db is not None and num_workers and num_workers > 0:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=num_workers) as pool:
+            for i, (e, na) in enumerate(pool.map(_read, iter_indices)):
+                energies[i] = e
+                num_atoms[i] = na
+    elif db is not None:
+        for i, idx in enumerate(iter_indices):
+            energies[i], num_atoms[i] = _read(idx)
+    else:
+        for i, idx in enumerate(iter_indices):
+            s = dataset[idx]
+            energies[i] = float(s.energy)
+            num_atoms[i] = int(s.num_atoms)
+
+    y = energies / num_atoms if per_atom else energies
+    mean = float(y.mean())
+    std = float(y.std())  # population std, ddof=0
+
+    default_type = torch.get_default_dtype()
+    return (torch.tensor([mean], dtype=default_type),
+            torch.tensor([std], dtype=default_type))
 
 class EarlyStopping():
     def __init__(self, patience=5, min_delta=0):
@@ -338,7 +382,7 @@ class Trainer:
         if self.distributed:
             dist.destroy_process_group()
             sys.exit(0)  # Clean and Pythonic exit
-    
+
     def _setup_data(self, dataset_path):
         """Setup dataset and dataloaders"""
         if self.rank == 0:
@@ -402,16 +446,46 @@ class Trainer:
                 len(self.datasplits["validation"]),
             ))
         
-        # Compute data normalization if needed
+        # Compute data normalization if norm_data or norm_per_atom is True
+        default_type = torch.get_default_dtype()
         if self.config["norm_data"] or self.config["norm_per_atom"]:
             if self.rank == 0:
-                logging.info("Computing energy mean and variance of the dataset: ")
-            self.data_mean, self.data_stddev = get_norm_data(
-                self.datasplits["train"], 
-                per_atom=self.config["norm_per_atom"],
-            )
-            if self.rank == 0:
-                logging.info(f"Mean of energy: {self.data_mean.item():.4f}, standard deviation of energy: {self.data_stddev.item():.4f}")
+                per_atom = bool(self.config["norm_per_atom"])
+                sample_size = self.config.get("norm_sample_size")
+                num_workers = int(self.config.get("norm_num_workers", 0) or 0)
+                n_train = len(self.datasplits["train"])
+
+                workers_suffix = f" (num_workers={num_workers})" if num_workers else ""
+                if sample_size:
+                    logging.info(
+                        f"Computing energy mean/std on a random subsample of "
+                        f"{min(int(sample_size), n_train)}/{n_train} training frames"
+                        f"{workers_suffix}"
+                    )
+                else:
+                    logging.info(
+                        f"Computing energy mean/std over all training frames"
+                        f"{workers_suffix}..."
+                    )
+                t0 = time.time()
+                mean_t, std_t = get_norm_data(
+                    self.datasplits["train"],
+                    per_atom=per_atom,
+                    sample_size=sample_size,
+                    num_workers=num_workers,
+                    seed=self.config["random_seed"],
+                )
+                self.data_mean = mean_t.to(default_type)
+                self.data_stddev = std_t.to(default_type)
+                logging.info(
+                    f"Mean of energy: {self.data_mean.item():.4f}, "
+                    f"standard deviation: {self.data_stddev.item():.4f} "
+                    f"(computed in {time.time() - t0:.2f}s)"
+                )
+            else:
+                # Placeholders; DDP will overwrite these on the model.
+                self.data_mean = torch.tensor([0.0], dtype=default_type)
+                self.data_stddev = torch.tensor([1.0], dtype=default_type)
         else:
             self.data_mean = torch.tensor([0.0])
             self.data_stddev = torch.tensor([1.0])
