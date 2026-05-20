@@ -133,8 +133,20 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             compute_forces=forces_enabled,
             **model_kwargs,
         )
+    elif model_type == "uma":
+        from iann.models.uma import UMA
+        model_kwargs.pop("parity", None)
+        model_kwargs.pop("use_cue", None)
+        model = UMA(
+            num_layers=state_dict["num_layers"],
+            num_channels=state_dict["num_channels"],
+            cutoff=state_dict["cutoff"],
+            device=device,
+            compute_forces=forces_enabled,
+            **model_kwargs,
+        )
     else:
-        raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, equiformerV2, equiformerV3, fastpot, and demo!")
+        raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, equiformerV2, equiformerV3, uma, fastpot, and demo!")
     
     model.load_state_dict(state_dict["model"])
     model.to(device)

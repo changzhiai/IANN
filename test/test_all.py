@@ -146,7 +146,7 @@ def main():
     run_and_log("MACE Train", "mace/train.py")
     run_and_log("EquiformerV2 Train", "equiformerV2/train.py", t=300)
     run_and_log("Allegro Train", "allegro/allegro.py", t=300)
-    run_and_log("UMA Train", "uma/uma.py", t=300)
+    run_and_log("UMA Train", "uma/train.py", t=300)
     run_and_log("LAMMPS Model Export", "lammps_plugin/export_models.py")
     run_and_log("Foundation Model Test", "foundations/foundation_model.py")
     run_and_log("Training Stats Tool", "tools/stats.py")

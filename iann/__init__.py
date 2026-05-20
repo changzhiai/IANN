@@ -18,7 +18,7 @@ __all__ = [
 # These will only be imported when actually accessed
 def __getattr__(name):
     """Lazy load model classes when accessed as attributes"""
-    if name in ["PaiNN", "NequIP", "MACE", "EquiformerV2"]:
+    if name in ["PaiNN", "NequIP", "MACE", "EquiformerV2", "UMA"]:
         return get_model_class(name.lower())
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
