@@ -1,8 +1,7 @@
 from iann.data import AtomsData, replace_properties
 import torch
 from torch import nn
-from typing import List, Optional, Tuple
-from torch import Tensor
+from typing import List
 from e3nn import o3
 import math
 import abc
@@ -11,8 +10,7 @@ class Interaction(nn.Module):
     """Enhanced message function with O3NN features for 2-body interactions"""
     def __init__(self, embeddings: dict, num_channels: int):
         super().__init__()
-        
-        self.embeddings = embeddings
+
         self.node_dim = embeddings['node'].num_channels
         self.edge_dim = embeddings['edge'].num_channels
         self.sh_dim = embeddings['angular'].num_channels
@@ -37,20 +35,17 @@ class Interaction(nn.Module):
         self.linear_1 = nn.Linear(self.num_channels * 1, self.num_channels * 1)
         self.linear_2 = nn.Linear(self.num_channels * 1, self.num_channels * 1)
 
-    def forward(self, node_features, edge_features, angular_features, edge_indices, edge_vectors, force_vector):
-        node_in = self.msg_mlp(node_features[edge_indices[:, 1]]) 
+    def forward(self, node_features, edge_features, angular_features, edge_indices, edge_norm, force_vector):
+        node_in = self.msg_mlp(node_features[edge_indices[:, 1]])
         edge_mlp = self.edge_linear(edge_features)
         angular_mlp = self.angular_linear(angular_features)
         edge_in = angular_mlp * edge_mlp
-        
-        edge_pass = node_in * edge_in
 
-        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
-        edge_norm = (edge_vectors / edge_dist.unsqueeze(-1)).unsqueeze(-1)
+        edge_pass = node_in * edge_in
         edge_pass = edge_pass.unsqueeze(1) * edge_norm
 
         edge_msg = torch.zeros_like(force_vector, device=edge_indices.device)
-        edge_msg.index_add_(0, edge_indices[:, 0], edge_pass.contiguous())
+        edge_msg.index_add_(0, edge_indices[:, 0], edge_pass)
         edge_msg += force_vector
         
         edge_msg_1 = self.linear_1(edge_msg)
@@ -68,7 +63,7 @@ class Interaction(nn.Module):
         node_features = node_features + residual_node
         force_vector = force_vector + residual_edge
 
-        return node_features.contiguous(), force_vector.contiguous()
+        return node_features, force_vector
     
 class RadialBasis(torch.nn.Module, metaclass=abc.ABCMeta):
     @abc.abstractmethod
@@ -238,8 +233,8 @@ class FastPot(nn.Module):
         num_layers=3, 
         num_channels=128, 
         norm_data=True,
-        data_mean=[0.0],
-        data_stddev=[1.0],
+        data_mean=None,
+        data_stddev=None,
         norm_per_atom=True, 
         **kwargs,
     ):
@@ -258,7 +253,12 @@ class FastPot(nn.Module):
             Maximum spherical harmonic degree
         """
         super().__init__()
-        
+
+        if data_mean is None:
+            data_mean = [0.0]
+        if data_stddev is None:
+            data_stddev = [1.0]
+
         self.cutoff = kwargs.get('cutoff', 5.5)
         self.num_layers = num_layers
         self.num_channels = num_channels
@@ -267,7 +267,6 @@ class FastPot(nn.Module):
         self.num_basis: int = kwargs.get('num_basis', num_channels)
         self.power: int = kwargs.get('power', 6)
         self.batch_size = kwargs.get('batch_size', 12)
-        self.forces_scale = kwargs.get('forces_scale', 1.0)
         
 
         self.embeddings = nn.ModuleDict()
@@ -317,10 +316,7 @@ class FastPot(nn.Module):
             torch.tensor(data_mean[0]), requires_grad=False
         )
 
-        self.compute_forces = False
-        if 'compute_forces' in kwargs.keys():
-            if kwargs['compute_forces']:
-                self.compute_forces = True
+        self.compute_forces = kwargs.get('compute_forces', False)
         
 
         
@@ -337,7 +333,6 @@ class FastPot(nn.Module):
             Output data with predicted energies and optionally forces
         """
         num_atoms = data.num_atoms
-        num_edges = data.num_edges
         positions = data.positions
         edge_indices = data.edge_indices
         edge_vectors = data.edge_vectors
@@ -352,31 +347,27 @@ class FastPot(nn.Module):
         angular_features = data.edge_diff_embedding  # Spherical harmonics features
         # global_features = data.global_embedding  # Global features
         
-        force_vector = torch.zeros((positions.shape[0], 3, self.num_channels), device=positions.device, dtype=torch.float32)
-        
+        edge_dist = torch.linalg.norm(edge_vectors, dim=1)
+        edge_norm = (edge_vectors / edge_dist.unsqueeze(-1)).unsqueeze(-1)
+
+        force_vector = torch.zeros((positions.shape[0], 3, self.num_channels), device=positions.device, dtype=node_features.dtype)
+
         # Message passing iterations
         for layer_idx in range(self.num_layers):
-            node_features, force_vector = self.interaction_layers[layer_idx](node_features, edge_features, angular_features, edge_indices, edge_vectors, force_vector)
+            node_features, force_vector = self.interaction_layers[layer_idx](node_features, edge_features, angular_features, edge_indices, edge_norm, force_vector)
         
         # Readout
         node_features = self.readout_mlp(node_features)
-        node_features = node_features.squeeze()
-        
-        # Ensure node_features is contiguous
-        node_features = node_features.contiguous()
+        node_features = node_features.squeeze(-1)
 
         # Aggregate atomic energies
         image_idx = torch.arange(num_atoms.shape[0], device=edge_indices.device)
         image_idx = torch.repeat_interleave(image_idx, num_atoms)
-        
+
         energy = torch.zeros(num_atoms.shape[0], device=num_atoms.device, dtype=torch.float32)
         energy.index_add_(0, image_idx, node_features)
-        
-        # Ensure energy is contiguous
-        energy = energy.contiguous()
 
-        atomic_energy = node_features
-        data = replace_properties(data, atomic_energy=atomic_energy)
+        data = replace_properties(data, atomic_energy=node_features)
 
         # Apply normalization
         if self.norm_data:
@@ -384,43 +375,26 @@ class FastPot(nn.Module):
             energy = normalizer * energy
             mean_shift = self.data_mean
             if self.norm_per_atom:
-                mean_shift = num_edges * mean_shift
+                mean_shift = num_atoms * mean_shift
             energy = energy + mean_shift
 
         data = replace_properties(data, energy=energy)
-        
-        # if self.compute_forces:
-        #     forces = self.force_mlp(force_vector)
-        #     forces = forces.squeeze() * self.forces_scale
-        #     data = replace_properties(data, forces=forces)
 
-        # Force computation
         if self.compute_forces:
-            outputs_list = torch.jit.annotate(List[Tensor], [energy])
-            inputs_list = torch.jit.annotate(List[Tensor], [edge_vectors.contiguous()])
-            grad_outputs_list = torch.jit.annotate(Optional[List[Optional[Tensor]]], [torch.ones_like(energy)])
-            
             dE_ddiff = torch.autograd.grad(
-                outputs=outputs_list,
-                inputs=inputs_list,
-                grad_outputs=grad_outputs_list,
+                outputs=[energy],
+                inputs=[edge_vectors],
+                grad_outputs=[torch.ones_like(energy)],
                 retain_graph=True,
                 create_graph=True,
             )[0]
-            
-            # Ensure gradients are contiguous
-            dE_ddiff = dE_ddiff.contiguous()
-            
-            # Initialize forces
+
             i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
             j_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)
             i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
             j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
             forces = i_forces + j_forces
-            
-            # Ensure forces are contiguous
-            forces = forces.contiguous()
-            
+
             data = replace_properties(data, forces=forces)
 
-        return data 
+        return data
