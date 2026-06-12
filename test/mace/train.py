@@ -14,8 +14,8 @@ trainer = Trainer(
            "forces_weight": 0.9, # weight for forces
            # "load_model": 'test/mace/output', # load model from checkpoint
            "max_steps": 30000000, # maximum number of steps
-           "random_seed": 777, # random seed for reproducibility
-           "val_ratio": 0.003, # validation ratio
+           "random_seed": 666, # random seed for reproducibility
+           "val_ratio": 0.002, # validation ratio
            "stop_patience": 600, # patience for early stopping
            'log_interval': 1,
            'norm_data': True, # normalize data
