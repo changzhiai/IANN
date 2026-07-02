@@ -34,7 +34,7 @@ DEFAULT_CONFIG = {
     "max_steps": 1000000, # maximum number of steps
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "optimizer_type": "adam", # optimizer type: "adam", "sgd", "rmsprop", "adagrad", "adadelta", "adamax", "adamw"
-    "max_grad_norm": None,    # gradient clipping norm
+    "max_grad_norm": 10.0,    # gradient clipping norm
     "log_interval": 2000, # log interval
     "stop_patience": 200, # patience for early stopping
     "scheduler_type": "LambdaLR", # scheduler type: "ReduceLROnPlateau", "LambdaLR", "CosineAnnealingLR", "CosineAnnealingWarmRestarts", "StepLR", "MultiStepLR", "ExponentialLR"
@@ -653,8 +653,32 @@ class Trainer:
         
         return model
     
+    def _compute_avg_num_neighbors(self, sample_size=1000):
+        """Compute average number of neighbors from training data."""
+        dataset = self.datasplits["train"]
+        n_samples = min(sample_size, len(dataset))
+        rng = np.random.default_rng(self.config["random_seed"])
+        indices = rng.choice(len(dataset), size=n_samples, replace=False)
+
+        total_edges = 0
+        total_atoms = 0
+        for idx in indices:
+            sample = dataset[int(idx)]
+            total_edges += sample.num_edges.item()
+            total_atoms += sample.num_atoms.item()
+
+        avg_num_neighbors = total_edges / total_atoms if total_atoms > 0 else 1.0
+        return avg_num_neighbors
+
     def _setup_model(self):
         """Setup model, optimizer, and scheduler"""
+        # Compute avg_num_neighbors for models that need it
+        if self.model_type in ("mace", "nequip", "allegro"):
+            avg_num_neighbors = self._compute_avg_num_neighbors()
+            self.config["avg_num_neighbors"] = avg_num_neighbors
+            if self.rank == 0:
+                logging.info(f"Average number of neighbors: {avg_num_neighbors:.1f}")
+
         # Create model
         self.model = self._create_model()
         

@@ -285,6 +285,7 @@ class BesselBasis(RadialBasis):
         x : torch.Tensor
             Input
         """
+        x = x.clamp(min=0.5)
         numerator = torch.sin(self.bessel_weights * x.unsqueeze(-1) / self.cutoff)
 
         return self.prefactor * (numerator / x.unsqueeze(-1))
@@ -1399,28 +1400,31 @@ class GradientOutput(torch.nn.Module):
         if self.update_callback:
             self.update_callback()
 
-    def forward(self, data: AtomsData, training: bool=True,)->AtomsData:
+    def forward(self, data: AtomsData, training: bool=None,)->AtomsData:
         if self.grad_on_edge_diff:
             energy = data.energy
             forces_dim = int(torch.sum(data.num_atoms))
             edge_indices = data.edge_indices
             assert energy is not None
-            
+
+            if training is None:
+                training = self.training
+
             grad_outputs : List[Optional[torch.Tensor]] = [torch.ones_like(energy)]
             grad_inputs: List[torch.Tensor] = []
             edge_vectors = data.edge_vectors
-            
+
             compute_forces = 'forces' in self.model_outputs
             compute_virial = 'virial' in self.model_outputs
             compute_stress = 'stress' in self.model_outputs
-            
+
             if compute_forces:
                 grad_inputs.append(edge_vectors)
-            
+
             displacement = data.displacement
             if displacement is not None and (compute_virial or compute_stress):
                 grad_inputs.append(displacement)
-                
+
             if grad_inputs:
                 grads = torch.autograd.grad(
                     [energy],
