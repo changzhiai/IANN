@@ -799,6 +799,8 @@ class Trainer:
             # Override LR with config value (allows changing LR on restart)
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = self.config["learning_rate"]
+                param_group['initial_lr'] = self.config["learning_rate"]
+            self.scheduler.base_lrs = [self.config["learning_rate"]] * len(self.scheduler.base_lrs)
         else:
             if self.rank == 0:
                 logging.info(f"No model found at {best_model}")
