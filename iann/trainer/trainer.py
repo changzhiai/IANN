@@ -793,8 +793,12 @@ class Trainer:
 
             if state_dict["step"] > 0:
                 self.init_steps = state_dict["step"]
-                
+
             self.scheduler.load_state_dict(state_dict["scheduler"])
+
+            # Override LR with config value (allows changing LR on restart)
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.config["learning_rate"]
         else:
             if self.rank == 0:
                 logging.info(f"No model found at {best_model}")
