@@ -385,8 +385,8 @@ class FastPot(nn.Module):
                 outputs=[energy],
                 inputs=[edge_vectors],
                 grad_outputs=[torch.ones_like(energy)],
-                retain_graph=True,
-                create_graph=True,
+                retain_graph=self.training,
+                create_graph=self.training,
             )[0]
 
             i_forces = torch.zeros(positions.shape[0], 3, device=positions.device, dtype=torch.float32)

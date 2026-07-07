@@ -390,8 +390,8 @@ class PaiNN(nn.Module):
                 outputs=outputs_list,
                 inputs=inputs_list,
                 grad_outputs=grad_outputs_list,
-                retain_graph=True,
-                create_graph=True,
+                retain_graph=self.training,
+                create_graph=self.training,
             )[0]
             assert dE_ddiff_opt is not None
             dE_ddiff = dE_ddiff_opt
