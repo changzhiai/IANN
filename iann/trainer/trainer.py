@@ -739,7 +739,9 @@ class Trainer:
         elif self.scheduler_type=="CosineAnnealingLR":
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.config["max_steps"])
         elif self.scheduler_type=="CosineAnnealingWarmRestarts":
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=10, T_mult=2)
+            T_0 = self.config.get("scheduler_T0", 100000)
+            T_mult = self.config.get("scheduler_T_mult", 2)
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=T_0, T_mult=T_mult)
         elif self.scheduler_type=="StepLR":
             self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.5)
         elif self.scheduler_type=="MultiStepLR":
