@@ -859,6 +859,9 @@ class NequIP(torch.nn.Module):
         self.nonlinearity_scalars:Dict[int, Callable] = kwargs.get('nonlinearity_scalars', {"e": "ssp", "o": "tanh"})
         self.nonlinearity_gates:Dict[int, Callable] = kwargs.get('nonlinearity_gates', {"e": "ssp", "o": "abs"})
         self.convolution_kwargs:dict = kwargs.get('convolution_kwargs', {})
+        avg_num_neighbors = kwargs.get('avg_num_neighbors', None)
+        if avg_num_neighbors is not None:
+            self.convolution_kwargs.setdefault('avg_num_neighbors', avg_num_neighbors)
         self.use_cue: bool = resolve_cuequivariance(kwargs.get('use_cue', None))
 
         
