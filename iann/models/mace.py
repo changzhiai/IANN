@@ -1160,7 +1160,7 @@ class MACE(nn.Module):
             self.interactions.append(inter)
             
             prod = EquivariantProductBasisBlock(
-                node_feats_irreps=inter.target_irreps if i == 0 else interaction_irreps,
+                node_feats_irreps=interaction_irreps,
                 target_irreps=hidden_irreps_out,
                 correlation=self.correlation[i],
                 num_elements=num_elements,
@@ -1187,7 +1187,7 @@ class MACE(nn.Module):
                     readout = o3.Linear(irreps_in=hidden_irreps_out, irreps_out=o3.Irreps('1x0e'))
             self.readouts.append(readout)
 
-            self.atomwise_reduce = AtomwiseReduce(output_key='energy')
+        self.atomwise_reduce = AtomwiseReduce(output_key='energy')
         
         # Normalisation constants
         self.norm_data = torch.nn.Parameter(torch.tensor(norm_data), requires_grad=False)
@@ -1442,7 +1442,7 @@ class GradientOutput(torch.nn.Module):
                     dE_ddiff = torch.zeros_like(data.positions) if dE_ddiff is None else dE_ddiff
                     assert dE_ddiff is not None
                     
-                    i_forces = torch.zeros((forces_dim, 3), device=edge_vectors.device, dtype=torch.float32)
+                    i_forces = torch.zeros((forces_dim, 3), device=edge_vectors.device, dtype=dE_ddiff.dtype)
                     j_forces = torch.zeros_like(i_forces)
                     i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
                     j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)
