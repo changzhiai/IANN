@@ -732,7 +732,11 @@ class Trainer:
         
         # Setup scheduler
         if self.scheduler_type=="ReduceLROnPlateau":
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', factor=0.5, patience=10)
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, 'min',
+                factor=self.config.get("scheduler_factor", 0.5),
+                patience=self.config.get("scheduler_patience", 10),
+                min_lr=self.config.get("scheduler_min_lr", 0.0))
         elif self.scheduler_type=="LambdaLR":
             scheduler_fn = lambda step: 0.96 ** (step / 100000)
             self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, scheduler_fn)
@@ -800,7 +804,13 @@ class Trainer:
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = self.config["learning_rate"]
                 param_group['initial_lr'] = self.config["learning_rate"]
-            self.scheduler.base_lrs = [self.config["learning_rate"]] * len(self.scheduler.base_lrs)
+            if self.scheduler_type == "ReduceLROnPlateau":
+                # scheduler state_dict carries factor/patience/min_lrs, re-apply configured values
+                self.scheduler.factor = self.config.get("scheduler_factor", 0.5)
+                self.scheduler.patience = self.config.get("scheduler_patience", 10)
+                self.scheduler.min_lrs = [self.config.get("scheduler_min_lr", 0.0)] * len(self.optimizer.param_groups)
+            else:
+                self.scheduler.base_lrs = [self.config["learning_rate"]] * len(self.scheduler.base_lrs)
         else:
             if self.rank == 0:
                 logging.info(f"No model found at {best_model}")
