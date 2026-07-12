@@ -552,7 +552,7 @@ class RealAgnosticResidualInteractionBlock(torch.nn.Module):
         node_feat = self.linear_1(node_feat)
         tp_weights = self.conv_tp_weights(edge_dist_embedding)
         edge_feat = self.conv_tp(
-            node_feat[edge_idx[:, 0]],
+            node_feat[edge_idx[:, 1]],
             edge_diff_embedding,
             tp_weights,
         )
