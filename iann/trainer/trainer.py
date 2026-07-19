@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "stress_weight": 0.0, # weight for stress
     "loss_per_atom": True, # whether to scale loss by number of atoms
     "load_model": False, # load model from checkpoint
+    "reset_lr": False, # on restart: True = fresh LR schedule + step counter (fine-tune); False = resume schedule/steps exactly
     "max_steps": 1000000, # maximum number of steps
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "optimizer_type": "adam", # optimizer type: "adam", "sgd", "rmsprop", "adagrad", "adadelta", "adamax", "adamw"
@@ -795,22 +796,29 @@ class Trainer:
             else:
                 self.model.load_state_dict(state_dict["model"])
 
-            if state_dict["step"] > 0:
-                self.init_steps = state_dict["step"]
-
-            self.scheduler.load_state_dict(state_dict["scheduler"])
-
-            # Override LR with config value (allows changing LR on restart)
-            for param_group in self.optimizer.param_groups:
-                param_group['lr'] = self.config["learning_rate"]
-                param_group['initial_lr'] = self.config["learning_rate"]
-            if self.scheduler_type == "ReduceLROnPlateau":
-                # scheduler state_dict carries factor/patience/min_lrs, re-apply configured values
-                self.scheduler.factor = self.config.get("scheduler_factor", 0.5)
-                self.scheduler.patience = self.config.get("scheduler_patience", 10)
-                self.scheduler.min_lrs = [self.config.get("scheduler_min_lr", 0.0)] * len(self.optimizer.param_groups)
+            if self.config.get("reset_lr", False):
+                # Fine-tune: start a FRESH LR schedule + step counter so the config LR
+                # actually takes effect. A step-based scheduler (LambdaLR/Exponential/
+                # Cosine/Step...) whose state was restored to a large step count would
+                # otherwise re-apply the full accumulated decay on the first
+                # scheduler.step() and pin the effective LR to ~0. Keep the freshly
+                # constructed scheduler (last_epoch=-1, base_lr=config LR); don't load
+                # the saved scheduler state. init_steps stays 0 (set above), so max_steps
+                # is interpreted as a fresh budget for this fine-tune.
+                for param_group in self.optimizer.param_groups:
+                    param_group['lr'] = self.config["learning_rate"]
+                    param_group['initial_lr'] = self.config["learning_rate"]
+                if self.scheduler_type == "ReduceLROnPlateau":
+                    self.scheduler.factor = self.config.get("scheduler_factor", 0.5)
+                    self.scheduler.patience = self.config.get("scheduler_patience", 10)
+                    self.scheduler.min_lrs = [self.config.get("scheduler_min_lr", 0.0)] * len(self.optimizer.param_groups)
+                else:
+                    self.scheduler.base_lrs = [self.config["learning_rate"]] * len(self.scheduler.base_lrs)
             else:
-                self.scheduler.base_lrs = [self.config["learning_rate"]] * len(self.scheduler.base_lrs)
+                # Resume: continue the step counter and LR schedule exactly as saved.
+                if state_dict["step"] > 0:
+                    self.init_steps = state_dict["step"]
+                self.scheduler.load_state_dict(state_dict["scheduler"])
         else:
             if self.rank == 0:
                 logging.info(f"No model found at {best_model}")
