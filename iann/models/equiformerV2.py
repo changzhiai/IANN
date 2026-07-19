@@ -11,6 +11,11 @@ import sys
 # Set environment variable for deterministic CuBLAS operations
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
+# Edges whose direction is within this cosine of the +/-y axis hit the Euler-angle
+# singularity (beta = 0 or pi); their Wigner blocks are computed with detached,
+# snapped angles while all other edges keep gradients for autograd-based forces.
+_ROTATION_MASK_THRESHOLD = 0.999999
+
 def setup_deterministic_environment():
     """Setup deterministic environment for consistent CPU/GPU results."""
     # Set CuBLAS workspace config
@@ -356,6 +361,16 @@ class SO3_Rotation(torch.nn.Module):
         super().__init__()
         self.lmax = lmax
         self.mapping = CoefficientMappingModule([self.lmax], [self.lmax], device)
+        # Keep gradients through the Wigner matrices (needed for autograd-based
+        # forces/stress); degenerate +/-y-aligned edges are detached individually.
+        self.use_rotation_mask = False
+        self.rotation_mask_threshold = _ROTATION_MASK_THRESHOLD
+        # Per-forward Wigner cache: set_wigner() is called once per forward pass
+        # (see EquiformerV2.forward); _rotate/_rotate_inv reuse the stored
+        # matrices instead of rebuilding the (differentiable) construction graph
+        # on every attention block.
+        self.wigner = torch.zeros(0)
+        self.wigner_inv = torch.zeros(0)
         # self.device = device
         self._Jd = torch.load(
             os.path.join(iann.__path__[0], "data", "Jd.pt"),
@@ -380,8 +395,11 @@ class SO3_Rotation(torch.nn.Module):
     def set_wigner(self, rot_mat3x3: torch.Tensor):
         wigner = self.RotationToWignerDMatrix(rot_mat3x3, 0, self.lmax)
         wigner_inv = torch.transpose(wigner, 1, 2).contiguous()
-        wigner = wigner.detach()
-        wigner_inv = wigner_inv.detach()
+        if not self.use_rotation_mask:
+            wigner = wigner.detach()
+            wigner_inv = wigner_inv.detach()
+        self.wigner = wigner
+        self.wigner_inv = wigner_inv
         return wigner, wigner_inv
 
     @torch.jit.export
@@ -434,24 +452,17 @@ class SO3_Rotation(torch.nn.Module):
 
     @torch.jit.export
     def _z_rot_mat(self, angle: torch.Tensor, l: int) -> torch.Tensor:
-        shape = angle.shape
-        device = angle.device
-        dtype = angle.dtype
-
-        size = 2 * l + 1
-        M = torch.zeros(list(shape) + [size, size], dtype=dtype, device=device)
-
-        cos_a = torch.cos(angle).unsqueeze(-1).unsqueeze(-1)
-        sin_a = torch.sin(angle).unsqueeze(-1).unsqueeze(-1)
-
-        for i in range(size):
-            for j in range(size):
-                if i == j:
-                    M[..., i, j] = cos_a.squeeze(-1).squeeze(-1)
-                if i + j == 2 * l:
-                    M[..., i, j] = sin_a.squeeze(-1).squeeze(-1)
-
-        return M
+        # Matches e3nn 0.4.0: entry (i, i) = cos((l-i)*angle), entry (i, 2l-i) =
+        # sin((l-i)*angle). Diagonal and antidiagonal only overlap at the center,
+        # where the sin frequency is 0, so the sum is exact.
+        frequencies = torch.arange(
+            l, -l - 1, -1, dtype=angle.dtype, device=angle.device
+        )
+        phases = frequencies * angle.unsqueeze(-1)
+        return (
+            torch.diag_embed(torch.cos(phases))
+            + torch.diag_embed(torch.sin(phases)).flip(-1)
+        )
 
     @torch.jit.export
     def _xyz_to_angles_script(self, xyz: torch.Tensor):
@@ -483,15 +494,43 @@ class SO3_Rotation(torch.nn.Module):
         )
         gamma = torch.atan2(R[..., 0, 2], R[..., 0, 0])
 
+        # Edges nearly aligned with +/-y sit on the Euler-angle singularity
+        # (alpha/gamma undefined, d(acos)/dy -> inf), so their Wigner blocks are
+        # computed from detached angles with beta snapped to exactly 0 or pi;
+        # all other edges keep gradients for autograd-based forces.
+        backprop_mask = torch.ones_like(alpha, dtype=torch.bool)
+        alpha_detach = torch.zeros(0, device=alpha.device, dtype=alpha.dtype)
+        beta_detach = torch.zeros(0, device=alpha.device, dtype=alpha.dtype)
+        gamma_detach = torch.zeros(0, device=alpha.device, dtype=alpha.dtype)
+        if self.use_rotation_mask:
+            thr = self.rotation_mask_threshold
+            yprod = x[..., 1].detach()
+            backprop_mask = (yprod > -thr) & (yprod < thr)
+            alpha_detach = alpha[~backprop_mask].clone().detach()
+            gamma_detach = gamma[~backprop_mask].clone().detach()
+            beta_snapped = beta.clone().detach()
+            beta_snapped[yprod > thr] = 0.0
+            beta_snapped[yprod < -thr] = math.pi
+            beta_detach = beta_snapped[~backprop_mask]
+
         size = int((end_lmax + 1) ** 2 - (start_lmax) ** 2)
         wigner = torch.zeros(int(len(alpha)), size, size, device=edge_rot_mat.device, dtype=edge_rot_mat.dtype)
         start = 0
         for lmax in range(start_lmax, end_lmax + 1):
-            block = self.wigner_D(lmax, alpha, beta, gamma)
-            end = start + block.size()[1]
-            wigner[:, start:end, start:end] = block
+            if self.use_rotation_mask:
+                block = self.wigner_D(lmax, alpha[backprop_mask], beta[backprop_mask], gamma[backprop_mask])
+                block_detach = self.wigner_D(lmax, alpha_detach, beta_detach, gamma_detach)
+                end = start + block.size()[1]
+                wigner[backprop_mask, start:end, start:end] = block
+                wigner[~backprop_mask, start:end, start:end] = block_detach
+            else:
+                block = self.wigner_D(lmax, alpha, beta, gamma)
+                end = start + block.size()[1]
+                wigner[:, start:end, start:end] = block
             start = end
 
+        if self.use_rotation_mask:
+            return wigner
         return wigner.detach()
 
 class SO3_Embedding(nn.Module):
@@ -589,7 +628,9 @@ class SO3_Embedding(nn.Module):
     @torch.jit.export
     def _rotate(self, SO3_rotation: List[SO3_Rotation], lmax_list: List[int], mmax_list: List[int], edge_rot_mat: torch.Tensor):
         if self.num_resolutions == 1:
-            wigner, _ = SO3_rotation[0].set_wigner(edge_rot_mat)
+            wigner = SO3_rotation[0].wigner
+            if wigner.shape[0] != edge_rot_mat.shape[0]:
+                wigner, _ = SO3_rotation[0].set_wigner(edge_rot_mat)
             embedding_rotate = SO3_rotation[0].rotate(self.embedding, lmax_list[0], mmax_list[0], wigner)
         else:
             offset = 0
@@ -597,7 +638,9 @@ class SO3_Embedding(nn.Module):
             for i in range(self.num_resolutions):
                 num_coefficients = int((self.lmax_list[i] + 1) ** 2)
                 embedding_i = self.embedding[:, offset : offset + num_coefficients]
-                wigner, _ = SO3_rotation[i].set_wigner(edge_rot_mat)
+                wigner = SO3_rotation[i].wigner
+                if wigner.shape[0] != edge_rot_mat.shape[0]:
+                    wigner, _ = SO3_rotation[i].set_wigner(edge_rot_mat)
                 embedding_rotate = torch.cat([
                         embedding_rotate,
                         SO3_rotation[i].rotate(embedding_i, lmax_list[i], mmax_list[i], wigner)],
@@ -610,7 +653,9 @@ class SO3_Embedding(nn.Module):
     @torch.jit.export
     def _rotate_inv(self, SO3_rotation: List[SO3_Rotation], mappingReduced: CoefficientMappingModule, edge_rot_mat: torch.Tensor):
         if self.num_resolutions == 1:
-            wigner, wigner_inv = SO3_rotation[0].set_wigner(edge_rot_mat)
+            wigner_inv = SO3_rotation[0].wigner_inv
+            if wigner_inv.shape[0] != edge_rot_mat.shape[0]:
+                _, wigner_inv = SO3_rotation[0].set_wigner(edge_rot_mat)
             embedding_rotate = SO3_rotation[0].rotate_inv(self.embedding, self.lmax_list[0], self.mmax_list[0], wigner_inv)
         else:
             offset = 0
@@ -618,7 +663,9 @@ class SO3_Embedding(nn.Module):
             for i in range(self.num_resolutions):
                 num_coefficients = mappingReduced.res_size[i]
                 embedding_i = self.embedding[:, offset : offset + num_coefficients]
-                wigner, wigner_inv = SO3_rotation[i].set_wigner(edge_rot_mat)
+                wigner_inv = SO3_rotation[i].wigner_inv
+                if wigner_inv.shape[0] != edge_rot_mat.shape[0]:
+                    _, wigner_inv = SO3_rotation[i].set_wigner(edge_rot_mat)
                 embedding_rotate = torch.cat([
                         embedding_rotate,
                         SO3_rotation[i].rotate_inv(embedding_i, self.lmax_list[i], self.mmax_list[i], wigner_inv)],
@@ -2718,31 +2765,10 @@ class EquiformerV2(nn.Module):
             self.use_grid_mlp,
             self.use_sep_s2_act
         )
-        if self.compute_forces:
-            self.force_block = SO2EquivariantGraphAttention(
-                self.atom_channels,
-                self.attn_hidden_channels,
-                self.num_heads, 
-                self.attn_alpha_channels,
-                self.attn_value_channels, 
-                1,
-                self.lmax_list,
-                self.mmax_list,
-                self.SO3_rotation, 
-                self.mappingReduced, 
-                self.SO3_grid, 
-                self.max_num_elements,
-                self.edge_channels_list,
-                self.block_use_atom_edge_embedding, 
-                self.use_m_share_rad,
-                self.attn_activation, 
-                self.use_s2_act_attn, 
-                self.use_attn_renorm,
-                self.use_gate_act,
-                self.use_sep_s2_act,
-                alpha_drop=0.0
-            )
-            
+        # Forces come from autograd on the energy (GradientOutput); the direct
+        # force head is not used, so its parameters are not created — this also
+        # lets DDP run with find_unused_parameters=False.
+
         self.apply(self._init_weights)
         self.apply(self._uniform_init_rad_func_linear_weights)
 
@@ -2787,6 +2813,14 @@ class EquiformerV2(nn.Module):
         else:
             self.gradient_output = None
 
+        # Autograd-based forces/stress require d(energy)/d(edge_vectors) to see
+        # the angular path through the edge rotations and Wigner matrices, so
+        # keep them differentiable (degenerate +/-y edges detached per-edge).
+        self.use_rotation_mask = self.gradient_output is not None
+        self.rotation_mask_threshold = _ROTATION_MASK_THRESHOLD
+        for rot in self.SO3_rotation:
+            rot.use_rotation_mask = self.use_rotation_mask
+
     def _get_grid_index(self, l: int, m: int, max_l: int) -> int:
         return l * (max_l + 1) + m
     
@@ -2807,7 +2841,16 @@ class EquiformerV2(nn.Module):
             raise ValueError("Edge distance is too small")
         
         norm_x = edge_vec_0 / edge_vec_0_distance
-        
+
+        if self.use_rotation_mask:
+            # Snap edges nearly aligned with +/-y onto the axis so their rotation
+            # matrix is exactly constant; their Wigner blocks are detached in
+            # RotationToWignerDMatrix (Euler-angle singularity at beta = 0/pi).
+            thr = self.rotation_mask_threshold
+            yprod = norm_x[:, 1].detach()
+            norm_x[yprod > thr] = norm_x.new_tensor([0.0, 1.0, 0.0])
+            norm_x[yprod < -thr] = norm_x.new_tensor([0.0, -1.0, 0.0])
+
         # Use Gram-Schmidt orthogonalization for mathematically rigorous orthonormal basis
         # This creates a perfect orthonormal coordinate system for each edge
         num_edges = edge_diff.shape[0]
@@ -2857,8 +2900,12 @@ class EquiformerV2(nn.Module):
         
         edge_rot_mat_inv = torch.cat([norm_z, norm_x, norm_y], dim=2)
         edge_rot_mat = torch.transpose(edge_rot_mat_inv, 1, 2)
-        
+
         # Ensure output is float32 for consistency with C++ interface
+        if self.use_rotation_mask:
+            # Keep the graph edge_vectors -> rotation matrix so autograd forces
+            # include the angular dependence of the energy.
+            return edge_rot_mat.to(torch.float32)
         return edge_rot_mat.to(torch.float32).detach()
     
     @torch.jit.export
@@ -2959,6 +3006,10 @@ class EquiformerV2(nn.Module):
         # Edge-degree embedding
         edge_rot_mat = self.init_edge_rot_mat_script(edge_vectors)
         # edge_rot_mat = self._init_edge_rot_mat_constant(edge_vectors)
+        # Build the (differentiable) Wigner matrices once per forward pass;
+        # _rotate/_rotate_inv in every block reuse the cached copies.
+        for i in range(self.num_resolutions):
+            self.SO3_rotation[i].set_wigner(edge_rot_mat)
         edge_degree = self.edge_degree_embedding(
             atomic_numbers,
             edge_dist,
