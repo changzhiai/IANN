@@ -3,6 +3,50 @@ from iann.data import AseDataReader
 import numpy as np
 import torch
 
+# Distinctive nested-parameter substrings per model type, checked in order
+# (most specific first). Used only for legacy checkpoints that predate the
+# "model_type" key. The tokens are matched against the joined names of the
+# parameters in state_dict["model"], which carry each architecture's signature.
+_MODEL_TYPE_SIGNATURES = [
+    ("uma", ("backbone.",)),                       # eSCNMD backbone
+    ("mace", ("products.", "contractions")),       # before nequip: both have "interactions."
+    ("allegro", (".tps.", "latents.")),
+    ("equiformerv3", ("attn_weights_dropout", "alpha_act")),  # before v2: superset of alpha_*
+    ("equiformerv2", ("alpha_dot", "alpha_norm")),
+    ("fastpot", ("force_mlp",)),                   # before demo: fastpot-only head
+    ("demo", ("angular_linear", "interaction_layers")),
+    ("painn", ("message_layers", "update_layers")),
+    ("nequip", ("interactions.",)),
+]
+
+
+def _infer_model_type(state_dict):
+    """Best-effort model-type detection for checkpoints missing "model_type".
+
+    Inspects the parameter names in ``state_dict["model"]`` rather than the
+    top-level metadata keys (``num_layers`` etc. are saved for every model type,
+    so they cannot discriminate). Raises with a helpful message when ambiguous.
+    """
+    model_state = state_dict.get("model")
+    if not isinstance(model_state, dict) or not model_state:
+        raise ValueError(
+            "Could not determine model type: checkpoint has no 'model_type' key "
+            "and no 'model' state dict to infer from. Re-save with a current "
+            "trainer, or pass the model type explicitly."
+        )
+
+    keyblob = "\n".join(model_state.keys())
+    for name, tokens in _MODEL_TYPE_SIGNATURES:
+        if any(tok in keyblob for tok in tokens):
+            return name
+
+    raise ValueError(
+        "Could not determine model type from state dict; no known architecture "
+        f"signature matched. Top-level parameter groups present: "
+        f"{sorted({k.split('.')[0] for k in model_state})}"
+    )
+
+
 def _load_model(model_path, device, compute_forces, **kwargs):
     """Load model from path and determine its type."""
     state_dict = torch.load(model_path, map_location=device)
@@ -11,17 +55,7 @@ def _load_model(model_path, device, compute_forces, **kwargs):
     if "model_type" in state_dict:
         model_type = state_dict["model_type"].lower()
     else:
-        # Try to determine from model architecture
-        if "num_layers" in state_dict:
-            model_type = "painn"
-        elif "irreps" in state_dict:
-            model_type = "nequip"
-        elif "correlation" in state_dict:
-            model_type = "mace"
-        elif "transformer" in state_dict:
-            model_type = "equiformerv2"
-        else:
-            raise ValueError("Could not determine model type from state dict!")
+        model_type = _infer_model_type(state_dict)
 
     # Clean up kwargs
     model_kwargs = kwargs.copy()
@@ -30,6 +64,19 @@ def _load_model(model_path, device, compute_forces, **kwargs):
     forces_enabled = model_kwargs.pop("compute_forces", state_dict.get("compute_forces", False))
     if compute_forces is not None:
         forces_enabled = compute_forces
+
+    # Self-describing checkpoints: fold the architecture kwargs captured at train
+    # time (state_dict["model_config"]) beneath the caller-supplied kwargs, for
+    # every model type. Without this, structural params that aren't otherwise
+    # persisted (e.g. UMA's num_distance_basis / edge_channels / mmax) default to
+    # a different shape and load_state_dict fails with a size mismatch. Caller
+    # kwargs win. Keys passed explicitly to the constructors below are dropped to
+    # avoid duplicate-keyword errors; forces/virial/stress stay caller-controlled.
+    saved_cfg = dict(state_dict.get("model_config") or {})
+    for _k in ("num_layers", "num_channels", "cutoff", "device",
+               "compute_forces", "compute_virial", "compute_stress"):
+        saved_cfg.pop(_k, None)
+    model_kwargs = {**saved_cfg, **model_kwargs}
 
     # Create appropriate model
     if model_type == "painn":
