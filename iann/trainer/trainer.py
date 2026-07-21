@@ -517,7 +517,17 @@ class Trainer:
         model_params.pop("norm_data")
         model_params.pop("norm_per_atom")
         model_params.pop("device")
-        
+
+        # Snapshot the exact architecture kwargs so checkpoints are self-describing.
+        # Structural params like num_distance_basis / edge_channels / mmax are not
+        # otherwise persisted, and defaulting them at load time silently builds a
+        # differently-shaped model (state_dict size mismatch on load).
+        self.model_config = {
+            "num_layers": self.config["num_layers"],
+            "num_channels": self.config["num_channels"],
+            **model_params,
+        }
+
         # Set model
         if self.model_type == "painn":
             try:
@@ -851,6 +861,7 @@ class Trainer:
                 "parity": self.config.get("parity"),
                 "use_cue": self.config.get("use_cue"),
                 "compute_forces": self.config["forces_weight"],
+                "model_config": getattr(self, "model_config", None),
             },
             os.path.join(self.config["output_dir"], filename),
         )
