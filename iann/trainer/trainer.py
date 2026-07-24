@@ -63,6 +63,7 @@ class RankFilter(logging.Filter):
     def __init__(self, rank):
         super().__init__()
         self.rank = rank
+
     def filter(self, record):
         record.rank = self.rank
         return True
@@ -184,9 +185,8 @@ class EarlyStopping():
     def __call__(self, val_loss, best_loss):
         if val_loss - best_loss > self.min_delta:
             self.counter +=1
-            if self.counter >= self.patience:  
+            if self.counter >= self.patience:
                 self.early_stop = True
-                
         return self.early_stop
 
 def split_data(dataset, config, rank):
@@ -222,11 +222,11 @@ def split_data(dataset, config, rank):
 
 class Trainer:
     """Trainer class for training interatomic neural network models"""
-    
+
     def __init__(self, model="painn", config=None, distributed=True, rank=None, world_size=None):
         """
         Initialize the trainer with a model type and optional config
-        
+
         Args:
             model (str): Model type ("painn", "nequip", "mace", or "equiformer2")
             config (dict, optional): Configuration overrides
@@ -236,35 +236,66 @@ class Trainer:
         """
         # Initialize configuration with defaults
         self.config = DEFAULT_CONFIG.copy()
-        
+
         # Update with user config if provided
         if config:
             self.config.update(config)
-        
         self.input_config = config
-        
+
         # Set model type
         self.model_type = model.lower()
         if self.model_type not in ["painn", "nequip", "mace", "equiformerv2", "equiformerv3", "allegro", "uma", "fastpot", "demo"]:
             raise ValueError(f"Unknown model type: {self.model_type}")
-        
-        # Auto-detect SLURM to avoid spawning when SLURM is already managing processes
+
+        # Detect the launcher. If an external launcher (SLURM's srun, or
+        # mpirun/mpiexec) already started one process per rank, we must NOT spawn
+        # worker processes ourselves -- we just read our rank/size from it.
         self._under_slurm = 'SLURM_JOB_ID' in os.environ
+        # MPI launchers export rank/size under different names depending on the
+        # implementation (OpenMPI, MPICH / Intel MPI, MVAPICH). Pick the first
+        # pair that is present in the environment.
+        self._mpi_rank_env = self._mpi_size_env = None
+        for r_env, s_env in (
+            ('OMPI_COMM_WORLD_RANK', 'OMPI_COMM_WORLD_SIZE'),   # OpenMPI
+            ('PMI_RANK', 'PMI_SIZE'),                            # MPICH / Intel MPI
+            ('MV2_COMM_WORLD_RANK', 'MV2_COMM_WORLD_SIZE'),      # MVAPICH2
+        ):
+            if r_env in os.environ and s_env in os.environ:
+                self._mpi_rank_env, self._mpi_size_env = r_env, s_env
+                break
+        self._under_mpi = self._mpi_rank_env is not None
+        # SLURM or MPI => an external launcher owns process creation.
+        self._external_launcher = self._under_slurm or self._under_mpi
         # Track whether rank was provided explicitly
         self.distributed = distributed
         self._explicit_rank = rank is not None
-        # Auto-detect SLURM rank/world_size if not provided
+        # Auto-detect rank/world_size from the launcher if not provided
         if self.distributed:
             # Rank
             if self._explicit_rank:
                 self.rank = rank
-            else:
+            elif self._under_slurm:
                 self.rank = int(os.environ.get('SLURM_PROCID', 0))
+            elif self._under_mpi:
+                self.rank = int(os.environ[self._mpi_rank_env])
+            else:
+                self.rank = 0
             # World size
             if world_size is not None:
                 self.world_size = world_size
-            else:
+            elif self._under_slurm:
                 self.world_size = int(os.environ.get('SLURM_NTASKS', 1))
+            elif self._under_mpi:
+                self.world_size = int(os.environ[self._mpi_size_env])
+            else:
+                # Bare node (plain `python train.py`): default to all visible
+                # GPUs so distributed=True uses the whole node and the Trainer
+                # spawns one worker per GPU. Falls back to 1 without CUDA.
+                cfg_device = (self.config.get("device") or "")
+                if "cpu" in str(cfg_device).lower() or not torch.cuda.is_available():
+                    self.world_size = 1
+                else:
+                    self.world_size = max(1, torch.cuda.device_count())
         else:
             self.rank = 0
             self.world_size = 1
@@ -299,6 +330,61 @@ class Trainer:
         # Set random seed
         setup_seed(self.config["random_seed"])
     
+    def _get_local_rank(self):
+        """Per-node local rank, used to pick the GPU for this process.
+
+        Works across launchers: SLURM, OpenMPI / MPICH / Intel MPI / MVAPICH,
+        or a bare node. Falls back to rank modulo the visible GPU count.
+        """
+        if 'SLURM_LOCALID' in os.environ:
+            return int(os.environ['SLURM_LOCALID'])
+        for var in ('OMPI_COMM_WORLD_LOCAL_RANK',   # OpenMPI
+                    'MPI_LOCALRANKID',              # Intel MPI / MPICH
+                    'MV2_COMM_WORLD_LOCAL_RANK'):   # MVAPICH2
+            if var in os.environ:
+                return int(os.environ[var])
+        if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+            return self.rank % torch.cuda.device_count()
+        return 0
+
+    def _first_pbs_node(self):
+        """First host listed in $PBS_NODEFILE, or None if unavailable."""
+        pbs_nodefile = os.environ.get('PBS_NODEFILE')
+        if pbs_nodefile and os.path.exists(pbs_nodefile):
+            try:
+                with open(pbs_nodefile) as f:
+                    for line in f:
+                        host = line.strip()
+                        if host:
+                            return host
+            except OSError:
+                pass
+        return None
+
+    def _get_node_list(self):
+        """Return a human-readable node list for logging.
+
+        Prefers SLURM's node list, then the PBS node file (deduplicated,
+        order-preserving), and finally the local hostname. Purely cosmetic.
+        """
+        if os.environ.get('SLURM_JOB_NODELIST'):
+            return os.environ['SLURM_JOB_NODELIST']
+        pbs_nodefile = os.environ.get('PBS_NODEFILE')
+        if pbs_nodefile and os.path.exists(pbs_nodefile):
+            try:
+                with open(pbs_nodefile) as f:
+                    nodes = [line.strip() for line in f if line.strip()]
+                # PBS repeats each node once per requested core; keep unique order.
+                unique = list(dict.fromkeys(nodes))
+                if unique:
+                    return ",".join(unique)
+            except OSError:
+                pass
+        try:
+            return __import__('platform').node()
+        except Exception:
+            return "N/A"
+
     def _setup_distributed(self):
         """Initialize distributed training environment"""
         if 'SLURM_JOB_NODELIST' in os.environ:
@@ -328,8 +414,18 @@ class Trainer:
                 master_addr = node_list.split(',')[0]
                 current_node = master_addr
         else:
-            master_addr = os.environ.get('MASTER_ADDR', 'localhost')
-            current_node = master_addr
+            # SLURM node list not available (PBS + mpirun, or a bare node). Prefer
+            # an explicit MASTER_ADDR -- under multi-node MPI this must be set in
+            # submit.sh and forwarded to every rank (e.g. `mpirun -x MASTER_ADDR`)
+            # so all ranks rendezvous on the same host. Otherwise fall back to the
+            # first host in $PBS_NODEFILE, then localhost (single-node case).
+            master_addr = os.environ.get('MASTER_ADDR')
+            if not master_addr:
+                master_addr = self._first_pbs_node() or 'localhost'
+            try:
+                current_node = __import__('platform').node()
+            except Exception:
+                current_node = master_addr
         # Use fixed port for simplicity
         master_port = self.config["master_port"]
         self.master_addr = master_addr
@@ -337,8 +433,8 @@ class Trainer:
         os.environ['MASTER_ADDR'] = master_addr
         os.environ['MASTER_PORT'] = str(master_port)
         if self.rank == 0:
-            logging.info(f"PyTorch version: {torch.__version__}") 
-            logging.info(f"Node List: {os.environ.get('SLURM_JOB_NODELIST', 'N/A')}")
+            logging.info(f"PyTorch version: {torch.__version__}")
+            logging.info(f"Node List: {self._get_node_list()}")
             if torch.cuda.is_available():
                 logging.info(f"World Size (number of GPUs): {self.world_size}")
             else:
@@ -350,10 +446,7 @@ class Trainer:
 
         # Set device and self.device
         if torch.cuda.is_available() and self.device.type == 'cuda':
-            if 'SLURM_LOCALID' in os.environ:
-                local_rank = int(os.environ['SLURM_LOCALID'])
-            else:
-                local_rank = self.rank % torch.cuda.device_count()
+            local_rank = self._get_local_rank()
             torch.cuda.set_device(local_rank)
             self.device = torch.device(f"cuda:{local_rank}")
             logging.info(f"Process {self.rank} using device {self.device} on {current_node}. GPU architecture: {torch.cuda.get_device_name()}")
@@ -701,22 +794,25 @@ class Trainer:
             if self.device.type == 'cpu':
                 self.model = DDP(self.model)
             else:
-                if 'SLURM_LOCALID' in os.environ:
-                    local_rank = int(os.environ['SLURM_LOCALID'])
-                    if self.model_type in ("equiformerv2", "equiformerv3") and bool(self.config["forces_weight"]):
-                        find_unused_parameters = True
-                    else:
-                        find_unused_parameters = False
-                    self.model = DDP(
-                        self.model, 
-                        device_ids=[local_rank],
-                        gradient_as_bucket_view=True,  # Memory efficiency
-                        broadcast_buffers=False,       # Broadcast buffers may cause stuck for MACE or NequiIP
-                        static_graph=False,            # Dynamic graph is False by default
-                        find_unused_parameters=find_unused_parameters, 
-                    )
+                # Local (per-node) GPU index. Use the device index set in
+                # _setup_distributed (cuda:<local_rank>); fall back to the
+                # launcher-agnostic local-rank helper if it is unset.
+                if self.device.index is not None:
+                    local_rank = self.device.index
                 else:
-                    self.model = DDP(self.model, device_ids=[self.rank])
+                    local_rank = self._get_local_rank()
+                if self.model_type in ("equiformerv2", "equiformerv3") and bool(self.config["forces_weight"]):
+                    find_unused_parameters = True
+                else:
+                    find_unused_parameters = False
+                self.model = DDP(
+                    self.model,
+                    device_ids=[local_rank],
+                    gradient_as_bucket_view=True,  # Memory efficiency
+                    broadcast_buffers=False,       # Broadcast buffers may cause stuck for MACE or NequiIP
+                    static_graph=False,            # Dynamic graph is False by default
+                    find_unused_parameters=find_unused_parameters,
+                )
         
         # Log model info
         total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -789,10 +885,7 @@ class Trainer:
                 logging.info(f"Loading model from {best_model}")
             if self.distributed:
                 if torch.cuda.is_available() and self.device.type == 'cuda':
-                    if 'SLURM_LOCALID' in os.environ:
-                        local_rank = int(os.environ['SLURM_LOCALID'])
-                    else:
-                        local_rank = self.rank % torch.cuda.device_count()
+                    local_rank = self._get_local_rank()
                     map_location = torch.device(f"cuda:{local_rank}")
                 else: # CPU
                     local_rank = self.rank
@@ -807,14 +900,7 @@ class Trainer:
                 self.model.load_state_dict(state_dict["model"])
 
             if self.config.get("reset_lr", False):
-                # Fine-tune: start a FRESH LR schedule + step counter so the config LR
-                # actually takes effect. A step-based scheduler (LambdaLR/Exponential/
-                # Cosine/Step...) whose state was restored to a large step count would
-                # otherwise re-apply the full accumulated decay on the first
-                # scheduler.step() and pin the effective LR to ~0. Keep the freshly
-                # constructed scheduler (last_epoch=-1, base_lr=config LR); don't load
-                # the saved scheduler state. init_steps stays 0 (set above), so max_steps
-                # is interpreted as a fresh budget for this fine-tune.
+                # Fine-tune: start a FRESH LR schedule + step counter
                 for param_group in self.optimizer.param_groups:
                     param_group['lr'] = self.config["learning_rate"]
                     param_group['initial_lr'] = self.config["learning_rate"]
@@ -1064,9 +1150,11 @@ class Trainer:
             if not dataset_path:
                 raise ValueError("Dataset path must be provided via train() argument or in config['dataset']")
         
-        # If using local multi-GPU (not under SLURM) and rank not explicitly set, spawn worker processes
-        if (self.distributed and self.world_size > 1 and not self._explicit_rank 
-            and self.rank == 0 and not self._under_slurm):
+        # Local multi-GPU on a bare node (no external launcher) and rank not set
+        # explicitly: spawn one worker process per GPU ourselves. Under SLURM or
+        # MPI the launcher already started one process per rank, so skip spawning.
+        if (self.distributed and self.world_size > 1 and not self._explicit_rank
+            and self.rank == 0 and not self._external_launcher):
             mp.spawn(
                 process_function,
                 args=(self.world_size, self.model_type, self.config, dataset_path),
