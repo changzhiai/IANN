@@ -914,6 +914,7 @@ class Trainer:
                 # Resume: continue the step counter and LR schedule exactly as saved.
                 if state_dict["step"] > 0:
                     self.init_steps = state_dict["step"]
+                self.optimizer.load_state_dict(state_dict["optimizer"])
                 self.scheduler.load_state_dict(state_dict["scheduler"])
         else:
             if self.rank == 0:
