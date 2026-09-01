@@ -1,7 +1,7 @@
 from iann.data import AseDataset, collate_atomsdata
 import numpy as np
 import math, time
-import json, os, toml, sys
+import json, os, subprocess, toml, sys
 import argparse
 import logging
 import torch
@@ -385,33 +385,92 @@ class Trainer:
         except Exception:
             return "N/A"
 
+    @staticmethod
+    def _slurm_hostnames(node_list):
+        """Expand a SLURM node list into hostnames, in allocation order.
+
+        ``scontrol show hostnames`` is SLURM's own expander and is used first,
+        because the bracket syntax is richer than it looks: a single allocation
+        can arrive as any of
+
+            nid001540
+            nid001540,nid001601
+            nid[003957,003960,003981,003984]
+            nid[002640-002641,002644-002645]
+            nid[001393,001941,001944-001945]
+
+        The previous hand-rolled parser tested for '-' before ',', so every form
+        mixing the two took the range branch and raised -- ``split('-')`` giving
+        three parts on the fourth line, ``int('001393,001941,001944')`` on the
+        fifth. Comma-only lists happened to work, so whether a multi-node job
+        started at all came down to which nodes SLURM handed out.
+
+        The pure-Python fallback below is only for a machine without scontrol on
+        PATH; it splits on commas outside brackets, then expands each group.
+        """
+        node_list = (node_list or "").strip()
+        if not node_list:
+            return []
+        try:
+            out = subprocess.check_output(["scontrol", "show", "hostnames",
+                                           node_list],
+                                          stderr=subprocess.DEVNULL, text=True)
+            hosts = [h for h in out.split() if h]
+            if hosts:
+                return hosts
+        except Exception:
+            pass
+
+        hosts, depth, token = [], 0, ""
+        for ch in node_list:
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+            if ch == "," and depth == 0:
+                hosts.append(token)
+                token = ""
+            else:
+                token += ch
+        if token:
+            hosts.append(token)
+
+        expanded = []
+        for host in hosts:
+            host = host.strip()
+            if "[" not in host or "]" not in host:
+                expanded.append(host)
+                continue
+            base = host.split("[")[0]
+            body = host.split("[", 1)[1].rsplit("]", 1)[0]
+            suffix = host.rsplit("]", 1)[1]
+            for part in body.split(","):
+                part = part.strip()
+                if "-" in part:
+                    start, end = part.split("-", 1)
+                    width = len(start)
+                    for i in range(int(start), int(end) + 1):
+                        expanded.append(f"{base}{i:0{width}d}{suffix}")
+                elif part:
+                    expanded.append(f"{base}{part}{suffix}")
+        return expanded
+
     def _setup_distributed(self):
         """Initialize distributed training environment"""
-        if 'SLURM_JOB_NODELIST' in os.environ:
-            # Get the first node name from the SLURM node list
-            node_list = os.environ['SLURM_JOB_NODELIST']
-            # Handle different node list formats
-            if '[' in node_list and ']' in node_list:
-                base_name = node_list.split('[')[0]
-                node_range = node_list.split('[')[1].split(']')[0]
-                # Handle range format like "034-035"
-                if '-' in node_range:
-                    start, end = node_range.split('-')
-                    # Preserve leading zeros by using the width of the original strings
-                    width = len(start)
-                    start_num = int(start)
-                    end_num = int(end)
-                    node_numbers = [f"{i:0{width}d}" for i in range(start_num, end_num + 1)]
-                elif ',' in node_range:
-                    node_numbers = node_range.split(',')
-                else:
-                    node_numbers = [node_range]
-                node_numbers = sorted(node_numbers)
-                master_addr = f"{base_name}{node_numbers[0]}"  # Use first node as master
-                node_index = self.rank % len(node_numbers)  # Use modulo to wrap around if rank > num_nodes
-                current_node = f"{base_name}{node_numbers[node_index]}"
-            else:
-                master_addr = node_list.split(',')[0]
+        hostnames = (self._slurm_hostnames(os.environ['SLURM_JOB_NODELIST'])
+                     if os.environ.get('SLURM_JOB_NODELIST') else [])
+        if hostnames:
+            # First host in the allocation is the rendezvous point. Every rank
+            # expands the same variable, so they all agree.
+            master_addr = hostnames[0]
+            # The *real* hostname, not one inferred from the rank. The old code
+            # reported hostnames[rank % len(hostnames)], which assumes ranks are
+            # laid out round-robin over nodes; SLURM blocks them by default, so
+            # at 8 ranks on 2 nodes it named the wrong node for six of them and
+            # made a correct run look like it was colliding on GPUs.
+            try:
+                current_node = __import__('platform').node()
+            except Exception:
                 current_node = master_addr
         else:
             # SLURM node list not available (PBS + mpirun, or a bare node). Prefer
