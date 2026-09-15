@@ -89,7 +89,7 @@ C++ LAMMPS Plugins
 
    **Parameters:**
 
-   - ``model_type``: Type of ML model (painn, nequip, mace, equiformerv2)
+   - ``model_type``: Type of ML model (painn, nequip, allegro, mace, equiformerv2)
    
    - ``model_path``: Path to the exported TorchScript model file
    

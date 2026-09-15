@@ -83,10 +83,14 @@ except (ImportError, SyntaxError, Exception):
 # 1. ScalarMLP
 # ---------------------------------------------------------------------------
 
+# Module classes, not functions. TorchScript cannot hold a plain Python function
+# as a module attribute, which is what blocked exporting Allegro to LAMMPS.
+# These activations carry no parameters or buffers, so the state_dict -- and
+# therefore every existing checkpoint -- is unaffected.
 _NONLIN_MAP = {
-    "silu": torch.nn.functional.silu,
-    "mish": torch.nn.functional.mish,
-    "gelu": torch.nn.functional.gelu,
+    "silu": torch.nn.SiLU,
+    "mish": torch.nn.Mish,
+    "gelu": torch.nn.GELU,
 }
 
 
@@ -115,10 +119,14 @@ class ScalarMLP(nn.Module):
         self.output_dim = output_dim
         self.is_nonlinear = (hidden_layers_depth > 0) and (nonlinearity is not None)
 
+        # `has_act` is a plain bool so `forward` can gate on it under
+        # TorchScript, and `act` is always a Module -- scripting rejects both a
+        # function attribute and a call on an Optional[Module].
+        self.has_act = nonlinearity is not None
         if nonlinearity is None:
-            self.act = None
+            self.act = nn.Identity()
         elif nonlinearity in _NONLIN_MAP:
-            self.act = _NONLIN_MAP[nonlinearity]
+            self.act = _NONLIN_MAP[nonlinearity]()
         else:
             raise ValueError(f"Unknown nonlinearity {nonlinearity!r}")
 
@@ -135,7 +143,7 @@ class ScalarMLP(nn.Module):
                 fan_in = dims[i]
                 # Last layer uses unit gain (linear output); preceding layers
                 # account for the variance reduction of the chosen activation.
-                if (i < n_layers - 1) and (self.act is not None):
+                if (i < n_layers - 1) and self.has_act:
                     # SiLU/Mish/GELU all have approximately gain ~ sqrt(2)
                     gain = math.sqrt(2.0)
                 else:
@@ -150,7 +158,7 @@ class ScalarMLP(nn.Module):
         n = len(self.linears)
         for i, linear in enumerate(self.linears):
             x = linear(x)
-            if (i < n - 1) and (self.act is not None):
+            if (i < n - 1) and self.has_act:
                 x = self.act(x)
         return x
 
@@ -576,10 +584,12 @@ class AllegroModule(nn.Module):
         accumulated: List[torch.Tensor] = [twobody_scalar_features]
         env_w = projection[:, self.num_scalar_features:]
 
-        for layer_idx in range(self.num_layers):
-            tp = self.tps[layer_idx]
-            latent = self.latents[layer_idx]
-
+        # Iterated with zip rather than indexed by layer_idx: TorchScript only
+        # allows literal indices into a ModuleList, so `self.tps[layer_idx]`
+        # cannot be scripted. zip over the two lists is scriptable and keeps both
+        # ModuleLists -- and therefore the checkpoint keys -- as they are.
+        layer_idx = 0
+        for tp, latent in zip(self.tps, self.latents):
             # 1. weight tensor basis with env_w
             env_w_edges = self._env_weighter(tensor_basis, env_w)
             # 2. scatter to nodes (per-atom env feature)
@@ -602,6 +612,7 @@ class AllegroModule(nn.Module):
             accumulated.append(new_scalar_features)
             if layer_idx < self.num_layers - 1:
                 env_w = latent_output[:, self.num_scalar_features:]
+            layer_idx += 1
 
         final_scalars = torch.cat(accumulated, dim=-1)
         return data, final_scalars
@@ -939,7 +950,11 @@ class Allegro(nn.Module):
         # 2. Two-body scalar embedding (ProductTypeEmbedding + ScalarMLP).
         edge_types = self._edge_types(data)
         data = self.product_type_embedding(data, edge_types)
-        scalar_embed = self.scalar_embed_mlp(data.edge_dist_embedding)
+        # Narrowed to a local first: the field is Optional[Tensor], and
+        # TorchScript will not pass an Optional where a Tensor is expected.
+        edge_dist_embedding = data.edge_dist_embedding
+        assert edge_dist_embedding is not None
+        scalar_embed = self.scalar_embed_mlp(edge_dist_embedding)
         data = replace_properties(data, edge_dist_embedding=scalar_embed)
 
         # 3. Two-body tensor embedding (learned-weighted SH).

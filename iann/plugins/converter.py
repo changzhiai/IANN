@@ -177,7 +177,7 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
     
     Args:
         model_path (str): Path to the trained model checkpoint
-        model_type (str): Type of model (painn, nequip, mace, equiformer2)
+        model_type (str): Type of model (painn, nequip, allegro, mace, equiformerv2)
         output_path (str, optional): Path to save the exported model
     
     Returns:
@@ -206,7 +206,9 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
             model_type = state_dict["model_type"]
         else:
             # Try to determine from model architecture
-            if "num_layers" in state_dict:
+            if any(".tps." in k or "latents." in k for k in state_dict["model"].keys()):
+                model_type = "allegro"
+            elif "num_layers" in state_dict:
                 model_type = "painn"
             elif "irreps" in state_dict:
                 model_type = "nequip"
@@ -266,14 +268,37 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
             compute_forces=forces_enabled,
             **model_kwargs,
         )
+    elif model_type.lower() == "allegro":
+        from iann.models.allegro import Allegro
+        # Mirrors the nequip branch: cutoff/lmax/parity/use_cue arrive through
+        # **kwargs, and the persisted values win over any caller override.
+        model_kwargs.pop("lmax", None)
+        model_kwargs.pop("parity", None)
+        model_kwargs.pop("use_cue", None)
+
+        lmax_sd = state_dict.get("lmax")
+        if lmax_sd is None: lmax_sd = 2
+        parity_sd = state_dict.get("parity")
+        if parity_sd is None: parity_sd = True
+
+        raw_model = Allegro(
+            num_layers=num_layers,
+            num_channels=num_channels,
+            cutoff=cutoff,
+            lmax=lmax_sd,
+            parity=parity_sd,
+            use_cue=use_cue_sd,
+            compute_forces=forces_enabled,
+            **model_kwargs,
+        )
     elif model_type.lower() == "mace":
         from iann.models.mace import MACE
         model_kwargs.pop("lmax", None)
         model_kwargs.pop("use_cue", None)
-        
+
         lmax_sd = state_dict.get("lmax")
         if lmax_sd is None: lmax_sd = 3
-        
+
         raw_model = MACE(
             num_layers=num_layers,
             num_channels=num_channels,
@@ -333,7 +358,7 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=F
     
     Args:
         model_paths (list): List of paths to trained model checkpoints
-        model_type (str): Type of model (painn, nequip, mace, equiformer2)
+        model_type (str): Type of model (painn, nequip, allegro, mace, equiformerv2)
         output_path (str, optional): Path to save the exported model
     
     Returns:
@@ -366,7 +391,9 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=F
             if "model_type" in state_dict:
                 model_type = state_dict["model_type"]
             else:
-                if "num_layers" in state_dict:
+                if any(".tps." in k or "latents." in k for k in state_dict["model"].keys()):
+                    model_type = "allegro"
+                elif "num_layers" in state_dict:
                     model_type = "painn"
                 elif "irreps" in state_dict:
                     model_type = "nequip"
@@ -424,14 +451,35 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=F
                 compute_forces=forces_enabled,
                 **model_kwargs,
             )
+        elif model_type.lower() == "allegro":
+            from iann.models.allegro import Allegro
+            model_kwargs.pop("lmax", None)
+            model_kwargs.pop("parity", None)
+            model_kwargs.pop("use_cue", None)
+
+            lmax_sd = state_dict.get("lmax")
+            if lmax_sd is None: lmax_sd = 2
+            parity_sd = state_dict.get("parity")
+            if parity_sd is None: parity_sd = True
+
+            raw_model = Allegro(
+                num_layers=num_layers,
+                num_channels=num_channels,
+                cutoff=cutoff,
+                lmax=lmax_sd,
+                parity=parity_sd,
+                use_cue=use_cue_sd,
+                compute_forces=forces_enabled,
+                **model_kwargs,
+            )
         elif model_type.lower() == "mace":
             from iann.models.mace import MACE
             model_kwargs.pop("lmax", None)
             model_kwargs.pop("use_cue", None)
-            
+
             lmax_sd = state_dict.get("lmax")
             if lmax_sd is None: lmax_sd = 3
-            
+
             raw_model = MACE(
                 num_layers=num_layers,
                 num_channels=num_channels,
@@ -498,7 +546,7 @@ def main():
     parser = argparse.ArgumentParser(description="Export IANN models to TorchScript for LAMMPS")
     parser.add_argument("--model_path", "-m", required=True,
                         help="Path to the trained model checkpoint")
-    parser.add_argument("--model_type", "-t", choices=["painn", "nequip", "mace", "equiformer2"], required=True,
+    parser.add_argument("--model_type", "-t", choices=["painn", "nequip", "allegro", "mace", "equiformerv2", "equiformer2"], required=True,
                         help="Type of model to export")
     parser.add_argument("--output", "-o", help="Output path for exported model")
     

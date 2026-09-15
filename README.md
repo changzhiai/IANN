@@ -443,7 +443,7 @@ IANN models can be used as interatomic potentials in LAMMPS molecular dynamics s
 > You have to install IANN plugins for LAMMPS first, if you want to use IANN models with LAMMPS. Please see the documentation in [LAMMPS interface](https://iann.readthedocs.io/en/latest/lammps.html) section.
 
 > [!IMPORTANT]
-> The export path supports fewer architectures than the trainer. `model_type` accepts only `painn`, `nequip`, `mace` and `equiformer2` — **Allegro, EquiformerV3, UMA and FastPot cannot currently be exported to LAMMPS.** Train with one of the four supported architectures if the model is destined for a LAMMPS production run.
+> The export path supports fewer architectures than the trainer. `model_type` accepts `painn`, `nequip`, `allegro`, `mace` and `equiformerv2` (also spelled `equiformer2`) — **EquiformerV3, UMA and FastPot cannot currently be exported to LAMMPS**, and `convert_model_for_lammps` raises `ValueError: Unknown model type: <name>` for them. Train with one of the five supported architectures if the model is destined for a LAMMPS production run.
 
 ### Use an IANN model with LAMMPS
 

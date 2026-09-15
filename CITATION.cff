@@ -5,7 +5,7 @@ authors:
   given-names: "Changzhi"
   orcid: "https://orcid.org/0009-0008-3773-5787"
 title: "IANN"
-version: 0.1.0
+version: 0.1.2
 doi: 10.5281/zenodo.17809949
 date-released: 2025-12-03
 url: "https://github.com/changzhiai/IANN"
