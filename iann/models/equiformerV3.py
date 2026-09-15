@@ -22,7 +22,7 @@ import os
 import math
 import copy
 from functools import partial
-from typing import List, Optional, Callable, Union
+from typing import List, Optional, Callable, Final, Tuple, Union
 
 import torch
 from torch import nn
@@ -46,15 +46,21 @@ _NORM_SCALE_DEGREE = math.sqrt(_AVG_DEGREE)
 
 # For gradient methods, do not back-propagate rotation if the y component of
 # the edge unit vector is very close to this threshold.
-_ROTATION_MASK_THRESHOLD = 0.999999
+# Annotated Final so TorchScript inlines it as a constant; an unannotated
+# module-level float is treated as a closed-over global and rejected.
+_ROTATION_MASK_THRESHOLD: Final[float] = 0.999999
 
 
 # ---------------------------------------------------------------------------
 # Generic helpers (scatter / reduce / dropout / softmax)
 # ---------------------------------------------------------------------------
 
-def reduce_edge(inputs: torch.Tensor, edge_index: torch.Tensor, output_shape) -> torch.Tensor:
-    outputs = torch.zeros(*output_shape, device=inputs.device, dtype=inputs.dtype)
+def reduce_edge(inputs: torch.Tensor, edge_index: torch.Tensor,
+                output_shape: List[int]) -> torch.Tensor:
+    # output_shape annotated and passed as a list rather than star-unpacked:
+    # TorchScript infers Tensor for an unannotated argument and does not support
+    # *args expansion into torch.zeros.
+    outputs = torch.zeros(output_shape, device=inputs.device, dtype=inputs.dtype)
     outputs.index_add_(0, edge_index, inputs)
     return outputs
 
@@ -133,9 +139,16 @@ def init_edge_rot_mat(edge_distance_vec: torch.Tensor, use_rotation_mask: bool =
     norm_x = edge_vec_0 / (edge_vec_0_distance.view(-1, 1))
 
     if use_rotation_mask:
-        yprod = norm_x @ norm_x.new_tensor([0.0, 1.0, 0.0])
-        norm_x[yprod > _ROTATION_MASK_THRESHOLD] = norm_x.new_tensor([0.0, 1.0, 0.0])
-        norm_x[yprod < -_ROTATION_MASK_THRESHOLD] = norm_x.new_tensor([0.0, -1.0, 0.0])
+        # torch.tensor(..., dtype=, device=) rather than Tensor.new_tensor:
+        # new_tensor is not a TorchScript builtin. Same dtype and device, so
+        # the result is unchanged.
+        _yhat = torch.tensor([0.0, 1.0, 0.0], dtype=norm_x.dtype, device=norm_x.device)
+        # Bound to a local: TorchScript will not read a module-level float from
+        # inside a compiled free function.
+        threshold: float = 0.999999
+        yprod = norm_x @ _yhat
+        norm_x[yprod > threshold] = _yhat
+        norm_x[yprod < -threshold] = -_yhat
 
     edge_vec_2 = torch.rand_like(edge_vec_0) - 0.5
     edge_vec_2 = edge_vec_2 / (torch.sqrt(torch.sum(edge_vec_2 ** 2, dim=1)).view(-1, 1))
@@ -180,23 +193,33 @@ _Jd = torch.load(os.path.join(iann.__path__[0], "data", "Jd.pt"))
 
 
 def _z_rot_mat(angle: torch.Tensor, l: int) -> torch.Tensor:
-    shape, device, dtype = angle.shape, angle.device, angle.dtype
-    M = angle.new_zeros((*shape, 2 * l + 1, 2 * l + 1))
+    # Separate assignments and an explicit shape list: TorchScript cannot unpack
+    # a heterogeneous tuple, star-expand a shape, or call Tensor.new_zeros.
+    device = angle.device
+    dtype = angle.dtype
+    size = 2 * l + 1
+    shape: List[int] = list(angle.shape) + [size, size]
+    M = torch.zeros(shape, dtype=dtype, device=device)
     inds = torch.arange(0, 2 * l + 1, 1, device=device)
     reversed_inds = torch.arange(2 * l, -1, -1, device=device)
     frequencies = torch.arange(l, -l - 1, -1, dtype=dtype, device=device)
-    M[..., inds, reversed_inds] = torch.sin(frequencies * angle[..., None])
-    M[..., inds, inds] = torch.cos(frequencies * angle[..., None])
+    # `:` rather than `...`: TorchScript does not support an ellipsis followed by
+    # tensor indexing. Equivalent here because wigner_D broadcasts alpha/beta/
+    # gamma to one dimension before calling this, which the assert pins down.
+    assert angle.dim() == 1, "_z_rot_mat expects a 1-D angle tensor"
+    M[:, inds, reversed_inds] = torch.sin(frequencies * angle[:, None])
+    M[:, inds, inds] = torch.cos(frequencies * angle[:, None])
     return M
 
 
-def wigner_D(l: int, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
-    if not l < len(_Jd):
-        raise NotImplementedError(
-            f"wigner D maximum l implemented is {len(_Jd) - 1}, send us an email to ask for more"
-        )
+def wigner_D(l: int, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor,
+             J: torch.Tensor) -> torch.Tensor:
+    # J is passed in rather than read from the module-level `_Jd` list:
+    # TorchScript cannot close over a global list of tensors. Callers index
+    # their own copy (see SO3Rotation._jd), which also keeps the bounds check
+    # at construction time instead of per call.
     alpha, beta, gamma = torch.broadcast_tensors(alpha, beta, gamma)
-    J = _Jd[l].to(dtype=alpha.dtype, device=alpha.device)
+    J = J.to(dtype=alpha.dtype, device=alpha.device)
     Xa = _z_rot_mat(alpha, l)
     Xb = _z_rot_mat(beta, l)
     Xc = _z_rot_mat(gamma, l)
@@ -272,6 +295,12 @@ class RadialFunction(nn.Module):
         self.use_rad_l_parametrization = use_rad_l_parametrization
         self.use_expand = use_expand
 
+        # TorchScript compiles every branch of `forward`, so attributes it reads
+        # must exist on every instance regardless of configuration. Declared with
+        # a default here and overwritten below where applicable; a plain int adds
+        # nothing to the state_dict.
+        self.num_m_components: int = 0
+
         if self.use_expand:
             if not self.use_rad_l_parametrization:
                 expand_index = []
@@ -297,6 +326,14 @@ class RadialFunction(nn.Module):
                     start_idx = start_idx + length
                 self.register_buffer('expand_index', expand_index)
                 assert channels_list[-1] % (self.lmax + 1) == 0
+        else:
+            # Same reason as num_m_components: `forward` references
+            # expand_index inside a guarded branch, but TorchScript still needs
+            # the attribute to exist. persistent=False keeps it out of the
+            # state_dict, so checkpoints of use_expand=False configurations gain
+            # no key and load unchanged.
+            self.register_buffer('expand_index', torch.zeros(0, dtype=torch.long),
+                                 persistent=False)
 
     def forward(self, inputs):
         outputs = self.net(inputs)
@@ -430,11 +467,24 @@ class CoefficientMappingModule(nn.Module):
 
 class SO3Rotation(nn.Module):
     """Wigner-D rotations baked together with the m-primary layout swap."""
+
+    # Plain list attribute, not buffers: it must be indexable by a variable l
+    # under TorchScript, and registering buffers would add state_dict keys.
+    _jd: List[torch.Tensor]
+    # Plain tensors initialised empty rather than Optional[None]: torch.jit.save
+    # cannot serialise an attribute holding an undefined tensor ("strides()
+    # called on an undefined Tensor"). Not buffers, so no state_dict keys.
+    wigner: torch.Tensor
+    wigner_inv: torch.Tensor
+
     def __init__(self, lmax, mmax, use_rotation_mask=False):
         super().__init__()
         self.lmax = lmax
         self.mmax = mmax
         self.use_rotation_mask = use_rotation_mask
+        assert lmax < len(_Jd), (
+            f"wigner D maximum l implemented is {len(_Jd) - 1}, got lmax={lmax}")
+        self._jd = [t for t in _Jd]
 
         mapping = CoefficientMappingModule(
             lmax=self.lmax, mmax=self.lmax, use_rotate_inv_rescale=True
@@ -455,8 +505,8 @@ class SO3Rotation(nn.Module):
         self.register_buffer('wigner_index_to_m_array', wigner_index_to_m_array)
         self.register_buffer('wigner_inv_rescale', wigner_inv_rescale)
 
-        self.wigner: Optional[torch.Tensor] = None
-        self.wigner_inv: Optional[torch.Tensor] = None
+        self.wigner = torch.zeros(0)
+        self.wigner_inv = torch.zeros(0)
 
     def set_wigner(self, rot_mat3x3: torch.Tensor) -> None:
         wigner = self._rotation_to_wigner_matrix(rot_mat3x3, 0, self.lmax)
@@ -471,9 +521,14 @@ class SO3Rotation(nn.Module):
         self.wigner_inv = wigner_inv
 
     def rotate(self, inputs: torch.Tensor) -> torch.Tensor:
+        # Narrowed to a local: the attribute is Optional[Tensor] because it is
+        # only populated by set_wigner(), and TorchScript will not accept an
+        # Optional where a Tensor is required.
+        assert self.wigner.numel() > 0, "set_wigner() must be called before rotate()"
         return torch.bmm(self.wigner, inputs)
 
     def rotate_inv(self, inputs: torch.Tensor) -> torch.Tensor:
+        assert self.wigner_inv.numel() > 0, "set_wigner() must be called before rotate_inv()"
         return torch.bmm(self.wigner_inv, inputs)
 
     def _rotation_to_wigner_matrix(self, edge_rot_mat: torch.Tensor,
@@ -484,16 +539,24 @@ class SO3Rotation(nn.Module):
         R = torch.bmm(R, edge_rot_mat)
         gamma = torch.atan2(R[..., 0, 2], R[..., 0, 0])
 
-        backprop_mask = None
-        alpha_detach = beta_detach = gamma_detach = None
+        # Empty tensors rather than None: TorchScript requires each variable to
+        # keep one type, and these are only read on the use_rotation_mask branch
+        # that overwrites them below.
+        backprop_mask = torch.zeros(0, dtype=torch.bool, device=x.device)
+        alpha_detach = torch.zeros(0, dtype=alpha.dtype, device=alpha.device)
+        beta_detach = torch.zeros(0, dtype=beta.dtype, device=beta.device)
+        gamma_detach = torch.zeros(0, dtype=gamma.dtype, device=gamma.device)
         if self.use_rotation_mask:
-            yprod = (x @ x.new_tensor([0, 1, 0])).detach()
-            backprop_mask = (yprod > -_ROTATION_MASK_THRESHOLD) & (yprod < _ROTATION_MASK_THRESHOLD)
+            # Local copy of the module-level threshold; see init_edge_rot_mat.
+            threshold: float = 0.999999
+            yprod = (x @ torch.tensor([0.0, 1.0, 0.0], dtype=x.dtype,
+                                      device=x.device)).detach()
+            backprop_mask = (yprod > -threshold) & (yprod < threshold)
             alpha_detach = alpha[(~backprop_mask)].clone().detach()
             gamma_detach = gamma[(~backprop_mask)].clone().detach()
             beta_detach = beta.clone().detach()
-            beta_detach[yprod > _ROTATION_MASK_THRESHOLD] = 0.0
-            beta_detach[yprod < -_ROTATION_MASK_THRESHOLD] = math.pi
+            beta_detach[yprod > threshold] = 0.0
+            beta_detach[yprod < -threshold] = math.pi
             beta_detach = beta_detach[(~backprop_mask)]
 
         size = int((end_lmax + 1) ** 2) - int((start_lmax) ** 2)
@@ -502,13 +565,15 @@ class SO3Rotation(nn.Module):
         end = 0
         for lmax in range(start_lmax, end_lmax + 1):
             if self.use_rotation_mask:
-                block = wigner_D(lmax, alpha[backprop_mask], beta[backprop_mask], gamma[backprop_mask])
-                block_detach = wigner_D(lmax, alpha_detach, beta_detach, gamma_detach)
+                block = wigner_D(lmax, alpha[backprop_mask], beta[backprop_mask],
+                                 gamma[backprop_mask], self._jd[lmax])
+                block_detach = wigner_D(lmax, alpha_detach, beta_detach,
+                                        gamma_detach, self._jd[lmax])
                 end = start + block.size()[1]
                 wigner[backprop_mask, start:end, start:end] = block
                 wigner[(~backprop_mask), start:end, start:end] = block_detach
             else:
-                block = wigner_D(lmax, alpha, beta, gamma)
+                block = wigner_D(lmax, alpha, beta, gamma, self._jd[lmax])
                 end = start + block.size()[1]
                 wigner[:, start:end, start:end] = block
             start = end
@@ -661,16 +726,16 @@ class SO2MLinear(nn.Module):
         self.fc = nn.Linear(self.in_features, (2 * self.out_features), bias=False)
         self.fc.weight.data.mul_(1 / math.sqrt(2))
 
-    def forward(self, x_m, concat_outputs=True):
+    def forward(self, x_m) -> Tuple[torch.Tensor, torch.Tensor]:
+        # Always returns the (+m, -m) pair. The previous `concat_outputs` flag
+        # made the return type depend on an argument, which TorchScript cannot
+        # compile; the concatenating branch had no callers.
         x_m = self.fc(x_m)
         x_r = x_m.narrow(2, 0, self.out_features)
         x_i = x_m.narrow(2, self.out_features, self.out_features)
         x_m_r = x_r.narrow(1, 0, 1) - x_i.narrow(1, 1, 1)
         x_m_i = x_r.narrow(1, 1, 1) + x_i.narrow(1, 0, 1)
-        x_out = (x_m_r, x_m_i)
-        if concat_outputs:
-            x_out = torch.cat(x_out, dim=1)
-        return x_out
+        return x_m_r, x_m_i
 
 
 class SO2Linear(nn.Module):
@@ -713,16 +778,20 @@ class SO2Linear(nn.Module):
         outputs.append(x_m0)
 
         offset = self.lmax + 1
-        for m in range(1, self.mmax + 1):
-            x_m = x.narrow(1, offset, 2 * (self.lmax + 1 - m))
+        # Iterated rather than indexed by m-1: TorchScript only permits literal
+        # indices into a ModuleList. The list holds one entry per m in 1..mmax,
+        # so the counter reproduces the original ordering exactly.
+        m = 1
+        for so2_m in self.so2_m_linear:
+            x_m_in = x.narrow(1, offset, 2 * (self.lmax + 1 - m))
             offset = offset + 2 * (self.lmax + 1 - m)
-            x_m = x_m.reshape(num_edges, 2, -1)
-            x_m = self.so2_m_linear[m - 1](x_m, concat_outputs=False)
-            x_m_pos, x_m_neg = x_m[0], x_m[1]
+            x_m_in = x_m_in.reshape(num_edges, 2, -1)
+            x_m_pos, x_m_neg = so2_m(x_m_in)
             x_m_pos = x_m_pos.view(num_edges, -1, self.num_out_channels)
             x_m_neg = x_m_neg.view(num_edges, -1, self.num_out_channels)
             outputs.append(x_m_pos)
             outputs.append(x_m_neg)
+            m += 1
 
         outputs = torch.cat(outputs, dim=1)
 
@@ -1091,7 +1160,10 @@ class S2Activation(nn.Module):
         self.so3_grid = SO3Grid(self.lmax, self.mmax, resolution_list=grid_resolution_list, use_m_primary=use_m_primary)
         self.act = nn.SiLU()
 
-    def forward(self, inputs):
+    def forward(self, inputs, scalars: Optional[torch.Tensor] = None):
+        # `scalars` is accepted and ignored so every activation shares one
+        # signature; the call site can then be a static self.act(inputs,
+        # scalars) instead of unsupported dict expansion.
         x_grid = self.so3_grid.to_grid(inputs)
         x_grid = self.act(x_grid)
         return self.so3_grid.from_grid(x_grid)
@@ -1159,7 +1231,15 @@ class S2Activation_SwiGLU_MemoryEfficient(S2Activation_SwiGLU):
         x_grid = self.act(x_grid)
         return self.so3_grid.from_grid(inputs)
 
-    def forward(self, inputs):
+    def forward(self, inputs, scalars: Optional[torch.Tensor] = None):
+        # `scalars` is accepted and ignored so every activation shares one
+        # signature; the call site can then be a static self.act(inputs,
+        # scalars) instead of unsupported dict expansion.
+        if torch.jit.is_scripting():
+            # Gradient checkpointing only saves memory while training and is
+            # not scriptable. The export path calls the kernel directly, which
+            # is numerically identical -- checkpointing just recomputes it.
+            return self.kernel(inputs)
         return torch.utils.checkpoint.checkpoint(self.kernel, inputs, use_reentrant=False)
 
 
@@ -1219,6 +1299,11 @@ class SeparableS2Activation_SwiGLU_Merge_MemoryEfficient(S2Activation_SwiGLU_Mem
         return outputs
 
     def forward(self, inputs, scalars):
+        if torch.jit.is_scripting():
+            # Gradient checkpointing only saves memory while training and is
+            # not scriptable. The export path calls the kernel directly, which
+            # is numerically identical -- checkpointing just recomputes it.
+            return self.kernel(inputs, scalars)
         return torch.utils.checkpoint.checkpoint(self.kernel, inputs, scalars, use_reentrant=False)
 
 
@@ -1312,6 +1397,11 @@ class SeparableGateS2Activation_SwiGLU_Merge_MemoryEfficient(SeparableGateS2Acti
         return outputs
 
     def forward(self, inputs, scalars):
+        if torch.jit.is_scripting():
+            # Gradient checkpointing only saves memory while training and is
+            # not scriptable. The export path calls the kernel directly, which
+            # is numerically identical -- checkpointing just recomputes it.
+            return self.kernel(inputs, scalars)
         return torch.utils.checkpoint.checkpoint(self.kernel, inputs, scalars, use_reentrant=False)
 
 
@@ -1457,12 +1547,24 @@ class GraphSoftmax(nn.Module):
         self.dropout = nn.Dropout(exp_dropout) if self.exp_dropout > 0.0 else nn.Identity()
         self.softcap = SoftCap(cap=softcap) if softcap is not None else nn.Identity()
 
-    def forward(self, src, index=None, ptr=None, num_nodes=None, dim=0, exp_rescale=None):
+    def forward(self, src, index: Optional[torch.Tensor] = None,
+                ptr: Optional[torch.Tensor] = None,
+                num_nodes: Optional[int] = None, dim: int = 0,
+                exp_rescale: Optional[torch.Tensor] = None):
+        # Annotated explicitly: without these, TorchScript infers Tensor for
+        # every argument defaulting to None, so `num_nodes` became a Tensor and
+        # could not be assigned into the List[int] shape below.
         if index is None:
             raise NotImplementedError("GraphSoftmax requires index in this port")
         src = self.softcap(src)
 
-        N = num_nodes if num_nodes is not None else int(index.max().item()) + 1
+        # Written as if/else rather than a conditional expression: TorchScript
+        # refines Optional[int] through a branch, but types the ternary as
+        # Optional[int], which then cannot index `size`.
+        if num_nodes is not None:
+            N = num_nodes
+        else:
+            N = int(index.max().item()) + 1
 
         index_expand = index
         for _ in range(src.dim() - index.dim()):
@@ -1524,7 +1626,12 @@ class EdgeDegreeEmbedding(nn.Module):
 
         self.rescale_factor = rescale_factor
 
-    def forward(self, atomic_numbers, edge_distance, edge_index, edge_envelope_weight=None):
+    def forward(self, atomic_numbers, edge_distance, edge_index,
+                edge_envelope_weight: Optional[torch.Tensor] = None):
+        # Annotated: an unannotated `=None` default is typed as Tensor by
+        # TorchScript and its default becomes an *undefined* tensor. That
+        # scripts fine but makes torch.jit.save fail with
+        # "strides() called on an undefined Tensor".
         if self.use_atom_edge_embedding:
             source_element = atomic_numbers[edge_index[0]]
             target_element = atomic_numbers[edge_index[1]]
@@ -1540,8 +1647,12 @@ class EdgeDegreeEmbedding(nn.Module):
             x_edge_m0 = x_edge_m0 * edge_envelope_weight
 
         x_edge_m0 = x_edge_m0.view(x_edge_m0.shape[0], (self.lmax + 1), self.num_channels)
+        # Narrowed to a local: wigner_inv is Optional[Tensor] until set_wigner()
+        # runs, and TorchScript rejects an Optional receiver for .narrow().
+        wigner_inv = self.so3_rotation.wigner_inv
+        assert wigner_inv.numel() > 0
         x_edge = torch.bmm(
-            self.so3_rotation.wigner_inv.narrow(2, 0, (self.lmax + 1)),
+            wigner_inv.narrow(2, 0, (self.lmax + 1)),
             x_edge_m0,
         )
 
@@ -1606,6 +1717,10 @@ class EquivariantGraphAttention(nn.Module):
         self.use_atom_edge_embedding = use_atom_edge_embedding
 
         self.activation = activation
+        # Precomputed because has_scalars() is a Python helper over a string
+        # and is constant for the life of the module; a bool attribute is
+        # scriptable where the call is not, and adds nothing to the state_dict.
+        self.act_has_scalars: bool = has_scalars(activation)
         self.use_attn_renorm = use_attn_renorm
         self.use_add_merge = use_add_merge
         self.use_rad_l_parametrization = use_rad_l_parametrization
@@ -1654,7 +1769,7 @@ class EquivariantGraphAttention(nn.Module):
             self.use_swiglu = False
 
         extra_m0_out_channels = self.num_heads * self.attn_alpha_channels
-        if has_scalars(self.activation):
+        if self.act_has_scalars:
             self.split_m0_channels_list = [extra_m0_out_channels]
             if 'sep-merge_gates2_swiglu' in self.activation:
                 temp = self.num_hidden_channels + (self.num_hidden_channels // 2)
@@ -1704,7 +1819,8 @@ class EquivariantGraphAttention(nn.Module):
         self.proj = SO3Linear(self.num_heads * self.attn_value_channels, self.num_out_channels, lmax=self.lmax)
 
     def forward(self, x, source_atomic_numbers, target_atomic_numbers,
-                edge_distance, edge_index, edge_envelope_weight=None):
+                edge_distance, edge_index,
+                edge_envelope_weight: Optional[torch.Tensor] = None):
         num_nodes = x.shape[0]
 
         if self.use_atom_edge_embedding:
@@ -1737,16 +1853,19 @@ class EquivariantGraphAttention(nn.Module):
 
         x_message, x_m0_extra = self.so2_linear_1(x_message)
 
-        if has_scalars(self.activation):
+        if self.act_has_scalars:
             x_alpha = x_m0_extra.narrow(1, 0, self.split_m0_channels_list[0])
             x_scalar = x_m0_extra.narrow(1, self.split_m0_channels_list[0], self.split_m0_channels_list[1])
         else:
             x_alpha = x_m0_extra
-            x_scalar = None
-        act_input_dict = prepare_activation_forward_param(
-            act_name=self.activation, inputs=x_message, scalars=x_scalar,
-        )
-        x_message = self.act(**act_input_dict)
+            # A zero-width slice rather than None: the activations that take no
+            # scalars ignore this argument, and keeping the type Tensor (not
+            # Optional[Tensor]) lets the single static call below type-check.
+            x_scalar = x_m0_extra.narrow(1, 0, 0)
+        # Static call rather than dict expansion, which TorchScript rejects.
+        # Every activation now takes (inputs, scalars); the ones that do not use
+        # scalars ignore the argument.
+        x_message = self.act(x_message, x_scalar)
 
         x_message = self.so2_linear_2(x_message)
 
@@ -1779,6 +1898,35 @@ class EquivariantGraphAttention(nn.Module):
         return self.proj(x_message)
 
 
+class ScalarsIdentity(nn.Module):
+    """Parameter-free placeholder with the activation call signature.
+
+    Used where an activation attribute must exist for TorchScript but is never
+    reached at runtime. ``nn.Identity`` cannot serve here because it takes one
+    argument, and the compiled call site passes two.
+    """
+
+    def forward(self, inputs, scalars: Optional[torch.Tensor] = None):
+        return inputs
+
+
+class GridMLPSequential(nn.Sequential):
+    """``nn.Sequential`` that accepts and ignores a trailing ``scalars``
+    argument.
+
+    The grid MLP is either this or ``GatedSwiGLUGridMLP``, which needs the
+    scalars. TorchScript compiles every branch of the call site against the
+    single concrete type of the attribute, so the two had to share one
+    signature. Subclassing Sequential leaves the child module names -- and
+    therefore the checkpoint keys -- exactly as they were.
+    """
+
+    def forward(self, input_grid, scalars: Optional[torch.Tensor] = None):
+        for module in self:
+            input_grid = module(input_grid)
+        return input_grid
+
+
 class GatedSwiGLUGridMLP(nn.Module):
     def __init__(self, num_in_channels, num_hidden_channels, dropout):
         super().__init__()
@@ -1792,7 +1940,10 @@ class GatedSwiGLUGridMLP(nn.Module):
         self.grid_drop = (nn.Dropout(self.dropout) if self.dropout > 0.0 else nn.Identity())
         self.grid_linear_2 = nn.Linear(self.num_hidden_channels, self.num_hidden_channels, bias=False)
 
-    def forward(self, input_grid, scalars):
+    def forward(self, input_grid, scalars: Optional[torch.Tensor] = None):
+        # Optional only so that this shares a signature with GridMLPSequential;
+        # this variant genuinely requires the scalars.
+        assert scalars is not None, "GatedSwiGLUGridMLP requires scalars"
         gate_scalars = self.gating_linear(scalars)
         gate_scalars = self.gate_act(gate_scalars)
         output_grid = self.grid_linear_1(input_grid)
@@ -1824,6 +1975,10 @@ class FeedForwardNetwork(nn.Module):
         self.mmax = mmax
         self.grid_resolution_list = grid_resolution_list
         self.activation = activation
+        # Precomputed because has_scalars() is a Python helper over a string
+        # and is constant for the life of the module; a bool attribute is
+        # scriptable where the call is not, and adds nothing to the state_dict.
+        self.act_has_scalars: bool = has_scalars(activation)
         self.use_grid_mlp = use_grid_mlp
 
         check_activation_name(self.activation)
@@ -1832,6 +1987,22 @@ class FeedForwardNetwork(nn.Module):
 
         self.so3_linear_1 = SO3Linear(self.num_in_channels, self.num_hidden_channels, lmax=self.lmax)
 
+        # `has_scalar_mlp` replaces the `is not None` test in forward:
+        # TorchScript cannot call an Optional[Module]. The placeholder is
+        # nn.Identity, which has no parameters, so no state_dict key is added
+        # for configurations that previously stored None.
+        self.has_scalar_mlp: bool = bool(self.use_grid_mlp) and ('sep' in self.activation)
+        self.scalar_mlp = nn.Identity()
+        # Declared on every instance, not just the branch that uses them:
+        # TorchScript compiles both sides of the `use_grid_mlp` test in forward
+        # and requires each attribute to exist. Overridden below where relevant.
+        self.has_gating_linear: bool = False
+        self.gating_linear = nn.Identity()
+        # `act` is only built on the non-grid-MLP path, but forward references it
+        # in a branch TorchScript still compiles. ScalarsIdentity is
+        # parameter-free and takes (inputs, scalars) like a real activation, so
+        # grid-MLP checkpoints gain no key and the call still type-checks.
+        self.act = ScalarsIdentity()
         if self.use_grid_mlp:
             if 'sep' in self.activation:
                 if 'swiglu' in self.activation:
@@ -1850,8 +2021,6 @@ class FeedForwardNetwork(nn.Module):
                         nn.SiLU(),
                         (nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()),
                     )
-            else:
-                self.scalar_mlp = None
 
             self.so3_grid = SO3Grid(
                 lmax=self.lmax, mmax=self.lmax,
@@ -1860,7 +2029,7 @@ class FeedForwardNetwork(nn.Module):
 
             if 'swiglu' in self.activation:
                 if 'gates2' not in self.activation:
-                    self.grid_mlp = nn.Sequential(
+                    self.grid_mlp = GridMLPSequential(
                         LinearSwiGLU(self.num_hidden_channels, self.num_hidden_channels, bias=False),
                         (nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()),
                         nn.Linear(self.num_hidden_channels, self.num_hidden_channels, bias=False),
@@ -1868,13 +2037,13 @@ class FeedForwardNetwork(nn.Module):
                 else:
                     self.grid_mlp = GatedSwiGLUGridMLP(self.num_in_channels, self.num_hidden_channels, dropout)
             elif 'square' in self.activation:
-                self.grid_mlp = nn.Sequential(
+                self.grid_mlp = GridMLPSequential(
                     LinearSquare(self.num_hidden_channels, self.num_hidden_channels, bias=False),
                     (nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()),
                     nn.Linear(self.num_hidden_channels, self.num_hidden_channels, bias=False),
                 )
             else:
-                self.grid_mlp = nn.Sequential(
+                self.grid_mlp = GridMLPSequential(
                     nn.Linear(self.num_hidden_channels, self.num_hidden_channels, bias=False),
                     nn.SiLU(),
                     (nn.Dropout(dropout) if dropout > 0.0 else nn.Identity()),
@@ -1897,7 +2066,13 @@ class FeedForwardNetwork(nn.Module):
                     (2 * self.num_hidden_channels + self.num_hidden_channels),
                 )
             else:
-                self.gating_linear = None
+                # nn.Identity placeholder rather than None, for the same reason
+                # as scalar_mlp: TorchScript cannot call an Optional[Module],
+                # and Identity carries no parameters so no state_dict key is
+                # added where None was stored before.
+                self.gating_linear = nn.Identity()
+            self.has_gating_linear: bool = self.activation in (
+                'gate', 'sep_s2', 'sep-merge_gates2_swiglu')
             self.act = get_activation(
                 act_name=self.activation, lmax=self.lmax, mmax=self.lmax,
                 grid_resolution_list=self.grid_resolution_list, use_m_primary=False,
@@ -1911,33 +2086,37 @@ class FeedForwardNetwork(nn.Module):
             self.so3_linear_2.weight.data[0, :, :].mul_(1.0 / math.sqrt(2.0))
 
     def forward(self, inputs):
-        gating_scalars = None
+        # Initialised to a zero-width slice rather than None: TorchScript
+        # requires a variable to keep one type, and this is only read on the
+        # branches that assign it below.
+        gating_scalars = inputs.narrow(1, 0, 0)
         if self.use_grid_mlp:
-            if self.scalar_mlp is not None:
+            if self.has_scalar_mlp:
                 gating_scalars = self.scalar_mlp(inputs.narrow(1, 0, 1))
         else:
-            if self.gating_linear is not None:
+            if self.has_gating_linear:
                 gating_scalars = self.gating_linear(inputs.narrow(1, 0, 1))
 
         outputs = self.so3_linear_1(inputs)
 
         if self.use_grid_mlp:
             output_grid = self.so3_grid.to_grid(outputs)
-            if 'gates2' not in self.activation:
-                if '_mem' not in self.activation:
-                    output_grid = self.grid_mlp(output_grid)
-                else:
-                    output_grid = torch.utils.checkpoint.checkpoint(self.grid_mlp, output_grid)
+            # One call for all four former branches: every grid MLP now takes
+            # (grid, scalars), and the non-gated variants ignore the scalars.
+            # The `_mem` variants wrapped this in gradient checkpointing, which
+            # is training-only and unscriptable, so the export path calls
+            # directly -- numerically identical, since checkpointing merely
+            # recomputes the same function.
+            grid_scalars = inputs.narrow(1, 0, 1)
+            if torch.jit.is_scripting() or '_mem' not in self.activation:
+                output_grid = self.grid_mlp(output_grid, grid_scalars)
             else:
-                if '_mem' not in self.activation:
-                    output_grid = self.grid_mlp(output_grid, inputs.narrow(1, 0, 1))
-                else:
-                    output_grid = torch.utils.checkpoint.checkpoint(
-                        self.grid_mlp, output_grid, inputs.narrow(1, 0, 1)
-                    )
+                output_grid = torch.utils.checkpoint.checkpoint(
+                    self.grid_mlp, output_grid, grid_scalars
+                )
             outputs = self.so3_grid.from_grid(output_grid)
 
-            if self.scalar_mlp is not None:
+            if self.has_scalar_mlp:
                 if '-merge' not in self.activation:
                     outputs = torch.cat(
                         (gating_scalars, outputs.narrow(1, 1, outputs.shape[1] - 1)), dim=1
@@ -1945,10 +2124,8 @@ class FeedForwardNetwork(nn.Module):
                 else:
                     outputs[:, 0:1, :] = outputs.narrow(1, 0, 1) + gating_scalars
         else:
-            act_input_dict = prepare_activation_forward_param(
-                act_name=self.activation, inputs=outputs, scalars=gating_scalars,
-            )
-            outputs = self.act(**act_input_dict)
+            # Static call; see the note at the other activation call site.
+            outputs = self.act(outputs, gating_scalars)
 
         return self.so3_linear_2(outputs)
 
@@ -2040,11 +2217,18 @@ class TransBlockV3(nn.Module):
 
         if num_in_channels != num_out_channels:
             self.ffn_shortcut = SO3Linear(num_in_channels, num_out_channels, lmax=lmax)
+            self.has_ffn_shortcut: bool = True
         else:
-            self.ffn_shortcut = None
+            # nn.Identity placeholder, not None: TorchScript cannot call an
+            # Optional[Module]. Identity has no parameters, so nothing is added
+            # to the state_dict.
+            self.ffn_shortcut = nn.Identity()
+            self.has_ffn_shortcut: bool = False
 
     def forward(self, x, source_atomic_numbers, target_atomic_numbers,
-                edge_distance, edge_index, edge_envelope_weight=None, batch=None):
+                edge_distance, edge_index,
+                edge_envelope_weight: Optional[torch.Tensor] = None,
+                batch: Optional[torch.Tensor] = None):
         outputs = x
         x_res = x
 
@@ -2054,9 +2238,9 @@ class TransBlockV3(nn.Module):
             edge_distance, edge_index, edge_envelope_weight,
         )
 
-        if self.drop_path is not None:
+        if not torch.jit.is_scripting() and self.drop_path is not None:
             outputs = self.drop_path(outputs, batch)
-        if self.proj_drop is not None:
+        if not torch.jit.is_scripting() and self.proj_drop is not None:
             outputs = self.proj_drop(outputs)
 
         outputs = outputs + x_res
@@ -2065,12 +2249,12 @@ class TransBlockV3(nn.Module):
         outputs = self.norm_2(outputs)
         outputs = self.ffn(outputs)
 
-        if self.drop_path is not None:
+        if not torch.jit.is_scripting() and self.drop_path is not None:
             outputs = self.drop_path(outputs, batch)
-        if self.proj_drop is not None:
+        if not torch.jit.is_scripting() and self.proj_drop is not None:
             outputs = self.proj_drop(outputs)
 
-        if self.ffn_shortcut is not None:
+        if self.has_ffn_shortcut:
             x_res = self.ffn_shortcut(x_res)
 
         return outputs + x_res
@@ -2143,8 +2327,10 @@ class EquivariantGraphAttentionStressHead(EquivariantGraphAttention):
         self.register_buffer('zero_padded_change_matrix', zero_padded_change_matrix)
 
     def forward(self, x, source_atomic_numbers, target_atomic_numbers,
-                edge_distance, edge_index, edge_envelope_weight=None,
-                batch_size=None, batch=None):
+                edge_distance, edge_index,
+                edge_envelope_weight: Optional[torch.Tensor] = None,
+                batch_size: Optional[int] = None,
+                batch: Optional[torch.Tensor] = None):
         outputs = super().forward(
             x, source_atomic_numbers, target_atomic_numbers,
             edge_distance, edge_index, edge_envelope_weight,
@@ -2463,8 +2649,9 @@ class EquiformerV3(nn.Module):
         if image_indices is None:
             return data
         num_images = int(image_indices.max() + 1)
+        # List, not tuple: TorchScript binds torch.zeros to the int[] overload.
         displacement = torch.zeros(
-            (num_images, 3, 3),
+            [num_images, 3, 3],
             dtype=data.edge_vectors.dtype,
             device=data.edge_vectors.device,
         ).requires_grad_()
@@ -2501,13 +2688,30 @@ class EquiformerV3(nn.Module):
         # Edge processing: rotation, envelope, radial expansion -------------
         edge_rot_mat = init_edge_rot_mat(edge_vectors, use_rotation_mask=(not self.direct_prediction))
         self.so3_rotation.set_wigner(edge_rot_mat)
+        if torch.jit.is_scripting():
+            # In eager, `so3_rotation` is one object shared by this module, the
+            # edge-degree embedding and every block, so the call above populates
+            # it for all of them. TorchScript does not preserve that aliasing --
+            # each holder gets its own copy -- so the computed matrices are
+            # handed over explicitly. Assigning the tensors rather than calling
+            # set_wigner() again avoids recomputing the Wigner matrices per
+            # consumer.
+            wigner = self.so3_rotation.wigner
+            wigner_inv = self.so3_rotation.wigner_inv
+            self.edge_degree_embedding.so3_rotation.wigner = wigner
+            self.edge_degree_embedding.so3_rotation.wigner_inv = wigner_inv
+            for block in self.blocks:
+                block.ga.so3_rotation.wigner = wigner
+                block.ga.so3_rotation.wigner_inv = wigner_inv
 
         edge_envelope_weight = self.envelope_func(edge_dist) if self.envelope_func is not None else None
         edge_dist_expanded = self.distance_expansion(edge_dist).to(torch.float32)
 
         # Node embedding ----------------------------------------------------
+        # int(...) around the power: TorchScript types `int ** int` as float, so
+        # without it the shape list is heterogeneous and cannot be emitted.
         x = torch.zeros(
-            (num_atoms, ((self.lmax + 1) ** 2), self.num_channels),
+            [num_atoms, int((self.lmax + 1) ** 2), self.num_channels],
             device=edge_vectors.device, dtype=torch.float32,
         )
         x[:, 0, :] = self.sphere_embedding(atomic_numbers).to(torch.float32)
@@ -2523,19 +2727,25 @@ class EquiformerV3(nn.Module):
 
         source_atomic_numbers = atomic_numbers[edge_index[0]]
         target_atomic_numbers = atomic_numbers[edge_index[1]]
-        for i in range(self.num_layers):
-            if self.gradient_checkpointing_block_list[i] == 0:
-                x = self.blocks[i](
+        # Iterated rather than indexed by i: TorchScript only allows literal
+        # indices into a ModuleList. Gradient checkpointing is training-only and
+        # unscriptable, so the export path always calls the block directly --
+        # numerically identical, since checkpointing just recomputes the block.
+        i = 0
+        for block in self.blocks:
+            if torch.jit.is_scripting() or self.gradient_checkpointing_block_list[i] == 0:
+                x = block(
                     x, source_atomic_numbers, target_atomic_numbers,
                     edge_dist_expanded, edge_index, edge_envelope_weight,
                     image_indices,
                 )
             else:
                 x = torch.utils.checkpoint.checkpoint(
-                    self.blocks[i], x, source_atomic_numbers, target_atomic_numbers,
+                    block, x, source_atomic_numbers, target_atomic_numbers,
                     edge_dist_expanded, edge_index, edge_envelope_weight,
                     image_indices, use_reentrant=False,
                 )
+            i += 1
 
         x = self.norm(x)
 
@@ -2645,7 +2855,7 @@ class GradientOutput(nn.Module):
                     dE_ddiff = torch.zeros_like(data.positions) if dE_ddiff is None else dE_ddiff
                     assert dE_ddiff is not None
 
-                    i_forces = torch.zeros((forces_dim, 3), device=edge_vectors.device, dtype=torch.float32)
+                    i_forces = torch.zeros([forces_dim, 3], device=edge_vectors.device, dtype=torch.float32)
                     j_forces = torch.zeros_like(i_forces)
                     i_forces.index_add_(0, edge_indices[:, 0], dE_ddiff)
                     j_forces.index_add_(0, edge_indices[:, 1], -dE_ddiff)

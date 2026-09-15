@@ -437,13 +437,10 @@ mpirun --map-by ppr:${GPUS_PER_NODE}:node -machinefile "$PBS_NODEFILE" $FWD pyth
 
 ## 8. LAMMPS Interface
 
-IANN models can be used as interatomic potentials in LAMMPS molecular dynamics simulations (Support GPU).
+IANN models can be used as interatomic potentials in LAMMPS molecular dynamics simulations (Support GPU). All seven architectures can be exported; UMA additionally requires `num_experts == 0` (the default) — a model trained with MoLE experts is refused rather than exported without its routing.
 
 > [!WARNING]
 > You have to install IANN plugins for LAMMPS first, if you want to use IANN models with LAMMPS. Please see the documentation in [LAMMPS interface](https://iann.readthedocs.io/en/latest/lammps.html) section.
-
-> [!IMPORTANT]
-> The export path supports fewer architectures than the trainer. `model_type` accepts `painn`, `nequip`, `allegro`, `mace` and `equiformerv2` (also spelled `equiformer2`) — **EquiformerV3, UMA and FastPot cannot currently be exported to LAMMPS**, and `convert_model_for_lammps` raises `ValueError: Unknown model type: <name>` for them. Train with one of the five supported architectures if the model is destined for a LAMMPS production run.
 
 ### Use an IANN model with LAMMPS
 
@@ -459,6 +456,12 @@ convert_model_for_lammps(model_path='best_model.pt',
                          model_type='painn', 
                          output_path='output_model.pt')
 ```
+
+`model_type` may be omitted, in which case it is inferred from the checkpoint.
+
+> [!IMPORTANT]
+> The checkpoint does not record every structural parameter — `num_distance_basis`, the grid-resolution lists and, for some architectures, `mmax` are not saved. If a model was trained with non-default values, pass **the same values you trained with** to `convert_model_for_lammps`, or the model is rebuilt at the defaults and the weights will not fit (`size mismatch` from `load_state_dict`). PaiNN, NequIP and MACE usually need nothing extra; EquiformerV3 and UMA usually do:
+
 
 #### 2. Use the exported model in LAMMPS
 

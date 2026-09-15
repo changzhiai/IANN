@@ -23,7 +23,7 @@ import functools
 import math
 import os
 from dataclasses import dataclass
-from typing import Callable, List, Literal, Optional, Tuple, Union
+from typing import Callable, Dict, List, Literal, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -184,15 +184,17 @@ class CoefficientMapping(torch.nn.Module):
         return coefficient_idx_list
 
     def coefficient_idx(self, lmax: int, mmax: int):
-        if lmax > self.lmax or mmax > self.lmax:
-            mask = torch.bitwise_and(
-                self.l_harmonic.le(lmax), self.m_harmonic.le(mmax)
-            )
-            indices = torch.arange(len(mask), device=mask.device)
-            return torch.masked_select(indices, mask)
-        else:
-            temp = self.prepare_coefficient_idx()
-            return temp[lmax][mmax]
+        # Always computed rather than read from the pre_compute_coefficient_idx
+        # cache. The cache held exactly this expression per (l, m) -- see
+        # pre_compute_coefficient_idx -- so the result is identical, but reading
+        # it needed getattr() with an f-string name, and TorchScript requires a
+        # string literal there. Computing also guarantees the indices land on
+        # the same device as the data.
+        mask = torch.bitwise_and(
+            self.l_harmonic.le(lmax), self.m_harmonic.le(mmax)
+        )
+        indices = torch.arange(len(mask), device=mask.device)
+        return torch.masked_select(indices, mask)
 
 
 class SO3_Grid(torch.nn.Module):
@@ -255,13 +257,15 @@ class SO3_Grid(torch.nn.Module):
         self.register_buffer("to_grid_mat", to_grid_mat, persistent=False)
         self.register_buffer("from_grid_mat", from_grid_mat, persistent=False)
 
-    def to_grid(self, embedding, lmax, mmax):
+    def to_grid(self, embedding, lmax: int, mmax: int):
+        # Annotated: unannotated arguments are inferred as Tensor, and the
+        # callers pass ints.
         to_grid_mat = self.to_grid_mat[
             :, :, self.mapping.coefficient_idx(lmax, mmax)
         ]
         return torch.einsum("bai, zic -> zbac", to_grid_mat, embedding)
 
-    def from_grid(self, grid, lmax, mmax):
+    def from_grid(self, grid, lmax: int, mmax: int):
         from_grid_mat = self.from_grid_mat[
             :, :, self.mapping.coefficient_idx(lmax, mmax)
         ]
@@ -299,28 +303,79 @@ class Safeatan2(torch.autograd.Function):
         return (x / denom) * grad_output, (-y / denom) * grad_output
 
 
-def init_edge_rot_euler_angles(edge_distance_vec):
+def safe_acos_scriptable(x: torch.Tensor) -> torch.Tensor:
+    """``Safeacos`` without a custom autograd Function, for TorchScript export.
+
+    ``torch.autograd.Function`` cannot be serialised, so the export path needs a
+    formulation built from plain ops. The value is identical, and the first
+    derivative is arranged to match ``Safeacos.backward`` exactly: the returned
+    expression is linear in ``x`` with a detached slope, so autograd yields
+    ``-1 / clamp(sqrt(1 - u^2), 1e-7)`` just as the custom backward does.
+
+    Only first derivatives are reproduced, which is all the exported model
+    needs (forces). Training keeps the original Function, where the backward is
+    itself differentiable.
+    """
+    u = x.clamp(-1.0 + 1e-7, 1.0 - 1e-7)
+    val = torch.acos(u)
+    denom = torch.sqrt(1.0 - u.pow(2)).clamp(min=1e-7)
+    slope = (-1.0 / denom).detach()
+    lin = slope * x
+    return lin + (val - lin).detach()
+
+
+def safe_atan2_scriptable(y: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    """``Safeatan2`` without a custom autograd Function; see safe_acos_scriptable.
+
+    Reproduces ``Safeatan2.backward``: d/dy = x / clamp(x^2 + y^2, 1e-7) and
+    d/dx = -y / clamp(x^2 + y^2, 1e-7).
+    """
+    val = torch.atan2(y, x)
+    denom = (x.pow(2) + y.pow(2)).clamp(min=1e-7)
+    gy = (x / denom).detach()
+    gx = (-y / denom).detach()
+    lin = gy * y + gx * x
+    return lin + (val - lin).detach()
+
+
+def init_edge_rot_euler_angles(
+    edge_distance_vec: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Compute Euler angles aligning the +z axis with the edge direction."""
     xyz = torch.nn.functional.normalize(edge_distance_vec).clamp(-1.0, 1.0)
     x, y, z = torch.split(xyz, 1, dim=1)
-    beta = Safeacos.apply(y.squeeze(-1))
-    alpha = Safeatan2.apply(x.squeeze(-1), z.squeeze(-1))
+    # The custom autograd Functions are kept for eager execution -- their
+    # backward is differentiable, which the training path relies on -- and the
+    # scriptable equivalents are used only when exporting.
+    if torch.jit.is_scripting():
+        beta = safe_acos_scriptable(y.squeeze(-1))
+        alpha = safe_atan2_scriptable(x.squeeze(-1), z.squeeze(-1))
+    else:
+        beta = Safeacos.apply(y.squeeze(-1))
+        alpha = Safeatan2.apply(x.squeeze(-1), z.squeeze(-1))
     gamma = torch.zeros_like(alpha)
     return -gamma, -beta, -alpha
 
 
 def _z_rot_mat(angle: torch.Tensor, lv: int) -> torch.Tensor:
-    M = angle.new_zeros((*angle.shape, 2 * lv + 1, 2 * lv + 1))
+    # Explicit shape list instead of star-expanding angle.shape, and `:` instead
+    # of `...`: TorchScript supports neither. wigner_D broadcasts the angles to
+    # one dimension before calling this, which the assert pins down.
+    assert angle.dim() == 1, "_z_rot_mat expects a 1-D angle tensor"
+    size = 2 * lv + 1
+    shape: List[int] = list(angle.shape) + [size, size]
+    M = torch.zeros(shape, dtype=angle.dtype, device=angle.device)
     inds = list(range(0, 2 * lv + 1))
     reversed_inds = list(range(2 * lv, -1, -1))
     frequencies = list(range(lv, -lv - 1, -1))
     for i in range(len(frequencies)):
-        M[..., inds[i], reversed_inds[i]] = torch.sin(frequencies[i] * angle)
-        M[..., inds[i], inds[i]] = torch.cos(frequencies[i] * angle)
+        M[:, inds[i], reversed_inds[i]] = torch.sin(float(frequencies[i]) * angle)
+        M[:, inds[i], inds[i]] = torch.cos(float(frequencies[i]) * angle)
     return M
 
 
-def wigner_D(lv, alpha, beta, gamma, _Jd) -> torch.Tensor:
+def wigner_D(lv: int, alpha: torch.Tensor, beta: torch.Tensor,
+             gamma: torch.Tensor, _Jd: List[torch.Tensor]) -> torch.Tensor:
     alpha, beta, gamma = torch.broadcast_tensors(alpha, beta, gamma)
     J = _Jd[lv].to(dtype=alpha.dtype, device=alpha.device)
     Xa = _z_rot_mat(alpha, lv)
@@ -329,7 +384,11 @@ def wigner_D(lv, alpha, beta, gamma, _Jd) -> torch.Tensor:
     return Xa @ J @ Xb @ J @ Xc
 
 
-def eulers_to_wigner(eulers, start_lmax, end_lmax, Jd) -> torch.Tensor:
+def eulers_to_wigner(eulers: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+                     start_lmax: int, end_lmax: int,
+                     Jd: List[torch.Tensor]) -> torch.Tensor:
+    # Annotated so the tuple unpacking below is typed; unannotated arguments are
+    # inferred as Tensor, which cannot be unpacked.
     alpha, beta, gamma = eulers
     size = int((end_lmax + 1) ** 2) - int((start_lmax) ** 2)
     wigner = torch.zeros(
@@ -384,10 +443,15 @@ class EquivariantLayerNormArray(nn.Module):
             if lval == 0:
                 feature_mean = torch.mean(feature, dim=2, keepdim=True)
                 feature = feature - feature_mean
+            # An explicit else so TorchScript can prove feature_norm is defined; an
+            # unrecognised `normalization` previously fell through to UnboundLocalError,
+            # so raising here is the same behaviour with a better message.
             if self.normalization == "norm":
                 feature_norm = feature.pow(2).sum(dim=1, keepdim=True)
             elif self.normalization == "component":
                 feature_norm = feature.pow(2).mean(dim=1, keepdim=True)
+            else:
+                raise ValueError("unknown normalization: " + self.normalization)
             feature_norm = torch.mean(feature_norm, dim=2, keepdim=True)
             feature_norm = (feature_norm + self.eps).pow(-0.5)
             if self.affine:
@@ -456,6 +520,8 @@ class EquivariantLayerNormArraySphericalHarmonics(nn.Module):
                     )
                 else:
                     feature_norm = feature.pow(2).mean(dim=1, keepdim=True)
+            else:
+                raise ValueError("unknown normalization: " + self.normalization)
             feature_norm = torch.mean(feature_norm, dim=2, keepdim=True)
             feature_norm = (feature_norm + self.eps).pow(-0.5)
             for lval in range(1, self.lmax + 1):
@@ -491,10 +557,15 @@ class EquivariantRMSNormArraySphericalHarmonics(nn.Module):
     def forward(self, node_input):
         out = []
         feature = node_input
+        # An explicit else so TorchScript can prove feature_norm is defined; an
+        # unrecognised `normalization` previously fell through to UnboundLocalError,
+        # so raising here is the same behaviour with a better message.
         if self.normalization == "norm":
             feature_norm = feature.pow(2).sum(dim=1, keepdim=True)
         elif self.normalization == "component":
             feature_norm = feature.pow(2).mean(dim=1, keepdim=True)
+        else:
+            raise ValueError("unknown normalization: " + self.normalization)
         feature_norm = torch.mean(feature_norm, dim=2, keepdim=True)
         feature_norm = (feature_norm + self.eps).pow(-0.5)
         for lval in range(self.lmax + 1):
@@ -575,6 +646,8 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nn.Module):
                 )
             else:
                 feature_norm = feature.pow(2).mean(dim=1, keepdim=True)
+        else:
+            raise ValueError("unknown normalization: " + self.normalization)
         feature_norm = torch.mean(feature_norm, dim=2, keepdim=True)
         feature_norm = (feature_norm + self.eps).pow(-0.5)
         if self.affine:
@@ -722,7 +795,12 @@ class SO2_Convolution(torch.nn.Module):
             )
             num_channels_rad += self.so2_m_conv[-1].fc.in_features
 
-        self.rad_func = None
+        # Bool flag plus an nn.Identity placeholder instead of None:
+        # TorchScript cannot call an Optional[Module]. Identity has no
+        # parameters, so instances that previously stored None gain no
+        # state_dict key.
+        self.has_rad_func: bool = not self.internal_weights
+        self.rad_func = nn.Identity()
         if not self.internal_weights:
             assert edge_channels_list is not None
             ec = copy.deepcopy(edge_channels_list)
@@ -737,19 +815,26 @@ class SO2_Convolution(torch.nn.Module):
         ]
 
     def forward(self, x: torch.Tensor, x_edge: Optional[torch.Tensor] = None):
-        if self.rad_func is not None:
+        if self.has_rad_func:
+            # Narrowed for TorchScript: x_edge is Optional on the signature but
+            # is always supplied when a radial function is present.
+            assert x_edge is not None
             x_edge = self.rad_func(x_edge)
 
         x_by_m = x.split(self.m_split_sizes, dim=1)
+        # Always defined, so TorchScript can prove it exists on both paths; the
+        # emptiness of the list is what the later branches test.
+        x_edge_by_m: List[torch.Tensor] = []
         if x_edge is not None:
-            x_edge_by_m = x_edge.split(self.edge_split_sizes, dim=1)
+            x_edge_by_m = list(x_edge.split(self.edge_split_sizes, dim=1))
 
         num_edges = x.shape[0]
         x_0 = x_by_m[0].view(num_edges, -1)
-        if x_edge is not None:
+        if len(x_edge_by_m) > 0:
             x_0 = x_0 * x_edge_by_m[0]
         x_0 = self.fc_m0(x_0)
 
+        x_0_extra = x_0.narrow(-1, 0, 0)
         if self.extra_m0_output_channels is not None:
             x_0_extra, x_0 = x_0.split(
                 (
@@ -760,17 +845,26 @@ class SO2_Convolution(torch.nn.Module):
             )
 
         out = [x_0.view(num_edges, -1, self.m_output_channels)]
-        for m in range(1, self.mmax + 1):
+        # Iterated rather than indexed by m-1: TorchScript only allows literal
+        # indices into a ModuleList. The list holds one entry per m in 1..mmax,
+        # so the counter reproduces the original order exactly.
+        m = 1
+        for conv in self.so2_m_conv:
             x_m = x_by_m[m].view(num_edges, 2, -1)
-            if x_edge is not None:
+            if len(x_edge_by_m) > 0:
                 x_m = x_m * x_edge_by_m[m].unsqueeze(1)
-            x_m_pair = self.so2_m_conv[m - 1](x_m)
-            out.extend(x_m_pair)
-        out = torch.cat(out, dim=1)
+            x_m_pair = conv(x_m)
+            out.append(x_m_pair[0])
+            out.append(x_m_pair[1])
+            m += 1
+        out_cat = torch.cat(out, dim=1)
 
+        # Always returns a pair. A return type that depended on
+        # extra_m0_output_channels could not be scripted; callers that do not
+        # use the extra head ignore the second value, which is zero-width.
         if self.extra_m0_output_channels is not None:
-            return out, x_0_extra
-        return out
+            return out_cat, x_0_extra
+        return out_cat, out_cat.narrow(1, 0, 0)
 
 
 # ============================================================================
@@ -910,6 +1004,17 @@ class ChgSpinEmbedding(nn.Module):
             self._index_offset = 0
             self._num_embeddings = 101
 
+        # TorchScript compiles all three branches of `forward`, so every
+        # attribute it references must exist on every instance. Only the mode
+        # actually in use gets a real parameterised module; the other two get
+        # placeholders that carry no parameters (a plain tensor, not an
+        # nn.Parameter, for W; nn.Identity for the two submodules). The
+        # state_dict therefore holds exactly the same keys as before for each
+        # mode, and existing checkpoints load unchanged.
+        self.W = torch.zeros(embedding_size // 2)
+        self.lin_emb = nn.Identity()
+        self.rand_emb = nn.Identity()
+
         if embedding_type == "pos_emb":
             self.W = nn.Parameter(
                 torch.randn(embedding_size // 2) * scale, requires_grad=grad
@@ -960,30 +1065,38 @@ class DatasetEmbedding(nn.Module):
                     for p in self.dataset_emb_dict[dataset].parameters():
                         p.requires_grad = False
 
-    def forward(self, dataset_list):
-        device = list(self.parameters())[0].device
-        emb_idx = torch.tensor(0, device=device, dtype=torch.long)
-        dataset_list = [self.dataset_mapping[d] for d in dataset_list]
+    def forward(self, nsys: int, dataset_index: int) -> torch.Tensor:
+        """Embedding for one dataset, repeated across ``nsys`` systems.
+
+        Takes a positional index rather than a list of dataset names. The name
+        is fixed for the life of the model (see ``dataset_name``), so the two
+        are equivalent, and an index is expressible under TorchScript where a
+        ``List[str]`` plus ``ModuleDict`` string lookup is not.
+
+        The ModuleDict is iterated rather than indexed for the same reason;
+        iteration order is insertion order, which is how ``dataset_index`` is
+        derived.
+        """
+        emb = torch.zeros(0)
+        safety_loss_emb = torch.zeros(0)
+        i = 0
+        for mod in self.dataset_emb_dict.values():
+            # nn.Embedding(1, C) evaluated at index 0 is its weight row 0.
+            cur = mod.weight[0]
+            if i == 0:
+                safety_loss_emb = cur * 0.0
+            else:
+                safety_loss_emb = safety_loss_emb + cur * 0.0
+            if i == dataset_index:
+                emb = cur
+            i += 1
+        assert emb.numel() > 0, "dataset_index out of range"
+
         if self.enable_grad and self.training:
-            safety_loss_emb = torch.stack(
-                [
-                    self.dataset_emb_dict[d](emb_idx) * 0.0
-                    for d in self.dataset_emb_dict
-                ]
-            ).sum(dim=0)
-            emb_for_datasets = [
-                (
-                    self.dataset_emb_dict[d](emb_idx) + safety_loss_emb
-                    if i == 0
-                    else self.dataset_emb_dict[d](emb_idx)
-                )
-                for i, d in enumerate(dataset_list)
-            ]
-        else:
-            emb_for_datasets = [
-                self.dataset_emb_dict[d](emb_idx) for d in dataset_list
-            ]
-        return torch.stack(emb_for_datasets, dim=0)
+            # Keeps every dataset embedding in the autograd graph while
+            # training, exactly as before: the term is identically zero.
+            emb = emb + safety_loss_emb
+        return emb.unsqueeze(0).repeat(nsys, 1)
 
 
 # ============================================================================
@@ -1029,13 +1142,19 @@ class EdgeDegreeEmbedding(torch.nn.Module):
 # Section 10: Backend ops (general)
 # ============================================================================
 
-def prepare_wigner(wigner, wigner_inv, mappingReduced, coefficient_index=None):
+def prepare_wigner(wigner: torch.Tensor, wigner_inv: torch.Tensor,
+                   to_m: torch.Tensor,
+                   coefficient_index: Optional[torch.Tensor] = None
+                   ) -> Tuple[torch.Tensor, torch.Tensor]:
+    # Takes the `to_m` tensor rather than the mappingReduced module: TorchScript
+    # cannot pass a Module into a free function. Same value, one attribute
+    # dereference earlier.
     if coefficient_index is not None:
         wigner = wigner.index_select(1, coefficient_index)
         wigner_inv = wigner_inv.index_select(2, coefficient_index)
-    wigner = torch.einsum("mk,nkj->nmj", mappingReduced.to_m.to(wigner.dtype), wigner)
+    wigner = torch.einsum("mk,nkj->nmj", to_m.to(wigner.dtype), wigner)
     wigner_inv = torch.einsum(
-        "njk,mk->njm", wigner_inv, mappingReduced.to_m.to(wigner_inv.dtype)
+        "njk,mk->njm", wigner_inv, to_m.to(wigner_inv.dtype)
     )
     return wigner, wigner_inv
 
@@ -1047,10 +1166,15 @@ def node_to_edge_wigner_permute(x_full, edge_index, wigner):
     return torch.bmm(wigner, x_message)
 
 
-def permute_wigner_inv_edge_to_node(x_message, wigner_inv, edge_index, num_nodes):
+def permute_wigner_inv_edge_to_node(x_message: torch.Tensor, wigner_inv: torch.Tensor,
+                                    edge_index: torch.Tensor, num_nodes: int):
     x_rotated = torch.bmm(wigner_inv, x_message)
+    # Shape built as a List[int] rather than by concatenating a tuple with a
+    # shape slice: TorchScript has no tuple/shape concatenation, and the
+    # arguments are annotated so num_nodes is not inferred as a Tensor.
+    shape: List[int] = [num_nodes] + list(x_rotated.shape[1:])
     new_embedding = torch.zeros(
-        (num_nodes,) + x_rotated.shape[1:],
+        shape,
         dtype=x_rotated.dtype,
         device=x_rotated.device,
     )
@@ -1449,7 +1573,7 @@ class Edgewise(nn.Module):
         x_message = node_to_edge_wigner_permute(x_full, edge_index, wigner)
         x_message, x_0_gating = self.so2_conv_1(x_message, x_edge)
         x_message = self.act(x_0_gating, x_message)
-        x_message = self.so2_conv_2(x_message)
+        x_message, _ = self.so2_conv_2(x_message)
         return permute_wigner_inv_edge_to_node(
             x_message, wigner_inv_envelope, edge_index, x.shape[0]
         )
@@ -1490,6 +1614,14 @@ class GridAtomwise(nn.Module):
         self.lmax = lmax
         self.mmax = mmax
         self.SO3_grid = SO3_grid
+        # Direct reference as well as the dict entry: TorchScript cannot index a
+        # ModuleDict by string at runtime, nor resolve a custom method such as
+        # to_grid() on the result. SO3_Grid holds no parameters and only
+        # non-persistent buffers, so this second attribute name adds nothing to
+        # the state_dict.
+        self.grid_lmax_lmax = (
+            SO3_grid["lmax_lmax"] if isinstance(SO3_grid, nn.ModuleDict) else SO3_grid
+        )
         self.grid_mlp = nn.Sequential(
             nn.Linear(sphere_channels, hidden_channels, bias=False),
             nn.SiLU(),
@@ -1499,9 +1631,9 @@ class GridAtomwise(nn.Module):
         )
 
     def forward(self, x):
-        x_grid = self.SO3_grid["lmax_lmax"].to_grid(x, self.lmax, self.lmax)
+        x_grid = self.grid_lmax_lmax.to_grid(x, self.lmax, self.lmax)
         x_grid = self.grid_mlp(x_grid)
-        return self.SO3_grid["lmax_lmax"].from_grid(x_grid, self.lmax, self.lmax)
+        return self.grid_lmax_lmax.from_grid(x_grid, self.lmax, self.lmax)
 
 
 class eSCNMD_Block(nn.Module):
@@ -1590,8 +1722,10 @@ class eSCNMD_Block(nn.Module):
 
 def get_l_component_range(x: torch.Tensor, l_min: int, l_max: int) -> torch.Tensor:
     """Slice spherical harmonic components for L in [l_min, l_max]."""
+    # int(...) around the powers: TorchScript types `int ** int` as float, and
+    # Tensor.narrow needs ints.
     start_idx = l_min * l_min
-    num_components = (l_max + 1) ** 2 - l_min ** 2
+    num_components = int((l_max + 1) ** 2) - int(l_min ** 2)
     return x.narrow(1, start_idx, num_components)
 
 
@@ -1601,7 +1735,8 @@ def reduce_node_to_system(
     num_systems: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Sum node values into per-system values."""
-    output_shape = (num_systems,) + node_values.shape[1:]
+    # List[int] rather than tuple concatenation, which TorchScript lacks.
+    output_shape: List[int] = [num_systems] + list(node_values.shape[1:])
     system_values = torch.zeros(
         output_shape, device=node_values.device, dtype=torch.float64
     )
@@ -1724,16 +1859,28 @@ class MLP_Energy_Head(nn.Module):
             nn.Linear(hidden_channels, 1, bias=True),
         )
 
-    def forward(self, emb: dict, num_systems: int, natoms: torch.Tensor) -> torch.Tensor:
-        energy, _ = compute_energy(
-            emb,
-            self.energy_block,
-            emb["batch"],
-            num_systems,
-            natoms=natoms,
-            reduce=self.reduce,
+    def forward(self, emb: Dict[str, torch.Tensor], num_systems: int,
+                natoms: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        # compute_energy() inlined: it takes the energy block as an argument, and
+        # TorchScript cannot pass a Module into a free function. Identical
+        # arithmetic, with `self.energy_block` called directly.
+        #
+        # Returns the per-atom energies as well as the system total. They were
+        # already computed here and discarded; the LAMMPS pair style needs them
+        # for per-atom output, and EnsembleCalculator for per-atom variance.
+        scalar_embedding = get_l_component_range(
+            emb["node_embedding"], l_min=0, l_max=0
+        ).squeeze(1)
+        node_energy = self.energy_block(scalar_embedding)
+        atomic_energy = node_energy.view(-1)
+        energy, _ = reduce_node_to_system(
+            atomic_energy, emb["batch"], num_systems
         )
-        return energy
+        if self.reduce == "mean":
+            energy = energy / natoms
+        elif self.reduce != "sum":
+            raise ValueError("reduce must be sum or mean")
+        return energy, atomic_energy
 
 
 class Linear_Energy_Head(nn.Module):
@@ -1845,6 +1992,7 @@ class eSCNMDBackbone(nn.Module):
         cs_emb_grad: bool = False,
         dataset_emb_grad: bool = False,
         dataset_mapping: Optional[dict] = None,
+        dataset_name: str = "oc20",
         use_dataset_embedding: bool = True,
         charge_balanced_channels: Optional[List[int]] = None,
         spin_balanced_channels: Optional[List[int]] = None,
@@ -1876,6 +2024,16 @@ class eSCNMDBackbone(nn.Module):
         Jd_list = torch.load(Jd_path, weights_only=True)
         for l in range(self.lmax + 1):
             self.register_buffer(f"Jd_{l}", Jd_list[l])
+        # The buffers stay registered -- they are part of the state_dict and must
+        # not move -- but they can only be read back with getattr() on an
+        # f-string name, which TorchScript rejects. This parallel list is
+        # indexable by a variable l. It is a plain attribute, so it adds no
+        # state_dict key, and the two cannot diverge in practice: these are the
+        # spherical-harmonic rotation bases shipped in Jd.pt, mathematical
+        # constants rather than learned weights.
+        self._jd_list: List[torch.Tensor] = [
+            Jd_list[l] for l in range(self.lmax + 1)
+        ]
 
         self.sph_feature_size = int((self.lmax + 1) ** 2)
         self.mappingReduced = CoefficientMapping(self.lmax, self.mmax)
@@ -1892,6 +2050,12 @@ class eSCNMDBackbone(nn.Module):
 
         self.use_dataset_embedding = use_dataset_embedding
         self.dataset_mapping = dataset_mapping or {"oc20": "oc20"}
+        # The dataset is fixed for the life of the model, so its position in the
+        # embedding dict is resolved once here. Carrying an int instead of a
+        # List[str] through the forward pass is what makes the pass scriptable.
+        _mapped = [self.dataset_mapping[k] for k in self.dataset_mapping]
+        _target = self.dataset_mapping.get(dataset_name, dataset_name)
+        self.dataset_index: int = _mapped.index(_target) if _target in _mapped else 0
 
         self.charge_embedding = ChgSpinEmbedding(
             chg_spin_emb_type, "charge", self.sphere_channels, grad=cs_emb_grad
@@ -1972,17 +2136,22 @@ class eSCNMDBackbone(nn.Module):
 
     # ---------------- helpers ----------------
 
-    def csd_embedding(self, charge, spin, dataset):
-        """Build the per-system CSD-mixed embedding."""
+    def csd_embedding(self, charge, spin, nsys: int):
+        """Build the per-system CSD-mixed embedding.
+
+        The dataset is identified by ``self.dataset_index`` rather than passed
+        in as a list of names; it is fixed at construction.
+        """
         chg_emb = self.charge_embedding(charge)
         spin_emb = self.spin_embedding(spin)
         if self.use_dataset_embedding:
-            assert dataset is not None
-            dataset_emb = self.dataset_embedding(dataset)
-            return torch.nn.SiLU()(
+            dataset_emb = self.dataset_embedding(nsys, self.dataset_index)
+            # F.silu rather than nn.SiLU()(...): TorchScript cannot construct a
+            # module inside forward. Identical arithmetic.
+            return F.silu(
                 self.mix_csd(torch.cat((chg_emb, spin_emb, dataset_emb), dim=1))
             )
-        return torch.nn.SiLU()(self.mix_csd(torch.cat((chg_emb, spin_emb), dim=1)))
+        return F.silu(self.mix_csd(torch.cat((chg_emb, spin_emb), dim=1)))
 
     def balance_channels(
         self,
@@ -2015,9 +2184,11 @@ class eSCNMDBackbone(nn.Module):
         return x_message_prime
 
     def _get_rotmat_and_wigner(self, edge_distance_vecs: torch.Tensor):
+        # Moved to the input's device as well as its dtype: the list above is
+        # built at construction, so on GPU it still holds CPU tensors.
         Jd_buffers = [
-            getattr(self, f"Jd_{l}").type(edge_distance_vecs.dtype)
-            for l in range(self.lmax + 1)
+            t.to(device=edge_distance_vecs.device, dtype=edge_distance_vecs.dtype)
+            for t in self._jd_list
         ]
         euler_angles = init_edge_rot_euler_angles(edge_distance_vecs)
         wigner = eulers_to_wigner(euler_angles, 0, self.lmax, Jd_buffers)
@@ -2026,7 +2197,9 @@ class eSCNMDBackbone(nn.Module):
 
     # ---------------- forward ----------------
 
-    def forward(self, data_dict: dict) -> dict:
+    def forward(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        # Fully typed: a bare `dict` is not a TorchScript type. Every value is
+        # a tensor now that the dataset name is carried as an index instead.
         atomic_numbers = data_dict["atomic_numbers"].long()
         atomic_numbers_full = data_dict.get("atomic_numbers_full", atomic_numbers)
         batch = data_dict["batch"]
@@ -2041,23 +2214,38 @@ class eSCNMDBackbone(nn.Module):
         csd_mixed_emb = self.csd_embedding(
             charge=data_dict["charge"],
             spin=data_dict["spin"],
-            dataset=data_dict.get("dataset", None),
+            nsys=nsystems,
         )
 
         # MoLE coefficients (per system)
-        self.set_MOLE_coefficients(
-            atomic_numbers_full=atomic_numbers_full,
-            batch_full=batch_full,
-            csd_mixed_emb=csd_mixed_emb,
-        )
+        #
+        # The MoLE (mixture-of-experts) routing is not scriptable: it branches on
+        # attributes that only exist when experts are configured, and rewrites
+        # submodules at runtime. With num_experts == 0 -- the default, and the
+        # only configuration IANN trains -- all three calls below are no-ops, so
+        # the exported model simply omits them. The assert makes the unsupported
+        # case fail loudly rather than silently dropping the routing.
+        if torch.jit.is_scripting():
+            assert self.num_experts == 0, (
+                "UMA with MoLE experts (num_experts > 0) cannot be exported to "
+                "TorchScript; export requires num_experts == 0"
+            )
+        else:
+            self.set_MOLE_coefficients(
+                atomic_numbers_full=atomic_numbers_full,
+                batch_full=batch_full,
+                csd_mixed_emb=csd_mixed_emb,
+            )
 
         # Wigner D
         wigner, wigner_inv = self._get_rotmat_and_wigner(edge_distance_vec)
-        coefficient_index = (
-            self.coefficient_index if self.mmax != self.lmax else None
-        )
+        # if/else rather than a conditional expression, which TorchScript types
+        # as Optional only when refined through a branch.
+        coefficient_index: Optional[torch.Tensor] = None
+        if self.mmax != self.lmax:
+            coefficient_index = self.coefficient_index
         wigner, wigner_inv = prepare_wigner(
-            wigner, wigner_inv, self.mappingReduced, coefficient_index
+            wigner, wigner_inv, self.mappingReduced.to_m, coefficient_index
         )
 
         # Atom embedding + system embedding
@@ -2073,13 +2261,14 @@ class eSCNMDBackbone(nn.Module):
         sys_node_embedding = csd_mixed_emb[batch]
         x_message[:, 0, :] = x_message[:, 0, :] + sys_node_embedding
 
-        # MoLE sizes (atoms per system)
-        self.set_MOLE_sizes(
-            nsystems=csd_mixed_emb.shape[0],
-            batch_full=batch_full,
-            edge_index=edge_index,
-        )
-        self.log_MOLE_stats()
+        # MoLE sizes (atoms per system); see the note above.
+        if not torch.jit.is_scripting():
+            self.set_MOLE_sizes(
+                nsystems=csd_mixed_emb.shape[0],
+                batch_full=batch_full,
+                edge_index=edge_index,
+            )
+            self.log_MOLE_stats()
 
         # Edge feature: distance basis + atomic number embeddings (source, target)
         dist_scaled = edge_distance / self.cutoff
@@ -2097,9 +2286,10 @@ class eSCNMDBackbone(nn.Module):
             x_message, x_edge, edge_index, wigner_inv_envelope
         )
 
-        # Message passing
-        for i in range(self.num_layers):
-            x_message = self.blocks[i](
+        # Message passing. Iterated rather than indexed by i: TorchScript only
+        # allows literal indices into a ModuleList.
+        for block in self.blocks:
+            x_message = block(
                 x_message,
                 x_edge,
                 edge_index,
@@ -2262,9 +2452,15 @@ class GradientOutput(torch.nn.Module):
         edge_indices = data.edge_indices
         assert energy is not None
 
-        outputs_list = [energy]
-        inputs_list = []
-        grad_outputs_list = [torch.ones_like(energy, dtype=torch.float32)]
+        # Annotated: torch.autograd.grad expects grad_outputs as
+        # Optional[List[Optional[Tensor]]], and an unannotated list literal is
+        # typed List[Tensor]. inputs_list needs its annotation because it starts
+        # empty.
+        outputs_list: List[torch.Tensor] = [energy]
+        inputs_list: List[torch.Tensor] = []
+        grad_outputs_list: List[Optional[torch.Tensor]] = [
+            torch.ones_like(energy, dtype=torch.float32)
+        ]
 
         compute_forces = "forces" in self.model_outputs
         compute_virial = "virial" in self.model_outputs
@@ -2433,6 +2629,7 @@ class UMA(nn.Module):
             cs_emb_grad=bool(kwargs.get("cs_emb_grad", False)),
             dataset_emb_grad=bool(kwargs.get("dataset_emb_grad", False)),
             dataset_mapping=self.dataset_mapping,
+            dataset_name=self.dataset_name,
             use_dataset_embedding=self.use_dataset_embedding,
             charge_balanced_channels=self.charge_balanced_channels,
             spin_balanced_channels=self.spin_balanced_channels,
@@ -2476,15 +2673,19 @@ class UMA(nn.Module):
 
     def _apply_displacement(self, data: AtomsData) -> AtomsData:
         """Add a learnable strain (B,3,3) and re-derive edge_vectors for stress/virial autograd."""
-        if data.image_indices is None:
+        # Narrowed to locals: the AtomsData fields are Optional, and TorchScript
+        # will not call methods on an Optional. Shape as a List[int] for the same
+        # reason as elsewhere.
+        image_indices = data.image_indices
+        if image_indices is None:
             return data
-        num_images = int(data.image_indices.max() + 1)
+        num_images = int(image_indices.max() + 1)
         displacement = torch.zeros(
-            (num_images, 3, 3),
+            [num_images, 3, 3],
             dtype=data.edge_vectors.dtype,
             device=data.edge_vectors.device,
         ).requires_grad_()
-        image_idx = data.image_indices[data.edge_indices[:, 0]]
+        image_idx = image_indices[data.edge_indices[:, 0]]
         edge_vectors = data.edge_vectors + torch.bmm(
             displacement[image_idx], data.edge_vectors.unsqueeze(-1)
         ).squeeze(-1)
@@ -2492,7 +2693,7 @@ class UMA(nn.Module):
             data, edge_vectors=edge_vectors, displacement=displacement
         )
 
-    def _build_data_dict(self, data: AtomsData) -> dict:
+    def _build_data_dict(self, data: AtomsData) -> Dict[str, torch.Tensor]:
         edge_vectors = data.edge_vectors
         edge_index = data.edge_indices.T.contiguous()
         atomic_numbers = data.atomic_numbers.long()
@@ -2515,8 +2716,6 @@ class UMA(nn.Module):
         spin_t = torch.full(
             (nsys,), self.spin, dtype=torch.long, device=device
         )
-        dataset = [self.dataset_name] * nsys
-
         return {
             "atomic_numbers": atomic_numbers,
             "atomic_numbers_full": atomic_numbers,
@@ -2528,7 +2727,6 @@ class UMA(nn.Module):
             "natoms": natoms,
             "charge": charge_t,
             "spin": spin_t,
-            "dataset": dataset,
         }
 
     # ---------------- forward ----------------
@@ -2543,8 +2741,11 @@ class UMA(nn.Module):
         # Energy head
         nsys = int(data.num_atoms.shape[0])
         natoms = data.num_atoms.to(emb["node_embedding"].device)
-        energy = self.energy_head(emb, num_systems=nsys, natoms=natoms)
+        energy, atomic_energy = self.energy_head(
+            emb, num_systems=nsys, natoms=natoms
+        )
         energy = energy.to(emb["node_embedding"].dtype) + self.energy_bias
+        atomic_energy = atomic_energy.to(emb["node_embedding"].dtype)
 
         # Norm-data denorm (post-sum, matches NequIP/EquiformerV2 conventions)
         if bool(self.norm_data.item()):
@@ -2555,7 +2756,9 @@ class UMA(nn.Module):
             else:
                 energy = self.data_stddev * energy + self.data_mean
 
-        data = replace_properties(data, energy=energy)
+        data = replace_properties(
+            data, energy=energy, atomic_energy=atomic_energy
+        )
 
         if self.gradient_output is not None:
             data = self.gradient_output(data, training=self.training)

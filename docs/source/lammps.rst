@@ -185,7 +185,7 @@ Key Components:
 
       pair_style iann model_type model_name.pt cutoff_radius
 
-   * specify model type: one of ``painn``, ``nequip``, ``allegro``, ``mace``, ``equiformerv2``
+   * specify model type: one of ``painn``, ``nequip``, ``allegro``, ``mace``, ``equiformerv2``, ``equiformerv3``, ``uma``
    * specify the model file name, e.g., ``model_lmp.pt``
    * specify the cutoff radius, e.g., ``5.5`` Å
 
@@ -382,7 +382,7 @@ Key Components:
 
       pair_style iann model_type ensemble_model_name.pt cutoff_radius
    
-   * specify model type: one of ``painn``, ``nequip``, ``allegro``, ``mace``, ``equiformerv2``
+   * specify model type: one of ``painn``, ``nequip``, ``allegro``, ``mace``, ``equiformerv2``, ``equiformerv3``, ``uma``
    * specify the ensemble model file name, e.g., ``model_ensemble_lmp.pt``
    * specify the cutoff radius, e.g., ``5.5`` Å
 

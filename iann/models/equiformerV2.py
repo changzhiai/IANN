@@ -2848,8 +2848,14 @@ class EquiformerV2(nn.Module):
             # RotationToWignerDMatrix (Euler-angle singularity at beta = 0/pi).
             thr = self.rotation_mask_threshold
             yprod = norm_x[:, 1].detach()
-            norm_x[yprod > thr] = norm_x.new_tensor([0.0, 1.0, 0.0])
-            norm_x[yprod < -thr] = norm_x.new_tensor([0.0, -1.0, 0.0])
+            # torch.tensor(..., dtype=, device=) rather than Tensor.new_tensor:
+            # new_tensor is not a TorchScript builtin, which blocked exporting
+            # this model to LAMMPS. Same dtype and device, so the result is
+            # unchanged.
+            _yhat = torch.tensor([0.0, 1.0, 0.0], dtype=norm_x.dtype,
+                                 device=norm_x.device)
+            norm_x[yprod > thr] = _yhat
+            norm_x[yprod < -thr] = -_yhat
 
         # Use Gram-Schmidt orthogonalization for mathematically rigorous orthonormal basis
         # This creates a perfect orthonormal coordinate system for each edge
@@ -3008,8 +3014,10 @@ class EquiformerV2(nn.Module):
         # edge_rot_mat = self._init_edge_rot_mat_constant(edge_vectors)
         # Build the (differentiable) Wigner matrices once per forward pass;
         # _rotate/_rotate_inv in every block reuse the cached copies.
-        for i in range(self.num_resolutions):
-            self.SO3_rotation[i].set_wigner(edge_rot_mat)
+        # Iterated rather than indexed by i: TorchScript only allows literal
+        # indices into a ModuleList. One entry per resolution, same order.
+        for rot in self.SO3_rotation:
+            rot.set_wigner(edge_rot_mat)
         edge_degree = self.edge_degree_embedding(
             atomic_numbers,
             edge_dist,

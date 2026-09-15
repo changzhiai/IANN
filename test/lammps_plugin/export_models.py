@@ -23,6 +23,21 @@ def export_models(export="painn", **kwargs):
                                 model_type='painn', 
                                 output_path='test/lammps_plugin/export_painn.pt', **kwargs)
 
+    elif export == 'allegro':
+        convert_model_for_lammps(model_path='test/allegro/output/model.pt',
+                                model_type='allegro',
+                                output_path='test/lammps_plugin/export_allegro.pt', **kwargs)
+
+    elif export == 'equiformerV3':
+        convert_model_for_lammps(model_path='test/equiformerV3/output/model.pt',
+                                model_type='equiformerV3',
+                                output_path='test/lammps_plugin/export_equiformerV3.pt', **kwargs)
+
+    elif export == 'uma':
+        convert_model_for_lammps(model_path='test/uma/output/model.pt',
+                                model_type='uma',
+                                output_path='test/lammps_plugin/export_uma.pt', **kwargs)
+
     elif export == 'ensemble_painn':
         model_paths = [
             "test/painn/output_124/model.pt",
@@ -35,9 +50,26 @@ def export_models(export="painn", **kwargs):
             output_path="test/lammps_plugin/export_ensemble_painn.pt"
         )
 
+def _try(name, **kwargs):
+    """Run one export and record the outcome.
+
+    Each architecture is attempted independently: aborting on the first failure
+    used to hide every later one, which is how the EquiformerV2 breakage masked
+    the fact that allegro/equiformerV3/uma were never being exercised here.
+    """
+    try:
+        export_models(export=name, **kwargs)
+        _RESULTS.append((name, "OK"))
+    except Exception as exc:                       # noqa: BLE001 - reporting only
+        first = (str(exc).strip().splitlines() or [""])[0][:70]
+        _RESULTS.append((name, f"FAIL {type(exc).__name__}: {first}"))
+
+
+_RESULTS = []
+
 if __name__ == "__main__":
-    export_models(export="painn")
-    export_models(export="nequip", 
+    _try("painn")
+    _try("nequip",
                    num_channels=128, 
                    num_layers=2, 
                    lmax=1, 
@@ -58,7 +90,7 @@ if __name__ == "__main__":
                    output_dir='test/nequip/output',
                    output_log='output.log',
                    output_model='model.pt')
-    export_models(export="mace",
+    _try("mace",
                     num_channels=128, # number of channels in the model
                     num_layers=2, # number of layers in the model
                     lmax=1, # 128x0e + 128x1o
@@ -78,7 +110,7 @@ if __name__ == "__main__":
                     output_dir='test/mace/output',
                     output_log='output.log',
                     output_model='model.pt')
-    export_models(export="equiformerV2",
+    _try("equiformerV2",
                     device = "cpu", 
                     output_dir = 'test/equiformerV2/output',
                     num_layers = 3,
@@ -96,4 +128,63 @@ if __name__ == "__main__":
                     norm_per_atom=True,
                     log_input = True,
             output_model = 'model.pt')
-    export_models(export="ensemble_painn")
+    # The three architectures added after the original four. Structural
+    # parameters must be repeated here because the trainer does not persist all
+    # of them in the checkpoint (num_distance_basis, the grid resolution lists),
+    # so reconstruction would otherwise fall back to defaults and the
+    # state_dict would not fit.
+    _try("allegro",
+                    num_channels=64,
+                    num_scalar_features=64,
+                    num_tensor_features=16,
+                    num_layers=2,
+                    lmax=1,
+                    cutoff=5.5,
+                    use_cue=False,
+                    norm_data=True,
+                    norm_per_atom=True,
+                    device='cpu',
+                    output_dir='test/allegro/output',
+                    output_log='output.log',
+                    output_model='model.pt')
+    _try("equiformerV3",
+                    num_layers=2,
+                    num_channels=16,
+                    lmax=3,
+                    mmax=2,
+                    attn_grid_resolution_list=[12, 6],
+                    ffn_grid_resolution_list=[12, 12],
+                    norm_type='merge_layer_norm',
+                    attn_activation='sep-merge_gates2_swiglu',
+                    ffn_activation='sep-merge_gates2_swiglu',
+                    use_envelope=True,
+                    norm_data=True,
+                    norm_per_atom=True,
+                    device='cpu',
+                    output_dir='test/equiformerV3/output',
+                    output_log='output.log',
+                    output_model='model.pt')
+    _try("uma",
+                    num_channels=32,
+                    num_layers=2,
+                    lmax=2,
+                    mmax=2,
+                    hidden_channels=32,
+                    edge_channels=32,
+                    num_distance_basis=128,
+                    cutoff=5.5,
+                    norm_type='rms_norm_sh',
+                    norm_data=True,
+                    norm_per_atom=True,
+                    device='cpu',
+                    output_dir='test/uma/output',
+                    output_log='output.log',
+                    output_model='model.pt')
+    _try("ensemble_painn")
+
+    print("\n==================== export summary ====================")
+    for _name, _status in _RESULTS:
+        print(f"  {_name:16s} {_status}")
+    _failed = [n for n, st in _RESULTS if st != "OK"]
+    print(f"  {len(_RESULTS) - len(_failed)}/{len(_RESULTS)} exported")
+    raise SystemExit(1 if _failed else 0)

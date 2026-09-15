@@ -177,7 +177,7 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
     
     Args:
         model_path (str): Path to the trained model checkpoint
-        model_type (str): Type of model (painn, nequip, allegro, mace, equiformerv2)
+        model_type (str): Type of model (painn, nequip, allegro, mace, equiformerv2, equiformerv3, uma)
         output_path (str, optional): Path to save the exported model
     
     Returns:
@@ -308,6 +308,43 @@ def convert_model_for_lammps(model_path, model_type=None, output_path=None, debu
             compute_forces=forces_enabled,
             **model_kwargs,
         )
+    elif model_type.lower() == "uma":
+        from iann.models.uma import UMA
+        # Same as EquiformerV3: UMA takes a scalar lmax.
+        model_kwargs.pop("parity", None)
+        lmax_uma = model_kwargs.pop("lmax", None)
+        if lmax_uma is None:
+            lmax_uma = state_dict.get("lmax")
+        if lmax_uma is not None:
+            model_kwargs["lmax"] = lmax_uma
+
+        raw_model = UMA(
+            num_layers=num_layers,
+            num_channels=num_channels,
+            cutoff=cutoff,
+            compute_forces=forces_enabled,
+            **model_kwargs,
+        )
+    elif model_type.lower() == "equiformerv3":
+        from iann.models.equiformerV3 import EquiformerV3
+        # Unlike EquiformerV2, EquiformerV3 uses a scalar lmax, so it must be
+        # passed through: an explicit kwarg wins, otherwise the value persisted
+        # in the checkpoint is used. Dropping it silently rebuilt the model at
+        # the default degree.
+        model_kwargs.pop("parity", None)
+        lmax_v3 = model_kwargs.pop("lmax", None)
+        if lmax_v3 is None:
+            lmax_v3 = state_dict.get("lmax")
+        if lmax_v3 is not None:
+            model_kwargs["lmax"] = lmax_v3
+
+        raw_model = EquiformerV3(
+            num_layers=num_layers,
+            num_channels=num_channels,
+            cutoff=cutoff,
+            compute_forces=forces_enabled,
+            **model_kwargs,
+        )
     elif model_type.lower() in ["equiformerv2", "equiformer2"]:
         from iann.models.equiformerV2 import EquiformerV2
         model_kwargs.pop("lmax", None)
@@ -358,7 +395,7 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=F
     
     Args:
         model_paths (list): List of paths to trained model checkpoints
-        model_type (str): Type of model (painn, nequip, allegro, mace, equiformerv2)
+        model_type (str): Type of model (painn, nequip, allegro, mace, equiformerv2, equiformerv3, uma)
         output_path (str, optional): Path to save the exported model
     
     Returns:
@@ -489,6 +526,38 @@ def convert_models_for_lammps(model_paths, model_type, output_path=None, debug=F
                 compute_forces=forces_enabled,
                 **model_kwargs,
             )
+        elif model_type.lower() == "uma":
+            from iann.models.uma import UMA
+            model_kwargs.pop("parity", None)
+            lmax_uma = model_kwargs.pop("lmax", None)
+            if lmax_uma is None:
+                lmax_uma = state_dict.get("lmax")
+            if lmax_uma is not None:
+                model_kwargs["lmax"] = lmax_uma
+
+            raw_model = UMA(
+                num_layers=num_layers,
+                num_channels=num_channels,
+                cutoff=cutoff,
+                compute_forces=forces_enabled,
+                **model_kwargs,
+            )
+        elif model_type.lower() == "equiformerv3":
+            from iann.models.equiformerV3 import EquiformerV3
+            model_kwargs.pop("parity", None)
+            lmax_v3 = model_kwargs.pop("lmax", None)
+            if lmax_v3 is None:
+                lmax_v3 = state_dict.get("lmax")
+            if lmax_v3 is not None:
+                model_kwargs["lmax"] = lmax_v3
+
+            raw_model = EquiformerV3(
+                num_layers=num_layers,
+                num_channels=num_channels,
+                cutoff=cutoff,
+                compute_forces=forces_enabled,
+                **model_kwargs,
+            )
         elif model_type.lower() in ["equiformerv2", "equiformer2"]:
             from iann.models.equiformerV2 import EquiformerV2
             model_kwargs.pop("lmax", None)
@@ -546,7 +615,7 @@ def main():
     parser = argparse.ArgumentParser(description="Export IANN models to TorchScript for LAMMPS")
     parser.add_argument("--model_path", "-m", required=True,
                         help="Path to the trained model checkpoint")
-    parser.add_argument("--model_type", "-t", choices=["painn", "nequip", "allegro", "mace", "equiformerv2", "equiformer2"], required=True,
+    parser.add_argument("--model_type", "-t", choices=["painn", "nequip", "allegro", "mace", "equiformerv2", "equiformer2", "equiformerv3", "uma"], required=True,
                         help="Type of model to export")
     parser.add_argument("--output", "-o", help="Output path for exported model")
     
