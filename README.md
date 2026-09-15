@@ -28,6 +28,7 @@
   - [Multi-GPU Training](#multi-gpu-training)
   - [Multi-CPU Training](#multi-cpu-training)
   - [Example on NERSC](#example-on-nersc)
+  - [Example on Carbon](#example-on-carbon)
   - [Performance Considerations](#performance-considerations)
 - [8. LAMMPS Interface](#8-lammps-interface)
   - [Use an IANN model with LAMMPS](#use-an-iann-model-with-lammps)
@@ -45,6 +46,7 @@
 - [Troubleshooting](#troubleshooting)
 - [Issues](#issues)
 - [Maintainer](#maintainer)
+- [Citing IANN](#citing-iann)
 - [References](#references)
 
 
@@ -347,12 +349,12 @@ srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 #SBATCH -C gpu                 # Use GPU nodes
 #SBATCH -q debug               # Use regular/debug queue
 #SBATCH -t 00:20:00            # Time limit
-#SBATCH -A m2997               # Your account
-#SBATCH --gpus-per-node=4       # GPUs per node
+#SBATCH -A mxxxx               # Your account
+#SBATCH --gpus-per-node=4      # GPUs per node
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=1
 
-export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN/:$PYTHONPATH
+export PYTHONPATH=/path/to/IANN/:$PYTHONPATH
 module purge
 module load PrgEnv-nvidia; module load openmpi;
 
@@ -365,9 +367,51 @@ srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) \
      python train.py
 
 ```
+<!-- -A m2997 -->
+<!-- PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v2/IANN/:$PYTHONPATH -->
 
 > [!NOTE]
 > the parallelization parameters are automatically obtained from the SLURM environment variables.
+
+### Example on Carbon
+
+Carbon uses PBS rather than SLURM, so the ranks are launched with `mpirun`:
+
+```bash
+
+#!/bin/bash
+
+#PBS -l nodes=1:ppn=4:gpus=2
+#PBS -l walltime=5:00:00
+#PBS -N train
+#PBS -A cnmxxxx
+#PBS -o job.out
+#PBS -e job.err
+
+# Load the environments, such as:
+cd $PBS_O_WORKDIR
+source ~/miniconda/etc/profile.d/conda.sh
+conda activate base
+module load openmpi
+export PYTHONPATH=/path/to/IANN:$PYTHONPATH
+
+# GPUs per node and number of nodes
+GPUS_PER_NODE=2
+export MASTER_ADDR=$(head -n1 "$PBS_NODEFILE")   # all ranks rendezvous here
+export MASTER_PORT=12356
+
+# environment forwarded to the remote ranks (conda/python, libs, rendezvous)
+FWD="-x PATH -x LD_LIBRARY_PATH -x PYTHONPATH -x MASTER_ADDR -x MASTER_PORT"
+
+mpirun --map-by ppr:${GPUS_PER_NODE}:node -machinefile "$PBS_NODEFILE" $FWD python train.py
+```
+
+<!-- -A cnm84157 -->
+<!-- export PYTHONPATH=/home/changzhi/softwares/IANN_dev/fix-mace/IANN:$PYTHONPATH -->
+
+
+> [!NOTE]
+> With no SLURM variables to read, the trainer takes rank and world size from `OMPI_COMM_WORLD_RANK`/`OMPI_COMM_WORLD_SIZE` (MPICH/Intel MPI and MVAPICH2 are handled too). `train.py` is unchanged — it still only needs `distributed=True`. Note that `mpirun` does not carry your shell environment to remote nodes, so `PATH`, `LD_LIBRARY_PATH` and `PYTHONPATH` must be forwarded with `-x`, or the remote ranks start on the system Python and fail to import `iann`.
 
 ### Performance Considerations
 
@@ -582,6 +626,22 @@ For questions, issues, and contributions, please use the GitHub issue tracker
 ## Maintainer
 Maintainer `Dr. Changzhi Ai` (changzhi@stanford.edu) at Stanford University and SLAC National Accelerator Laboratory.
 
+## Citing IANN
+
+If you use IANN, please cite the software release:
+
+```bibtex
+@software{IANN,
+  author  = {Ai, Changzhi and others},
+  title   = {{IANN}: InterAtomic Neural Network framework},
+  year    = {2026},
+  doi     = {10.5281/zenodo.17809949},
+  url     = {https://github.com/changzhiai/IANN}
+}
+```
+
+IANN is released under the [MIT licence](https://opensource.org/license/MIT).
+
 ## References
 
 [1] K. T. Schütt, et al. "Equivariant message passing for the prediction of tensorial properties and molecular spectra", arXiv:2102.03150 (2021). [Link](https://arxiv.org/abs/2102.03150) 
@@ -592,5 +652,10 @@ Maintainer `Dr. Changzhi Ai` (changzhi@stanford.edu) at Stanford University and 
 
 [4] Y. L. Liao, et al. "EquiformerV2: Improved Equivariant Transformer for Scaling to Higher-Degree Representations", arXiv:2306.12059 (2023). [Link](https://arxiv.org/abs/2306.12059)
 
-[5] X. Yang, et al. "CURATOR: Building Robust Machine Learning Potentials for Atomistic Simulations Autonomously with Batch Active Learning", ChemRxiv (2024). [Link](http://dx.doi.org/10.26434/chemrxiv-2024-p5t3l) 
+[5] A. Musaelian, et al. "Learning local equivariant representations for large-scale atomistic dynamics", Nature Communications, 14, 579 (2023). [Link](https://doi.org/10.1038/s41467-023-36329-y)
 
+[6] X. Yang, et al. "CURATOR: Building Robust Machine Learning Potentials for Atomistic Simulations Autonomously with Batch Active Learning", ChemRxiv (2024). [Link](http://dx.doi.org/10.26434/chemrxiv-2024-p5t3l) 
+
+[7] B. M. Wood, et al. "UMA: A Family of Universal Models for Atoms", arXiv:2506.23971 (2025). [Link](https://arxiv.org/abs/2506.23971)
+
+[8] Y. L. Liao, et al. "EquiformerV3: Scaling Efficient, Expressive, and General SE(3)-Equivariant Graph Attention Transformers", arXiv:2604.09130 (2026). [Link](https://doi.org/10.48550/arXiv.2604.09130)

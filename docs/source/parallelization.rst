@@ -137,8 +137,8 @@ Or use the following command by ``torchrun``:
    nproc_per_node defines the number of local CPU or GPU workers. Setup ``device="cpu"`` or ``device="cuda"`` to make device selection in your config.toml.
 
 
-Examples of parallel training on NERSC and S3DF
-----------------------------------------------
+Examples of parallel training on NERSC, S3DF and Carbon
+-------------------------------------------------------
 
 Here is an example of how to run **multi-GPU training on NERSC**:
 
@@ -147,15 +147,15 @@ Here is an example of how to run **multi-GPU training on NERSC**:
    #!/bin/bash
    #SBATCH -N 2                   # Number of nodes
    #SBATCH -C gpu                 # Use GPU nodes
-   #SBATCH -q debug               # Use regular/debug queue
+   #SBATCH -q regular             # Use regular/debug queue
    #SBATCH -t 00:30:00            # Time limit
-   #SBATCH -A m2997               # Your account
+   #SBATCH -A mxxxx               # Your account
    #SBATCH --gpus-per-node=4      # GPUs per node
    #SBATCH --ntasks-per-node=4    # Number of tasks per node
    #SBATCH --cpus-per-task=1      # Number of CPUs per task
 
-   # Load the environments, such as:   
-   export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v3/IANN/:$PYTHONPATH
+   # Load the environments, such as:
+   export PYTHONPATH=/path/to/IANN/:$PYTHONPATH
    module purge
    module load PrgEnv-nvidia; module load openmpi
 
@@ -170,6 +170,8 @@ Here is an example of how to run **multi-GPU training on NERSC**:
    # Run the training script on multiple GPUs/CPUs
    srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
+.. -A m2997
+.. export PYTHONPATH=/pscratch/sd/c/changzhi/softwares/IANN_v3/IANN/:$PYTHONPATH
 
 Here is an example of how to run **multi-GPU training on S3DF**:
 
@@ -186,8 +188,8 @@ Here is an example of how to run **multi-GPU training on S3DF**:
    #SBATCH --account=suncat:normal
 
    # Load the environments, such as:
-   conda activate /sdf/home/c/changzhi/softwares/anoconda3/envs/painn
-   export PYTHONPATH=/sdf/home/c/changzhi/changzhi/softwares/IANN_v3/IANN:$PYTHONPATH
+   conda activate venv_xxxx
+   export PYTHONPATH=/path/to/IANN:$PYTHONPATH
 
    # GPUs per node and number of nodes
    export GPUS_PER_NODE=$SLURM_GPUS_ON_NODE
@@ -196,11 +198,71 @@ Here is an example of how to run **multi-GPU training on S3DF**:
    # Run the training script on multiple GPUs/CPUs
    srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 
+.. conda activate /sdf/home/c/changzhi/softwares/anoconda3/envs/painn
+.. export PYTHONPATH=/sdf/home/c/changzhi/changzhi/softwares/IANN_v3/IANN:$PYTHONPATH
 
 .. note::
-   The ``srun`` command is used to run the training script on multiple GPUs/CPUs. It is a wrapper around the ``mpirun`` command for multiple GPUs/CPUs parallelization. 
+   The ``srun`` command is used to run the training script on multiple GPUs/CPUs. It is a wrapper around the ``mpirun`` command for multiple GPUs/CPUs parallelization.
    For multi-GPUs/multi-CPUs mode, `Trainer.train()` will call `mp.spawn()` to launch `world_size` workers using the `process_function`.
    The parallelization parameters would be automatically obtained from the SLURM environment variables.
+
+
+Here is an example of how to run **multi-GPU training on Carbon**, which uses
+PBS rather than SLURM, so the ranks are launched with ``mpirun``:
+
+.. code-block:: bash
+
+   #!/bin/bash
+
+   #PBS -l nodes=1:ppn=4:gpus=2
+   #PBS -l walltime=5:00:00
+   #PBS -N train
+   #PBS -A cnmxxxx
+   #PBS -o job.out
+   #PBS -e job.err
+
+   # Load the environments, such as:
+   cd $PBS_O_WORKDIR
+   source ~/miniconda/etc/profile.d/conda.sh
+   conda activate base
+   module load openmpi
+   export PYTHONPATH=/path/to/IANN:$PYTHONPATH
+
+   # GPUs per node and number of nodes
+   GPUS_PER_NODE=2
+   export MASTER_ADDR=$(head -n1 "$PBS_NODEFILE")   # all ranks rendezvous here
+   export MASTER_PORT=12356
+
+   # environment forwarded to the remote ranks (conda/python, libs, rendezvous)
+   FWD="-x PATH -x LD_LIBRARY_PATH -x PYTHONPATH -x MASTER_ADDR -x MASTER_PORT"
+
+   mpirun --map-by ppr:${GPUS_PER_NODE}:node -machinefile "$PBS_NODEFILE" $FWD python train.py
+
+.. -A cnm84157
+.. export PYTHONPATH=/home/changzhi/softwares/IANN_dev/fix-mace/IANN:$PYTHONPATH
+
+Three things differ from the SLURM examples, and all three matter:
+
+* **The rank comes from MPI, not the scheduler.** With no ``SLURM_PROCID`` to
+  read, the trainer falls back to ``OMPI_COMM_WORLD_RANK`` /
+  ``OMPI_COMM_WORLD_SIZE`` (and the MPICH/Intel and MVAPICH2 equivalents). The
+  training script itself is unchanged — it still only needs
+  ``distributed=True``.
+* ``--map-by ppr:N:node`` **replaces** ``-np``. It places *N* ranks per node for
+  every node in ``$PBS_NODEFILE``, so one rank lands on each GPU without having
+  to compute the total rank count by hand.
+* **The environment must be forwarded explicitly.** ``mpirun`` does not carry
+  your shell environment to remote nodes, so ``PATH``, ``LD_LIBRARY_PATH`` and
+  ``PYTHONPATH`` are passed with ``-x`` — otherwise the remote ranks start with
+  the system Python and fail to import ``iann``.
+
+.. note::
+   ``MASTER_ADDR`` is exported here for clarity, but it is optional on PBS: if it
+   is unset the trainer reads the first host from ``$PBS_NODEFILE`` itself,
+   falling back to ``localhost`` on a single node. What is **not** optional is
+   forwarding it with ``-x`` once you set it — on multiple nodes every rank must
+   rendezvous on the same host, and a rank that does not receive the variable
+   will pick its own and hang.
 
 
 Parallelization Configuration

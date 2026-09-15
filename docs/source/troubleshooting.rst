@@ -169,14 +169,14 @@ References
 * [5] A. Musaelian, et al. *Learning local equivariant representations for large-scale atomistic dynamics*, Nature Communications, 14, 579 (2023).
   `[Link] <https://doi.org/10.1038/s41467-023-36329-y>`__
 
-* [6] Y. L. Liao, et al. *EquiformerV3: Scaling Efficient, Expressive, and General SE(3)-Equivariant Graph Attention Transformers*, arXiv:2604.09130 (2026).
-  `[Link] <https://doi.org/10.48550/arXiv.2604.09130>`__
+* [6] X. Yang, et al. *CURATOR: Building Robust Machine Learning Potentials for Atomistic Simulations Autonomously with Batch Active Learning*, ChemRxiv (2024).
+  `[Link] <http://dx.doi.org/10.26434/chemrxiv-2024-p5t3l>`__
 
 * [7] B. M. Wood, et al. *UMA: A Family of Universal Models for Atoms*, arXiv:2506.23971 (2025).
   `[Link] <https://arxiv.org/abs/2506.23971>`__
 
-* [8] X. Yang, et al. *CURATOR: Building Robust Machine Learning Potentials for Atomistic Simulations Autonomously with Batch Active Learning*, ChemRxiv (2024).
-  `[Link] <http://dx.doi.org/10.26434/chemrxiv-2024-p5t3l>`__
+* [8] Y. L. Liao, et al. *EquiformerV3: Scaling Efficient, Expressive, and General SE(3)-Equivariant Graph Attention Transformers*, arXiv:2604.09130 (2026).
+  `[Link] <https://doi.org/10.48550/arXiv.2604.09130>`__
 
 
 For more specific issues or if you need additional help, please:

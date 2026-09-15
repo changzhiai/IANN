@@ -108,9 +108,9 @@ If you use IANN, please cite the software release:
 .. code-block:: bibtex
 
    @software{IANN,
-     author  = {Ai, Changzhi},
+     author  = {Ai, Changzhi and others},
      title   = {{IANN}: InterAtomic Neural Network framework},
-     year    = {2025},
+     year    = {2026},
      doi     = {10.5281/zenodo.17809949},
      url     = {https://github.com/changzhiai/IANN}
    }
