@@ -308,7 +308,7 @@ Submit to multiple GPUs (in SLURM Workload Manager)
 #SBATCH -C gpu                 # Use GPU nodes
 #SBATCH -q debug               # Use regular/debug queue
 #SBATCH -t 00:30:00            # Time limit
-#SBATCH -A m2997               # Your account
+#SBATCH -A mxxxx               # Your account
 #SBATCH --gpus-per-node=4      # GPUs per node
 #SBATCH --ntasks-per-node=4    # Number of tasks per node
 #SBATCH --cpus-per-task=1      # Number of CPUs per task
@@ -320,6 +320,8 @@ export NNODES=$SLURM_NNODES
 
 srun -N $NNODES -n $((NNODES*GPUS_PER_NODE)) python train.py
 ```
+<!-- -A m2997 -->
+
 ### Multi-CPU Training
 Submit to multiple CPUs (in SLURM Workload Manager)
 
@@ -330,7 +332,7 @@ Submit to multiple CPUs (in SLURM Workload Manager)
 #SBATCH -C cpu                 # Use CPU nodes
 #SBATCH -q debug               # Use regular/debug queue
 #SBATCH -t 00:30:00            # Time limit
-#SBATCH -A m2997               # Your account
+#SBATCH -A mxxxx               # Your account
 #SBATCH --ntasks-per-node=1    # Number of tasks per node
 #SBATCH --cpus-per-task=128    # Number of CPUs per task
 
