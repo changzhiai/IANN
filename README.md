@@ -4,7 +4,7 @@
 
 [![Docs](https://img.shields.io/badge/Docs-available-blue)](https://iann.readthedocs.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/MIT)
-[![Python](https://img.shields.io/badge/Python-3.7%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) 
+[![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) 
 [![C++](https://img.shields.io/badge/C++-11-00599C?logo=cplusplus&logoColor=white)](https://isocpp.org/) 
 
 
@@ -40,8 +40,11 @@
 - [9. Modules](#9-modules)
   - [iann.data](#ianndata)
   - [iann.models](#iannmodels)
+  - [iann.trainer](#ianntrainer)
+  - [iann.foundations](#iannfoundations)
   - [iann.calculators](#ianncalculators)
   - [iann.plugins](#iannplugins)
+  - [iann.tools](#ianntools)
   - [C++ LAMMPS Plugins](#c-lammps-plugins)
 - [Troubleshooting](#troubleshooting)
 - [Issues](#issues)
@@ -71,13 +74,24 @@ Key features:
 </p>
 
 ### Documentation
-A documentation is available at: https://iann.readthedocs.io
+Full documentation is available at https://iann.readthedocs.io. The pages that go beyond this
+README:
+
+| Page | Covers |
+|---|---|
+| [About](https://iann.readthedocs.io/en/latest/about.html) | The framework's five layers, and the graph/data-object/derivative route that unifies them |
+| [Engine Models](https://iann.readthedocs.io/en/latest/engine_models.html) | Each architecture, its diagram, its parameters, and which to choose |
+| [Foundation Models](https://iann.readthedocs.io/en/latest/foundation_models.html) | The curated DFT databases and all twelve released checkpoints with accuracies |
+| [Performance](https://iann.readthedocs.io/en/latest/performance.html) | Measured inference cost, memory ceilings, and multi-GPU scaling for training and LAMMPS |
+| [Parallelization](https://iann.readthedocs.io/en/latest/parallelization.html) | Submission scripts for SLURM and PBS clusters |
+| [API Reference](https://iann.readthedocs.io/en/latest/api.html) | Every public class and function |
+| [Release Notes](https://iann.readthedocs.io/en/latest/release_notes.html) | What changed in each version |
 
 ## 2. Installation
 
 ### Prerequisites
 
-- Python 3.7+
+- Python 3.8+
 - PyTorch 1.9+
 
 ### Installing IANN
@@ -428,6 +442,9 @@ IANN models can be used as interatomic potentials in LAMMPS molecular dynamics s
 > [!WARNING]
 > You have to install IANN plugins for LAMMPS first, if you want to use IANN models with LAMMPS. Please see the documentation in [LAMMPS interface](https://iann.readthedocs.io/en/latest/lammps.html) section.
 
+> [!IMPORTANT]
+> The export path supports fewer architectures than the trainer. `model_type` accepts only `painn`, `nequip`, `mace` and `equiformer2` — **Allegro, EquiformerV3, UMA and FastPot cannot currently be exported to LAMMPS.** Train with one of the four supported architectures if the model is destined for a LAMMPS production run.
+
 ### Use an IANN model with LAMMPS
 
 
@@ -593,6 +610,19 @@ Contains neural network model implementations:
 - `FastPot`: IANN's own lightweight model for energy and force prediction
 
 
+### iann.trainer
+The single trainer shared by every architecture:
+- `Trainer`: training loop, loss on energies/forces/stresses/virials, logging, checkpointing, learning-rate scheduling, early stopping and restarts
+- Distributed data-parallel training configured automatically from SLURM, OpenMPI, MPICH/Intel MPI, MVAPICH2 or PBS
+
+
+### iann.foundations
+Pretrained potentials and their resolution:
+- `foundation_model`: resolve a model name to a local checkpoint path, downloading from the HuggingFace Hub on first use
+- `list_foundation_models`: the full released catalog
+- `list_available_models`: what is usable without a network (bundled plus already cached)
+
+
 ### iann.calculators
 ASE calculators implementations:
 - `MLCalculator`: ASE calculator interface for models
@@ -607,6 +637,13 @@ Tools for converting models and LAMMPS integration:
 - `LAMMPSModelWrapper`: Wrapper class for adapting model inputs/outputs for LAMMPS
 - `convert_model_for_lammps`: Function to convert trained model to TorchScript format
 - `convert_models_for_lammps`: Function to convert trained ensemble models to TorchScript format
+
+### iann.tools
+Shared building blocks used by the model implementations:
+- `activation`: activation functions
+- `gate`: equivariant gate layers
+- `tools`: assorted helpers
+
 
 ### C++ LAMMPS Plugins
 C++ plugins for LAMMPS molecular dynamics simulations:
