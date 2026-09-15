@@ -147,7 +147,7 @@ CHECKS = {
     "index.html": ("front page lists the architectures",
         ["PaiNN", "NequIP", "Allegro", "MACE", "EquiformerV2", "EquiformerV3", "UMA"]),
     "about.html": ("overview page with both paper figures",
-        ["fig1_framework.png", "fig2_mechanism.png",
+        ["fig1_framework.svg", "fig2_mechanism.png",
          "Framework structure", "Underlying mechanism", "10.5281/zenodo.17809949"]),
     "performance.html": ("cost page with both benchmark figures",
         ["fig6_models_cost.png", "fig7_lammps_scaling.png",

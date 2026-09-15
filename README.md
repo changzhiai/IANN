@@ -61,7 +61,7 @@ Key features:
 - Customizable model architectures
 
 <p align="center">
-  <img src="docs/source/_static/images/fig1_framework.png" alt="Software structure of the IANN framework" width="100%">
+  <img src="docs/source/_static/images/fig1_framework.svg" alt="Software structure of the IANN framework" width="100%">
 </p>
 
 <p align="center">

@@ -17,7 +17,7 @@ configuration dictionary rather than a change of code base.
 Framework structure
 -------------------
 
-.. figure:: _static/images/fig1_framework.png
+.. figure:: _static/images/fig1_framework.svg
    :width: 100%
    :align: center
 
