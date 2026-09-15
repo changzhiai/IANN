@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="docs/source/_static/logo/iann-logo.svg" alt="IANN — InterAtomic Neural Network" width="440">
-</p>
+<img src="docs/source/_static/logo/iann-logo.svg" alt="IANN — InterAtomic Neural Network" width="440">
 
 # IANN (InterAtomic Neural Network framework)
 
