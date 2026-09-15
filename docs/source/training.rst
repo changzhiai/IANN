@@ -37,11 +37,21 @@ Here is an simple example ``train.py`` of how to run training:
 
 Available models for ``model``:
 
-* fastpot
 * painn
 * nequip
+* allegro
 * mace
-* equiformerV2
+* equiformerv2
+* equiformerv3
+* uma
+* fastpot
+
+The name is matched case-insensitively, so ``"painn"`` and ``"PaiNN"`` are equivalent.
+See :doc:`engine_models` for what each architecture does and how to choose between them.
+
+.. note::
+   ``fastpot`` is IANN's own lightweight model. It is fully supported, but it is not one of
+   the seven architectures benchmarked in the IANN paper.
 
 Available configurations for ``config``:
 
@@ -329,6 +339,69 @@ There are more adjustable parameters for each model, please refer to the :doc:`a
 
 .. note::
    Choose either ``max_steps`` or ``max_epochs`` to setup the training process. If both are set, the ``max_steps`` will be ignored. Similarly, for ``norm_data`` and ``norm_per_atom``, if both are set, the ``norm_data`` will be ignored.
+
+Architecture-specific parameters
+--------------------------------
+
+``num_channels``, ``num_layers`` and ``cutoff`` are accepted by every architecture. Anything else
+you put in ``config`` is **forwarded verbatim to the model constructor**: the trainer consumes the
+keys it recognises and passes the remainder through. That is how architecture-specific options are
+set — there is no separate dictionary for them.
+
+.. code-block:: python
+
+   # lmax and mmax are not trainer options; they are forwarded to the UMA constructor
+   trainer = Trainer(
+       model="uma",
+       config={"num_channels": 64, "num_layers": 3, "cutoff": 5.5,
+               "lmax": 2, "mmax": 2,
+               "device": "cuda", "output_dir": "output"},
+   )
+
+The options that most often need setting:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 30 48
+
+   * - Architecture
+     - Common extra keys
+     - Notes
+   * - PaiNN, FastPot
+     - —
+     - Cartesian scalar and vector features; no angular-resolution setting.
+   * - NequIP, Allegro
+     - ``lmax``, ``parity``, ``use_cue``
+     - ``lmax`` is the highest spherical harmonic degree. Full :math:`O(3)` irreps, so every
+       order is present. ``use_cue`` enables the cuEquivariance kernels.
+   * - MACE
+     - ``lmax``, ``use_cue``
+     - As above, plus a systematic many-body expansion.
+   * - EquiformerV2
+     - ``lmax_list``, ``mmax_list``, ``grid_resolution``, ``avg_degree``
+     - Takes **lists**, not scalars: ``"lmax_list": [4], "mmax_list": [2]``. A scalar ``lmax``
+       is accepted by the trainer but ignored by this model.
+   * - EquiformerV3
+     - ``lmax``, ``mmax``, ``grid_resolution``
+     - Scalars here, unlike EquiformerV2.
+   * - UMA
+     - ``lmax``, ``mmax``, ``hidden_channels``, ``edge_channels``, ``num_distance_basis``
+     - Scalars. ``mmax`` truncates the order retained at each degree, which is what makes a
+       higher ``lmax`` affordable.
+
+``lmax`` and ``mmax`` have a precise meaning: ``lmax`` is the highest spherical harmonic degree
+the internal features carry, and ``mmax`` the highest order kept at each degree. Raising ``lmax``
+buys angular resolution; truncating ``mmax`` below it reduces cost without breaking equivariance.
+
+.. warning::
+   Architecture-specific parameters are recorded in the checkpoint, so a model reloads with the
+   shape it was trained with. If you train with a non-default ``mmax``, ``edge_channels`` or
+   ``num_distance_basis`` using an older checkpoint format that did not record them, loading will
+   rebuild the model at the default shape and fail with a ``state_dict`` size mismatch. Pass the
+   same values you trained with if you meet that error.
+
+For the full set of options an architecture accepts, see its class in :doc:`api` — every option is
+read with ``kwargs.get`` in the model's ``__init__``.
 
 Monitoring Training
 -------------------

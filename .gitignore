@@ -19,3 +19,5 @@ test/*/*.traj
 test/*/*.pt
 test/test
 *.log
+proj/*
+build/*

@@ -44,16 +44,25 @@ extensions = [
     'sphinx.ext.viewcode',  # show the source code of the current module
 ]
 
-autodoc_mock_imports = ["asap3", "e3nn", "torch", "torch_geometric", "opt_einsum_fx"]
+autodoc_mock_imports = [
+    "asap3", "e3nn", "torch", "torch_geometric", "opt_einsum_fx",
+    "cuequivariance", "cuequivariance_torch",  # optional use_cue backend
+]
 
 autodoc_class_signature = 'mixed'
 
+# Model constructors take dozens of parameters through **kwargs, so autodoc would
+# render an unreadable signature. Collapse it to "(...)" and let the prose in
+# engine_models.rst carry the parameters instead. Keep this list in step with the
+# autoclass entries in api.rst -- a model added there but omitted here renders its
+# full signature.
+_COLLAPSE_SIGNATURE = (
+    "PaiNN", "NequIP", "MACE", "EquiformerV2", "EquiformerV3",
+    "Allegro", "UMA", "FastPot",
+)
+
 def process_signature(app, what, name, obj, options, signature, return_annotation):
-    if what == "class" and (
-        "PaiNN" in name or 
-        "NequIP" in name or 
-        "MACE" in name or 
-        'EquiformerV2' in name):
+    if what == "class" and any(cls in name for cls in _COLLAPSE_SIGNATURE):
         return "(...)", None
 
 def setup(app):

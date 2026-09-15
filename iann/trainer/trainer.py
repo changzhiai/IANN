@@ -87,7 +87,9 @@ def get_arguments(arg_list=None):
     parser.add_argument(
         "--model_type",
         type=str,
-        choices=["painn", "nequip", "mace", "equiformer2", "equiformer3", "allegro", "uma", "fastpot", "demo"],
+        # Must match the list validated in Trainer.__init__; "equiformer2"/"equiformer3"
+        # passed argparse but were then rejected there.
+        choices=["painn", "nequip", "mace", "equiformerv2", "equiformerv3", "allegro", "uma", "fastpot", "demo"],
         help="Type of model to use"
     )
     parser.add_argument(

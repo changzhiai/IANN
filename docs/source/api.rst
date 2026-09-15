@@ -32,8 +32,20 @@ Models
 .. autoclass:: iann.models.equiformerV2.EquiformerV2
    :members: __init__, forward
 
+
+.. autoclass:: iann.models.equiformerV3.EquiformerV3
+   :members: __init__, forward
+
+
+.. autoclass:: iann.models.allegro.Allegro
+   :members: __init__, forward
+
+
+.. autoclass:: iann.models.uma.UMA
+   :members: __init__, forward
+
 Trainer
-------
+-------
 
 .. autoclass:: iann.trainer.Trainer
    :members: __init__, forward
@@ -77,7 +89,7 @@ C++ LAMMPS Plugins
 
    **Parameters:**
 
-   - ``model_type``: Type of ML model (fastpot, painn, nequip, mace, equiformer2)
+   - ``model_type``: Type of ML model (painn, nequip, mace, equiformerv2)
    
    - ``model_path``: Path to the exported TorchScript model file
    

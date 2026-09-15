@@ -1,0 +1,20 @@
+# setup.py reads requirements.txt at build time, so it must be in the sdist or
+# `pip install <sdist>` dies with FileNotFoundError before setup() is reached.
+include requirements.txt
+include README.md
+include LICENSE
+include CITATION.cff
+
+# Runtime data read from the installed package directory. Also declared in
+# setup.py's package_data, which is what gets them into the wheel; these lines
+# cover the sdist.
+include iann/data/*.pt
+include iann/foundations/*.pt
+recursive-include iann/plugins *.cpp *.h *.in README.md
+
+# proj/ is a working directory of paper sources and HuggingFace clones (it is
+# gitignored); never ship it.
+recursive-exclude proj *
+prune proj
+
+global-exclude *.pyc __pycache__ .DS_Store

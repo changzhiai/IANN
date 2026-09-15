@@ -48,7 +48,7 @@
 
 ## 1. Introductions
 
-IANN (InterAtomic Neural Network framework) is an equivariant interatomic neural network potential framework package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [FastPot](https://github.com/changzhiai/IANN), [PaiNN](https://arxiv.org/abs/2102.03150), [Nequip](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), and [EquiformerV2](https://arxiv.org/abs/2306.12059), focusing on predicting energies and forces with high accuracy. 
+IANN (InterAtomic Neural Network framework) is an equivariant interatomic neural network potential framework package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [PaiNN](https://arxiv.org/abs/2102.03150), [NequIP](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), [EquiformerV2](https://arxiv.org/abs/2306.12059), [EquiformerV3](https://doi.org/10.48550/arXiv.2604.09130), [Allegro](https://doi.org/10.1038/s41467-023-36329-y), [UMA](https://arxiv.org/abs/2506.23971) and [FastPot](https://github.com/changzhiai/IANN), focusing on predicting energies and forces with high accuracy. Every architecture is trained through a single data object and a single trainer, so the choice of model is a one-word change in a configuration dictionary rather than a change of code base. 
 
 Key features:
 - Easy to use and to switch models
@@ -139,11 +139,14 @@ trainer.train("dataset.traj")
 
 Available models for `model`:
 ```
-- fastpot
 - painn
 - nequip
+- allegro
 - mace
-- equiformerV2
+- equiformerv2
+- equiformerv3
+- uma
+- fastpot
 ```
 
 Default configurations for `config`:
@@ -223,7 +226,8 @@ for atoms in images:
 
 ## 6. Foundation Models
 
-IANN provides pre-trained foundation models with different levels of DFT accuracy that you can use out-of-the-box or fine-tune for your specific tasks.
+IANN provides twelve pre-trained PaiNN foundation models at three levels of DFT theory (PBE, RPBE and r2SCAN) that you can use out-of-the-box or fine-tune for your specific tasks. A model is requested by name and downloaded from the HuggingFace Hub on first use, then cached:
+`pbe-mptrj`, `pbe-salex`, `pbe-omat24`, `pbe-matpes`, `pbe-all`, `rpbe-oc20`, `rpbe-oc22`, `rpbe-oc25`, `rpbe-all`, `r2scan-mptrj`, `r2scan-matpes`, `r2scan-all`.
 
 ### Using Pre-trained Foundation Models
 
@@ -235,7 +239,7 @@ from iann.calculators import MLCalculator
 from ase.build import fcc100
 
 calc = MLCalculator(
-  model_path=foundation_model("painn_oc.pt"), # foundation model trained on OC20+OC22
+  model_path=foundation_model("rpbe-all"), # RPBE prior, trained on OC20+OC22+OC25
   compute_forces=True,
   device='cpu') # use 'cuda' for GPU
 
@@ -264,7 +268,8 @@ trainer = Trainer(model="painn",
         "batch_size": 16, # batch size
         "learning_rate": 0.0001, # initial learning rate
         "forces_weight": 0.9, # weight for forces
-        "load_model": foundation_model("painn_oc.pt"), # load the foundation model
+        "load_model": foundation_model("rpbe-all"), # load the foundation model
+        "reset_lr": True, # start a fresh learning-rate schedule
         "max_steps": 10000000, # maximum number of steps
         "random_seed": 888, # random seed for reproducibility
         "val_ratio": 0.003, # validation ratio
@@ -522,11 +527,14 @@ Data handling utilities:
   
 ### iann.models
 Contains neural network model implementations:
-- `FastPot`: FastPot model implementation for energy and force prediction
 - `PaiNN`: PaiNN model implementation for energy and force prediction
-- `Nequip`: Nequip model implementation for energy and force prediction
+- `NequIP`: NequIP model implementation for energy and force prediction
 - `MACE`: MACE model implementation for energy and force prediction
 - `EquiformerV2`: EquiformerV2 model implementation for energy and force prediction
+- `EquiformerV3`: EquiformerV3 model implementation for energy and force prediction
+- `Allegro`: Allegro model implementation for energy and force prediction
+- `UMA`: UMA model implementation for energy and force prediction
+- `FastPot`: IANN's own lightweight model for energy and force prediction
 
 
 ### iann.calculators

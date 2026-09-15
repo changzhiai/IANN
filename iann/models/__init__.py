@@ -58,12 +58,14 @@ __all__ = [
 ]
 
 # Model registry with lazy loading for easy access
+# Keys must be lowercase: get_model_class() lowercases its argument before the
+# lookup, so a mixed-case key here would be unreachable.
 MODEL_REGISTRY = {
     "mace": _load_mace,
     "painn": _load_painn,
     "nequip": _load_nequip,
-    "equiformerV2": _load_equiformerV2,
-    "equiformerV3": _load_equiformerV3,
+    "equiformerv2": _load_equiformerV2,
+    "equiformerv3": _load_equiformerV3,
     "allegro": _load_allegro,
     "uma": _load_uma,
     "fastpot": _load_fastpot,

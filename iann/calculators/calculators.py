@@ -2,6 +2,7 @@ from ase.calculators.calculator import Calculator, all_changes
 from iann.data import AseDataReader
 import numpy as np
 import torch
+import warnings
 
 # Distinctive nested-parameter substrings per model type, checked in order
 # (most specific first). Used only for legacy checkpoints that predate the
@@ -47,10 +48,31 @@ def _infer_model_type(state_dict):
     )
 
 
+def _load_checkpoint(model_path, map_location):
+    """Load a checkpoint, preferring the restricted unpickler.
+
+    Checkpoints can now be downloaded from a remote repository, so the default is
+    weights_only=True, which refuses to execute arbitrary pickled objects. Older
+    checkpoints holding something the restricted unpickler rejects still load, with
+    a warning, so this cannot break an existing model file.
+    """
+    try:
+        return torch.load(model_path, map_location=map_location, weights_only=True)
+    except Exception:
+        warnings.warn(
+            f"{model_path} could not be loaded with weights_only=True and is being "
+            "loaded with the unrestricted unpickler, which executes arbitrary code "
+            "contained in the file. Only do this for checkpoints you trust.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return torch.load(model_path, map_location=map_location)
+
+
 def _load_model(model_path, device, compute_forces, **kwargs):
     """Load model from path and determine its type."""
-    state_dict = torch.load(model_path, map_location=device)
-    
+    state_dict = _load_checkpoint(model_path, device)
+
     # Determine model type from state dict
     if "model_type" in state_dict:
         model_type = state_dict["model_type"].lower()
@@ -102,6 +124,30 @@ def _load_model(model_path, device, compute_forces, **kwargs):
         use_cue_sd = state_dict.get("use_cue", False)
 
         model = NequIP(
+            num_layers=state_dict["num_layers"],
+            num_channels=state_dict["num_channels"],
+            cutoff=state_dict["cutoff"],
+            lmax=lmax_sd,
+            parity=parity_sd,
+            use_cue=use_cue_sd,
+            compute_forces=forces_enabled,
+            **model_kwargs,
+        )
+    elif model_type == "allegro":
+        from iann.models.allegro import Allegro
+        # Structural parameters are fixed at training time and should not be overridden.
+        # Allegro takes cutoff/lmax/parity/use_cue through **kwargs, as NequIP does.
+        model_kwargs.pop("lmax", None)
+        model_kwargs.pop("parity", None)
+        model_kwargs.pop("use_cue", None)
+
+        lmax_sd = state_dict.get("lmax")
+        if lmax_sd is None: lmax_sd = 2
+        parity_sd = state_dict.get("parity")
+        if parity_sd is None: parity_sd = True
+        use_cue_sd = state_dict.get("use_cue", False)
+
+        model = Allegro(
             num_layers=state_dict["num_layers"],
             num_channels=state_dict["num_channels"],
             cutoff=state_dict["cutoff"],
@@ -193,7 +239,7 @@ def _load_model(model_path, device, compute_forces, **kwargs):
             **model_kwargs,
         )
     else:
-        raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, mace, equiformerV2, equiformerV3, uma, fastpot, and demo!")
+        raise ValueError(f"Unknown model type: {model_type}. Please choose from: painn, nequip, allegro, mace, equiformerv2, equiformerv3, uma, fastpot, and demo!")
     
     model.load_state_dict(state_dict["model"])
     model.to(device)

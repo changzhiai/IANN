@@ -1,7 +1,14 @@
 LAMMPS Interface
-==============
+================
 
 This guide explains how to use IANN models as interatomic potentials in LAMMPS molecular dynamics simulations.
+
+.. note::
+   **Supported architectures.** The export path covers ``painn``, ``nequip``, ``mace`` and
+   ``equiformerv2``. ``allegro``, ``equiformerv3``, ``uma`` and ``fastpot`` can be trained and
+   used through an ASE calculator (see :doc:`prediction`), but cannot currently be compiled to
+   TorchScript for LAMMPS. If you plan to finish in LAMMPS, choose one of the four supported
+   architectures before you start training.
 
 
 Installation
@@ -178,7 +185,7 @@ Key Components:
 
       pair_style iann model_type model_name.pt cutoff_radius
 
-   * specify model type, e.g., ``painn``, ``nequip``, ``mace``, ``equiformerV2``
+   * specify model type: one of ``painn``, ``nequip``, ``mace``, ``equiformerv2``
    * specify the model file name, e.g., ``model_lmp.pt``
    * specify the cutoff radius, e.g., ``5.5`` Å
 
@@ -375,7 +382,7 @@ Key Components:
 
       pair_style iann model_type ensemble_model_name.pt cutoff_radius
    
-   * specify model type, e.g., ``painn``, ``nequip``, ``mace``, ``equiformerV2``
+   * specify model type: one of ``painn``, ``nequip``, ``mace``, ``equiformerv2``
    * specify the ensemble model file name, e.g., ``model_ensemble_lmp.pt``
    * specify the cutoff radius, e.g., ``5.5`` Å
 
