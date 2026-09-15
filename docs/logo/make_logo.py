@@ -51,11 +51,11 @@ CROSS = [(128.0, 44.0), (128.0, 212.0), (44.0, 128.0), (212.0, 128.0)]
 R_CUT_SMALL = 108.0
 
 
-def icon_body(ink, accent, dashed=True):
+def icon_body(ink, accent, dashed=True, ring_opacity=0.30):
     """The icon's SVG elements, minus the <svg> wrapper."""
     if dashed:
         ring = (f'  <circle cx="{CX:g}" cy="{CY:g}" r="{R_CUT:g}" fill="none" '
-                f'stroke="{ink}" stroke-opacity="0.30" stroke-width="5" '
+                f'stroke="{ink}" stroke-opacity="{ring_opacity:g}" stroke-width="5" '
                 f'stroke-dasharray="10 9"/>\n')
         nodes, r_i, r_j, w = HEX, R_I, R_J, W_EDGE
     else:
@@ -93,7 +93,12 @@ def write_icon(path, ink=INK, accent=ACCENT, dashed=True, label="IANN"):
 
 # ---------------------------------------------------------------- text outlines
 def text_to_svg_path(s, size, weight="normal", family="DejaVu Sans"):
-    """Return (path_d, width, height, y_min) with y flipped into SVG's frame."""
+    """Return (path_d, width, height, x_min) with y flipped into SVG's frame.
+
+    x_min is the glyph run's left side bearing: the path's own coordinates do not
+    start at 0, so a caller that wants the ink to begin at a chosen x must
+    subtract it. Without that the lockup ends up with unequal side margins.
+    """
     tp = TextPath((0, 0), s, size=size,
                   prop=FontProperties(family=family, weight=weight))
     d = []
@@ -110,44 +115,59 @@ def text_to_svg_path(s, size, weight="normal", family="DejaVu Sans"):
         elif code == Path.CLOSEPOLY:
             d.append("Z")
     ext = tp.get_extents()
-    return " ".join(d), ext.width, ext.height, ext.y0
+    return " ".join(d), ext.width, ext.height, ext.x0
 
 
-def write_lockup(path, ink=INK, accent=ACCENT, tagline=True):
+def write_lockup(path, ink=INK, accent=ACCENT, tagline=True, ring_opacity=0.30):
     """Icon on the left, outlined wordmark on the right."""
-    icon_box = 160.0                      # rendered icon size
-    scale = icon_box / 256.0
+    # The icon is a sparse ring of small nodes; the wordmark is solid, so
+    # matching their bounding boxes can still look left-heavy. That is fixed by
+    # raising the ring's opacity (see ring_opacity), NOT by enlarging the icon:
+    # a bigger icon crowds the wordmark and leaves too little air between them.
+    icon_box = 160.0                      # rendered size of the icon's artwork
     pad = 20.0
     gap = 24.0
 
-    word_d, word_w, word_h, _ = text_to_svg_path("IANN", 84, weight="bold")
-    tag_d, tag_w, tag_h, _ = text_to_svg_path(
+    # The icon is composed in a 256-unit box, but its artwork only spans the
+    # cutoff ring -- radius R_CUT plus half its 5-unit stroke -- so roughly 23%
+    # of that box is empty. Embedding the box whole turns that emptiness into
+    # extra padding on the left of the mark, which makes the lockup look
+    # left-weighted and defeats the sidebar's centred <img>. Scale and offset by
+    # the artwork's true extent so it starts exactly at `pad`.
+    art = 2.0 * (R_CUT + 2.5)
+    scale = icon_box / art
+    icon_x = pad - (CX - art / 2.0) * scale
+
+    word_d, word_w, word_h, word_x0 = text_to_svg_path("IANN", 84, weight="bold")
+    tag_d, tag_w, tag_h, tag_x0 = text_to_svg_path(
         "InterAtomic Neural Network", 25, weight="normal")
 
     text_x = pad + icon_box + gap
+    # Equal padding on both sides, so the artwork is centred in the canvas.
+    width = text_x + max(word_w, tag_w if tagline else 0) + pad
+    height = pad * 2 + icon_box
+    icon_y = (height - icon_box) / 2.0 - (CY - art / 2.0) * scale
+
     # Centre the text block on the icon's centre line rather than guessing a
     # baseline: cap height for the wordmark, plus the tagline if present.
     block_h = word_h + (38.0 if tagline else 0.0)
-    icon_mid = pad + icon_box / 2.0
-    word_y = icon_mid - block_h / 2.0 + word_h
+    word_y = height / 2.0 - block_h / 2.0 + word_h
     tag_y = word_y + 38.0
-
-    width = text_x + max(word_w, tag_w if tagline else 0) + pad * 1.6
-    height = pad * 2 + icon_box
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0f} {height:.0f}" '
         f'width="{width:.0f}" height="{height:.0f}" role="img" '
         f'aria-label="IANN &#8212; InterAtomic Neural Network">\n',
         "  <title>IANN &#8212; InterAtomic Neural Network</title>\n",
-        f'  <g transform="translate({pad:g} {pad:g}) scale({scale:.6f})">\n',
-        icon_body(ink, accent),
+        f'  <g transform="translate({icon_x:.3f} {icon_y:.3f}) scale({scale:.6f})">\n',
+        icon_body(ink, accent, ring_opacity=ring_opacity),
         "  </g>\n",
-        f'  <path transform="translate({text_x:.2f} {word_y:.2f})" fill="{ink}" d="{word_d}"/>\n',
+        f'  <path transform="translate({text_x - word_x0:.2f} {word_y:.2f})" '
+        f'fill="{ink}" d="{word_d}"/>\n',
     ]
     if tagline:
         parts.append(
-            f'  <path transform="translate({text_x + 2:.2f} {tag_y:.2f})" fill="{ink}" '
+            f'  <path transform="translate({text_x - tag_x0 + 2:.2f} {tag_y:.2f})" fill="{ink}" '
             f'fill-opacity="0.65" d="{tag_d}"/>\n')
     parts.append("</svg>\n")
     with open(path, "w") as fh:
@@ -199,12 +219,13 @@ def main():
     write_icon(os.path.join(OUT, "iann-icon-dark.svg"), ink=INK_LIGHT)
     write_icon(os.path.join(OUT, "iann-favicon.svg"), dashed=False)
     write_lockup(os.path.join(OUT, "iann-logo.svg"))
-    write_lockup(os.path.join(OUT, "iann-logo-dark.svg"), ink=INK_LIGHT)
+    write_lockup(os.path.join(OUT, "iann-logo-dark.svg"), ink=INK_LIGHT,
+                 ring_opacity=0.55)
     write_lockup(os.path.join(OUT, "iann-logo-notagline.svg"), tagline=False)
     # For the docs sidebar: white ink on the dark nav header, and no tagline,
     # which would be ~4 px tall at the sidebar's width.
     write_lockup(os.path.join(OUT, "iann-logo-notagline-dark.svg"),
-                 ink=INK_LIGHT, tagline=False)
+                 ink=INK_LIGHT, tagline=False, ring_opacity=0.55)
     for px in (512, 256, 128, 64, 32, 16):
         write_png(os.path.join(OUT, f"iann-icon-{px}.png"), px,
                   dashed=(px >= 64))

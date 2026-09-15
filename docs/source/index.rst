@@ -27,6 +27,7 @@ The code is available and actively maintained on `GitHub <https://github.com/cha
    performance
    api
    troubleshooting
+   release_notes
 
 Indices and tables
 ==================
@@ -34,3 +35,4 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+* :doc:`release_notes`

@@ -2,7 +2,7 @@
 # Build the documentation and check it for regressions.
 #
 #   bash test/docs/build.sh            # build + check
-#   bash test/docs/build.sh --open     # also open it in a browser
+#   bash test/docs/build.sh --open     # also serve it and open a browser
 #   bash test/docs/build.sh --strict   # treat any warning as a failure
 #   bash test/docs/build.sh --fast     # incremental rebuild, skip the checks
 #   bash test/docs/build.sh --watch    # live reload on save (Ctrl-C to stop)
@@ -11,7 +11,7 @@
 # committed to the repository, so building in place would overwrite tracked files.
 #
 # Fails on:
-#   * sphinx-build returning non-zero, or emitting SEVERE
+#   * sphinx-build returning non-zero, or emitting ERROR or SEVERE
 #   * any "autodoc: failed to import" (a silent failure: the build still reports
 #     success while the API pages render empty)
 #   * more warnings than MAX_WARNINGS
@@ -47,6 +47,22 @@ for arg in "$@"; do
   esac
 done
 
+# Serve the output over HTTP rather than opening it as a file:// URL. Sphinx's
+# search page is JavaScript: it pulls searchindex.js and then fetches each hit's
+# page to build the result summary. Over file:// those fetches are blocked as
+# cross-origin, and the search page comes up empty -- so "open the built file"
+# is not a usable preview.
+serve_and_open() {
+  local port="${DOCS_PORT:-8001}"
+  echo
+  echo ">>> serving $OUT"
+  echo ">>> http://127.0.0.1:$port   (Ctrl-C to stop)"
+  "$PY" -m http.server "$port" --directory "$OUT" >/dev/null 2>&1 &
+  local srv=$!
+  command -v open >/dev/null && open "http://127.0.0.1:$port/index.html"
+  wait "$srv"
+}
+
 if ! "$PY" -c 'import sphinx, sphinx_rtd_theme' 2>/dev/null; then
   echo "sphinx and/or sphinx_rtd_theme are not installed in this environment."
   echo "run:  bash test/docs/install.sh"
@@ -80,16 +96,22 @@ BUILD_RC=$?
 WARNINGS=$(grep -c 'WARNING' "$LOG" || true)
 IMPORT_FAILS=$(grep -c 'autodoc: failed to import' "$LOG" || true)
 SEVERE=$(grep -c 'SEVERE' "$LOG" || true)
+# docutils reports broken inline markup and unresolved targets as ERROR, not
+# WARNING, so the warning ceiling never saw them: the page built "clean" while
+# rendering literal `like this`_ backticks. Any ERROR is a failure.
+ERRORS=$(grep -c 'ERROR' "$LOG" || true)
 
 echo
 echo "    exit code            : $BUILD_RC"
 echo "    warnings             : $WARNINGS  (max $MAX_WARNINGS)"
 echo "    autodoc import fails : $IMPORT_FAILS  (must be 0)"
+echo "    errors               : $ERRORS  (must be 0)"
 echo "    severe               : $SEVERE  (must be 0)"
 echo "    log                  : $LOG"
 
 FAIL=0
 [ "$BUILD_RC" -ne 0 ]                 && { echo "FAIL: sphinx-build exited $BUILD_RC"; FAIL=1; }
+[ "$ERRORS" -ne 0 ]                   && { echo "FAIL: docutils errors present"; FAIL=1; }
 [ "$SEVERE" -ne 0 ]                   && { echo "FAIL: severe messages present"; FAIL=1; }
 [ "$IMPORT_FAILS" -ne 0 ]             && { echo "FAIL: autodoc could not import modules -- API pages will be empty"; FAIL=1; }
 [ "$WARNINGS" -gt "$MAX_WARNINGS" ]   && { echo "FAIL: warning count rose above $MAX_WARNINGS"; FAIL=1; }
@@ -97,10 +119,10 @@ if [ "$STRICT" -eq 1 ] && [ "$WARNINGS" -ne 0 ]; then
   echo "FAIL: --strict and $WARNINGS warnings"; FAIL=1
 fi
 
-if [ "$IMPORT_FAILS" -ne 0 ] || [ "$SEVERE" -ne 0 ]; then
+if [ "$IMPORT_FAILS" -ne 0 ] || [ "$SEVERE" -ne 0 ] || [ "$ERRORS" -ne 0 ]; then
   echo
   echo "--- first few problems ---"
-  grep -E 'autodoc: failed to import|SEVERE' "$LOG" | head -8
+  grep -E 'autodoc: failed to import|SEVERE|ERROR' "$LOG" | head -8
 fi
 
 # --fast skips the content checks: they are for catching regressions, not for the
@@ -108,7 +130,7 @@ fi
 if [ "$FAST" -eq 1 ]; then
   echo
   if [ "$FAIL" -eq 0 ]; then echo "DOCS BUILD (fast): PASS"; else echo "DOCS BUILD (fast): FAIL"; fi
-  [ "$DO_OPEN" -eq 1 ] && { command -v open >/dev/null && open "$OUT/index.html"; }
+  [ "$DO_OPEN" -eq 1 ] && serve_and_open
   exit "$FAIL"
 fi
 
@@ -152,6 +174,11 @@ CHECKS = {
     "performance.html": ("cost page with both benchmark figures",
         ["fig6_models_cost.png", "fig7_lammps_scaling.png",
          "latency floor", "iann/multi_gpu", "Parallel efficiency"]),
+    # The theme's own search page is blank -- no heading, no input -- so the
+    # "Search Page" link lands on nothing. _templates/search.html restores the
+    # form; check it survives a theme upgrade.
+    "search.html": ("search page has a heading and an input",
+        ["search-documentation", 'name="q"', "search-results", "search-progress"]),
 }
 
 # Strings that must NOT appear anywhere: stale repository names.
@@ -187,7 +214,7 @@ CONTENT_RC=$?
 echo
 if [ "$FAIL" -eq 0 ]; then
   echo "DOCS BUILD: PASS"
-  [ "$DO_OPEN" -eq 1 ] && { command -v open >/dev/null && open "$OUT/index.html"; }
+  [ "$DO_OPEN" -eq 1 ] && serve_and_open
   exit 0
 else
   echo "DOCS BUILD: FAIL  (see $LOG)"

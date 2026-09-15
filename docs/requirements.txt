@@ -1,2 +1,5 @@
 sphinx
-sphinx-rtd-theme
+# >=3.0 for the Read the Docs addons options used in conf.py
+# (flyout_display, version_selector, language_selector). Older releases ignore
+# them silently, so the version switcher would just not appear.
+sphinx-rtd-theme>=3.0

@@ -52,6 +52,15 @@ html_theme_options = {
     # The logo already contains the wordmark, and the theme prints the project
     # name above it by default -- which renders "IANN" twice in the sidebar.
     "logo_only": True,
+
+    # Read the Docs version switcher. "attached" docks the flyout into the
+    # sidebar; the default "hidden" leaves it to float over the page corner.
+    # This only renders on Read the Docs -- the menu is injected by the
+    # readthedocs-addons script at serve time, so a local build shows nothing.
+    "flyout_display": "attached",
+    "version_selector": True,
+    # English only, so a language menu would offer a single choice.
+    "language_selector": False,
 }
 
 
@@ -61,6 +70,11 @@ extensions = [
     'sphinx_rtd_theme',
     'sphinx.ext.viewcode',  # show the source code of the current module
 ]
+
+# Every module is named iann.*, so without this the Python Module Index files
+# them all under a single "i" and the alphabet jumpbox is useless. Sorting on the
+# part after the prefix groups them by their own initial instead.
+modindex_common_prefix = ["iann."]
 
 autodoc_mock_imports = [
     "asap3", "e3nn", "torch", "torch_geometric", "opt_einsum_fx",

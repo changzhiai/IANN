@@ -1,0 +1,33 @@
+{#
+    Put a heading and a search box on the search page.
+
+    sphinx_rtd_theme's own search.html renders only a <noscript> warning and an
+    empty #search-results div, because it assumes you will type into the
+    "Search docs" box in the sidebar. But the "Search Page" link under
+    index.rst's "Indices and tables" goes straight here with no ?q=, so the page
+    comes up completely blank -- no title, no input, nothing to act on.
+
+    Sphinx's own basic theme does include the form; this restores it, then falls
+    through to the theme's body so the noscript block and the results container
+    keep working unchanged.
+
+    "!search.html" means the *theme's* search.html, not this file -- without the
+    "!" Jinja would extend this template from itself.
+#}
+{%- extends "!search.html" %}
+
+{% block body %}
+  <h1 id="search-documentation">{{ _('Search') }}</h1>
+  <p>
+    {% trans %}Searching for multiple words only shows matches that contain
+    all words.{% endtrans %}
+  </p>
+  <form action="" method="get">
+    <input type="text" name="q" aria-labelledby="search-documentation" value=""
+           autocomplete="off" autocorrect="off" autocapitalize="off"
+           spellcheck="false" />
+    <input type="submit" value="{{ _('search') }}" />
+    <span id="search-progress" style="padding-left: 10px"></span>
+  </form>
+  {{ super() }}
+{% endblock %}
