@@ -36,6 +36,24 @@ import sphinx_rtd_theme
 
 html_theme = "sphinx_rtd_theme"
 
+# Sphinx copies html_logo/html_favicon into the output itself, so this works with
+# html_static_path left off. Turning html_static_path on would copy every file in
+# _static/, duplicating the ~4 MB of figures that the figure directive already
+# copies into _images/.
+#
+# The sidebar logo is the variant without the tagline: at the ~230 px sidebar
+# width the tagline would render too small to read. It is the white-ink variant
+# because the theme's nav header is a mid blue -- the navy-ink variant on that
+# background is legible but muddy.
+html_logo = "_static/logo/iann-logo-notagline-dark.svg"
+html_favicon = "_static/logo/iann-favicon.svg"
+
+html_theme_options = {
+    # The logo already contains the wordmark, and the theme prints the project
+    # name above it by default -- which renders "IANN" twice in the sidebar.
+    "logo_only": True,
+}
+
 
 extensions = [
     'sphinx.ext.autodoc',

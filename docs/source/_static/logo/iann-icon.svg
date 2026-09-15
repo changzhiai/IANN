@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="IANN">
+  <title>IANN &#8212; atom i, its neighbours, and the cutoff radius</title>
+  <circle cx="128" cy="128" r="96" fill="none" stroke="#16324F" stroke-opacity="0.30" stroke-width="5" stroke-dasharray="10 9"/>
+  <g stroke="#16324F" stroke-width="8" stroke-linecap="round" fill="none">
+    <path d="M128 128 L196 128"/>
+    <path d="M128 128 L162 187"/>
+    <path d="M128 128 L94 187"/>
+    <path d="M128 128 L60 128"/>
+    <path d="M128 128 L94 69"/>
+    <path d="M128 128 L162 69"/>
+  </g>
+  <g fill="#16324F">
+    <circle cx="196" cy="128" r="13"/>
+    <circle cx="162" cy="187" r="13"/>
+    <circle cx="94" cy="187" r="13"/>
+    <circle cx="60" cy="128" r="13"/>
+    <circle cx="94" cy="69" r="13"/>
+    <circle cx="162" cy="69" r="13"/>
+  </g>
+  <circle cx="128" cy="128" r="22" fill="#E07A2F"/>
+</svg>

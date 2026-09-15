@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/source/_static/logo/iann-logo.svg" alt="IANN — InterAtomic Neural Network" width="440">
+</p>
+
 # IANN (InterAtomic Neural Network framework)
 
 [![Docs](https://img.shields.io/badge/Docs-available-blue)](https://iann.readthedocs.io)
@@ -57,6 +61,14 @@ Key features:
 - Distributed training on multiple GPUs and multiple server nodes
 - Integration with ASE and LAMMPS for molecular dynamics simulations
 - Customizable model architectures
+
+<p align="center">
+  <img src="docs/source/_static/images/fig1_framework.png" alt="Software structure of the IANN framework" width="100%">
+</p>
+
+<p align="center">
+  <em>Software structure of the IANN framework: five main layers with two auxiliary layers.</em>
+</p>
 
 ### Documentation
 A documentation is available at: https://iann.readthedocs.io
@@ -570,7 +582,7 @@ C++ plugins for LAMMPS molecular dynamics simulations:
 For questions, issues, and contributions, please use the GitHub issue tracker
 
 ## Maintainer
-Maintainer `Dr. Changzhi Ai` (changzhi@stanford.edu) at SUNCAT center, Stanford University and SLAC, who is supervised by Dr. Johannes Voss and Dr. Frank Abild-Pedersen.
+Maintainer `Dr. Changzhi Ai` (changzhi@stanford.edu) at Stanford University and SLAC National Accelerator Laboratory.
 
 ## References
 

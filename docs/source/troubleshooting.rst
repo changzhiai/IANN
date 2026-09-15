@@ -188,4 +188,5 @@ For more specific issues or if you need additional help, please:
 Maintainers
 ----------
 
-Maintainer ``Dr. Changzhi Ai`` (changzhi@stanford.edu) at SUNCAT center, Stanford University and SLAC, who is supervised by Dr. Johannes Voss and Dr. Frank Abild-Pedersen.
+Maintainer ``Dr. Changzhi Ai`` (changzhi@stanford.edu) at Stanford University and SLAC National
+Accelerator Laboratory.
