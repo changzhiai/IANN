@@ -188,11 +188,15 @@ config = {
     "batch_size": 12, # batch size
     "learning_rate": 0.0001, # initial learning rate
     "forces_weight": 0.9, # weight for forces
+    "virial_weight": 0.0, # weight for virial
+    "stress_weight": 0.0, # weight for stress
+    "loss_per_atom": True, # whether to scale loss by number of atoms
     "load_model": False, # load model from checkpoint
+    "reset_lr": False, # on restart: True = fresh LR schedule + step counter (fine-tune); False = resume schedule/steps exactly
     "max_steps": 1000000, # maximum number of steps
     "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
     "optimizer_type": "adam", # optimizer type: "adam", "sgd", "rmsprop", "adagrad", "adadelta", "adamax", "adamw"
-    "max_grad_norm": None,    # gradient clipping norm
+    "max_grad_norm": 10.0,    # gradient clipping norm
     "log_interval": 2000, # log interval
     "stop_patience": 200, # patience for early stopping
     "scheduler_type": "LambdaLR", # scheduler type: "ReduceLROnPlateau", "LambdaLR", "CosineAnnealingLR", "CosineAnnealingWarmRestarts", "StepLR", "MultiStepLR", "ExponentialLR"
@@ -202,6 +206,8 @@ config = {
     "load_split": False, # load split file name
     "norm_data": False, # normalize data
     "norm_per_atom": False, # normalize data per atom
+    "norm_sample_size": None, # if int, estimate norm stats from a random subsample of this size (None = use all training data)
+    "norm_num_workers": 0, # parallel I/O threads for computing norm stats (0 = serial)
     # parameters for DDP (Parallelization)
     "dist_timeout": 600,  # timeout (seconds) for distributed operations
     "master_port": 12356, # port for distributed operations
@@ -209,7 +215,7 @@ config = {
     "output_dir": "output", # output directory
     "output_log": "output.log", # log file
     "output_model": "model.pt", # model file
-    "log_input": False, # log your costomized input config
+    "log_input": False, # log input config
     "debug": False, # debug mode
 }
 ```

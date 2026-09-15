@@ -58,39 +58,45 @@ Available configurations for ``config``:
 .. code-block:: python
 
    config = {
-   # parameters for model
-   "num_channels": 128, # number of channels in the model
-   "num_layers": 3, # number of layers in the model
-   "cutoff": 5.5, # cutoff radius
-   # parameters for trainer
-   "device": None,      # override device, e.g. 'cpu' or 'cuda'
-   "val_ratio": 0.1, # validation ratio
-   "batch_size": 12, # batch size
-   "learning_rate": 0.0001, # initial learning rate
-   "forces_weight": 0.9, # weight for forces
-   "load_model": False, # load model from checkpoint
-   "max_steps": 1000000, # maximum number of steps
-   "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
-   "optimizer_type": "adam", # optimizer type: "adam", "sgd", "rmsprop", "adagrad", etc.
-   "max_grad_norm": None,    # gradient clipping norm
-   "log_interval": 2000, # log interval
-   "stop_patience": 200, # patience for early stopping
-   "scheduler_type": "LambdaLR", # scheduler type: "ReduceLROnPlateau", "LambdaLR", etc.
-   # parameters for data
-   "random_seed": 666, # random seed for reproducibility
-   "save_split": False, # save split file name
-   "load_split": False, # load split file name
-   "norm_data": False, # normalize data
-   "norm_per_atom": False, # normalize data per atom
-   # parameters for DDP (Parallelization)
-   "dist_timeout": 600,  # timeout (seconds) for distributed operations
-   "master_port": 12356, # port for distributed operations
-   # parameters for output
-   "output_dir": "output", # output directory
-   "output_log": "output.log", # log file
-   "output_model": "model.pt", # model file
-   "log_input": False, # log your costomized input config
-   "debug": False, # debug mode
+       # parameters for model
+       "num_channels": 128, # number of channels in the model
+       "num_layers": 3, # number of layers in the model
+       "cutoff": 5.5, # cutoff radius
+       # parameters for trainer
+       "device": None,      # override device, e.g. 'cpu' or 'cuda'
+       "val_ratio": 0.1, # validation ratio
+       "batch_size": 12, # batch size
+       "learning_rate": 0.0001, # initial learning rate
+       "forces_weight": 0.9, # weight for forces
+       "virial_weight": 0.0, # weight for virial
+       "stress_weight": 0.0, # weight for stress
+       "loss_per_atom": True, # whether to scale loss by number of atoms
+       "load_model": False, # load model from checkpoint
+       "reset_lr": False, # on restart: True = fresh LR schedule + step counter (fine-tune); False = resume schedule/steps exactly
+       "max_steps": 1000000, # maximum number of steps
+       "max_epochs": None,  # None if setup max_steps, otherwise max_epochs
+       "optimizer_type": "adam", # optimizer type: "adam", "sgd", "rmsprop", "adagrad", "adadelta", "adamax", "adamw"
+       "max_grad_norm": 10.0,    # gradient clipping norm
+       "log_interval": 2000, # log interval
+       "stop_patience": 200, # patience for early stopping
+       "scheduler_type": "LambdaLR", # scheduler type: "ReduceLROnPlateau", "LambdaLR", "CosineAnnealingLR", "CosineAnnealingWarmRestarts", "StepLR", "MultiStepLR", "ExponentialLR"
+       # parameters for data
+       "random_seed": 666, # random seed for reproducibility
+       "save_split": False, # save split file name
+       "load_split": False, # load split file name
+       "norm_data": False, # normalize data
+       "norm_per_atom": False, # normalize data per atom
+       "norm_sample_size": None, # if int, estimate norm stats from a random subsample of this size (None = use all training data)
+       "norm_num_workers": 0, # parallel I/O threads for computing norm stats (0 = serial)
+       # parameters for DDP (Parallelization)
+       "dist_timeout": 600,  # timeout (seconds) for distributed operations
+       "master_port": 12356, # port for distributed operations
+       # parameters for output
+       "output_dir": "output", # output directory
+       "output_log": "output.log", # log file
+       "output_model": "model.pt", # model file
+       "log_input": False, # log input config
+       "debug": False, # debug mode
    }
 
 .. note::
@@ -314,7 +320,11 @@ Here is a list of default parameters and their explanations in ``config``:
 * ``batch_size``: batch size
 * ``learning_rate``: initial learning rate
 * ``forces_weight``: weight of the force loss. calculate forces if ``forces_weight > 0``
+* ``virial_weight``: weight of the virial loss. calculate virials if ``virial_weight > 0``
+* ``stress_weight``: weight of the stress loss. calculate stresses if ``stress_weight > 0``
+* ``loss_per_atom``: whether to scale the loss by the number of atoms (default ``True``)
 * ``load_model``: path to the model checkpoint
+* ``reset_lr``: on restart, ``True`` starts a fresh learning-rate schedule
 * ``max_steps``: maximum number of steps
 * ``max_epochs``: maximum number of epochs
 * ``optimizer_type``: optimizer type: "adam", "sgd", "rmsprop", "adagrad", "adadelta", "adamax", "adamw"
@@ -327,12 +337,14 @@ Here is a list of default parameters and their explanations in ``config``:
 * ``load_split``: path to load a pre-defined train/validation split file
 * ``norm_data``: whether to normalize the data
 * ``norm_per_atom``: whether to normalize data per atom
+* ``norm_sample_size``: if an int, estimate normalization statistics
+* ``norm_num_workers``: parallel I/O threads for computing normalization statistics
 * ``dist_timeout``: timeout (seconds) for distributed operations
 * ``master_port``: master port for distributed training
 * ``output_dir``: output directory
 * ``output_log``: output log file name
 * ``output_model``: output model file name
-* ``log_input``: whether to log your costomized input config
+* ``log_input``: whether to log your customized input config
 * ``debug``: whether to use debug mode
 
 There are more adjustable parameters for each model, please refer to the :doc:`api` in Models section reference for details, or check the source code for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
