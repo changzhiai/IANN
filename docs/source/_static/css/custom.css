@@ -1,0 +1,30 @@
+/* Local overrides on sphinx_rtd_theme. Loaded via html_css_files in conf.py. */
+
+/* Sidebar logo size and position.
+ *
+ * This has to be done in CSS: the theme's rule is
+ *
+ *     .wy-side-nav-search > a img.logo { width: auto; max-width: 100% }
+ *
+ * and the header's content box is about 274 px, so the 405 px logo is already
+ * clamped to that cap and editing the SVG's own width= changes nothing.
+ *
+ *   width         a percentage of the ~274 px content box, or an absolute size
+ *   margin-left   0 sits at the padding edge, auto centres, a length sets a gap
+ *   padding       space inside the logo. The theme sets 5px here (a leftover
+ *                 from the round avatar this rule was written for); 0 makes the
+ *                 artwork reach the edges of its box
+ */
+.wy-side-nav-search > a img.logo {
+  width: 70%;
+  max-width: 70%;
+  margin-left: 0;
+  margin-right: auto;
+  padding: 1px;
+}
+
+/* Padding of the sidebar header. This one surrounds the logo AND the search
+   box, so both move together. */
+.wy-side-nav-search {
+  padding: 0.809em;
+}

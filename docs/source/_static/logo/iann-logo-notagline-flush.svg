@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 405 160" width="405" height="160" role="img" aria-label="IANN &#8212; InterAtomic Neural Network">
+  <title>IANN &#8212; InterAtomic Neural Network</title>
+  <g transform="translate(-23.959 -23.959) scale(0.812183)">
+  <circle cx="128" cy="128" r="96" fill="none" stroke="#16324F" stroke-opacity="0.3" stroke-width="5" stroke-dasharray="10 9"/>
+  <g stroke="#16324F" stroke-width="8" stroke-linecap="round" fill="none">
+    <path d="M128 128 L196 128"/>
+    <path d="M128 128 L162 187"/>
+    <path d="M128 128 L94 187"/>
+    <path d="M128 128 L60 128"/>
+    <path d="M128 128 L94 69"/>
+    <path d="M128 128 L162 69"/>
+  </g>
+  <g fill="#16324F">
+    <circle cx="196" cy="128" r="13"/>
+    <circle cx="162" cy="187" r="13"/>
+    <circle cx="94" cy="187" r="13"/>
+    <circle cx="60" cy="128" r="13"/>
+    <circle cx="94" cy="69" r="13"/>
+    <circle cx="162" cy="69" r="13"/>
+  </g>
+  <circle cx="128" cy="128" r="22" fill="#E07A2F"/>
+  </g>
+  <path transform="translate(176.28 110.62)" fill="#16324F" d="M7.72 -61.24 L23.51 -61.24 L23.51 -0.00 L7.72 -0.00 L7.72 -61.24 Z M76.13 -11.16 L51.44 -11.16 L47.54 -0.00 L31.66 -0.00 L54.34 -61.24 L73.18 -61.24 L95.86 -0.00 L79.99 -0.00 L76.13 -11.16 Z M55.38 -22.52 L72.15 -22.52 L63.78 -46.88 L55.38 -22.52 Z M103.98 -61.24 L121.61 -61.24 L143.88 -19.24 L143.88 -61.24 L158.86 -61.24 L158.86 -0.00 L141.22 -0.00 L118.94 -42.00 L118.94 -0.00 L103.98 -0.00 L103.98 -61.24 Z M174.28 -61.24 L191.91 -61.24 L214.18 -19.24 L214.18 -61.24 L229.16 -61.24 L229.16 -0.00 L211.52 -0.00 L189.24 -42.00 L189.24 -0.00 L174.28 -0.00 L174.28 -61.24 Z"/>
+</svg>

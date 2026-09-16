@@ -118,14 +118,45 @@ def text_to_svg_path(s, size, weight="normal", family="DejaVu Sans"):
     return " ".join(d), ext.width, ext.height, ext.x0
 
 
-def write_lockup(path, ink=INK, accent=ACCENT, tagline=True, ring_opacity=0.30):
-    """Icon on the left, outlined wordmark on the right."""
+DEFAULT_TAGLINE = ["InterAtomic Neural Network"]
+
+
+DEFAULT_LABEL = "IANN &#8212; InterAtomic Neural Network"
+
+
+def write_lockup(path, ink=INK, accent=ACCENT, tagline=True, ring_opacity=0.30,
+                 pad=20.0, tag_size=25.0, tag_opacity=0.65, line_gap=1.52,
+                 label=DEFAULT_LABEL):
+    """Icon on the left, outlined wordmark on the right.
+
+    ``tagline`` is ``True`` for the default one-liner, ``False`` for none, or a
+    list of strings to set explicitly -- one per line.
+
+    Wrapping the tagline is not cosmetic. The tagline is usually the widest
+    element, so it sets the whole viewBox width; and because a consumer such as
+    the docs sidebar renders the ``<img>`` at a *fixed pixel width*, a wider
+    viewBox scales everything down. A long single-line tagline therefore shrinks
+    the icon and wordmark and still renders itself at ~8 px, too small to read.
+    Split across lines so that no line exceeds the wordmark's width and the
+    viewBox stays as narrow as the no-tagline variant, which buys about 50% more
+    rendered tagline size for free. Measured for the 219 px sidebar: one line at
+    size 25 renders 8.1 px, two lines at size 22 render 11.9 px.
+
+    ``pad`` is transparent margin on all four sides, in the same units as the
+    viewBox. It gives the mark breathing room when it sits in a page next to
+    other content, but it is dead space when something else already provides
+    the margin -- the docs sidebar has its own padding, so the sidebar variant
+    is generated with ``pad=0`` and fills its box.
+
+    ``line_gap`` defaults to 1.52 because 1.52 * 25 = 38, the baseline step the
+    single-line variants were built with; keeping it makes their output
+    byte-identical to before this parameter existed.
+    """
     # The icon is a sparse ring of small nodes; the wordmark is solid, so
     # matching their bounding boxes can still look left-heavy. That is fixed by
     # raising the ring's opacity (see ring_opacity), NOT by enlarging the icon:
     # a bigger icon crowds the wordmark and leaves too little air between them.
     icon_box = 160.0                      # rendered size of the icon's artwork
-    pad = 20.0
     gap = 24.0
 
     # The icon is composed in a 256-unit box, but its artwork only spans the
@@ -138,37 +169,51 @@ def write_lockup(path, ink=INK, accent=ACCENT, tagline=True, ring_opacity=0.30):
     scale = icon_box / art
     icon_x = pad - (CX - art / 2.0) * scale
 
+    if tagline is True:
+        lines = list(DEFAULT_TAGLINE)
+    elif not tagline:
+        lines = []
+    elif isinstance(tagline, str):
+        lines = [tagline]
+    else:
+        lines = list(tagline)
+
     word_d, word_w, word_h, word_x0 = text_to_svg_path("IANN", 84, weight="bold")
-    tag_d, tag_w, tag_h, tag_x0 = text_to_svg_path(
-        "InterAtomic Neural Network", 25, weight="normal")
+    tags = [text_to_svg_path(t, tag_size, weight="normal") for t in lines]
 
     text_x = pad + icon_box + gap
     # Equal padding on both sides, so the artwork is centred in the canvas.
-    width = text_x + max(word_w, tag_w if tagline else 0) + pad
+    width = text_x + max([word_w] + [w for _, w, _, _ in tags]) + pad
     height = pad * 2 + icon_box
     icon_y = (height - icon_box) / 2.0 - (CY - art / 2.0) * scale
 
     # Centre the text block on the icon's centre line rather than guessing a
-    # baseline: cap height for the wordmark, plus the tagline if present.
-    block_h = word_h + (38.0 if tagline else 0.0)
+    # baseline: cap height for the wordmark, plus one step per tagline line.
+    step = tag_size * line_gap
+    block_h = word_h + step * len(tags)
     word_y = height / 2.0 - block_h / 2.0 + word_h
-    tag_y = word_y + 38.0
 
+    # The accessible name is deliberately independent of what is drawn: the
+    # no-tagline variants are the same product, and a screen-reader user gains
+    # nothing from a purely visual omission.
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.0f} {height:.0f}" '
         f'width="{width:.0f}" height="{height:.0f}" role="img" '
-        f'aria-label="IANN &#8212; InterAtomic Neural Network">\n',
-        "  <title>IANN &#8212; InterAtomic Neural Network</title>\n",
+        f'aria-label="{label}">\n',
+        f"  <title>{label}</title>\n",
         f'  <g transform="translate({icon_x:.3f} {icon_y:.3f}) scale({scale:.6f})">\n',
         icon_body(ink, accent, ring_opacity=ring_opacity),
         "  </g>\n",
         f'  <path transform="translate({text_x - word_x0:.2f} {word_y:.2f})" '
         f'fill="{ink}" d="{word_d}"/>\n',
     ]
-    if tagline:
+    # The +2 is an optical nudge: the tagline's lighter weight makes a flush
+    # left edge read as overhanging the wordmark above it.
+    for i, (tag_d, _tw, _th, tag_x0) in enumerate(tags):
         parts.append(
-            f'  <path transform="translate({text_x - tag_x0 + 2:.2f} {tag_y:.2f})" fill="{ink}" '
-            f'fill-opacity="0.65" d="{tag_d}"/>\n')
+            f'  <path transform="translate({text_x - tag_x0 + 2:.2f} '
+            f'{word_y + step * (i + 1):.2f})" fill="{ink}" '
+            f'fill-opacity="{tag_opacity}" d="{tag_d}"/>\n')
     parts.append("</svg>\n")
     with open(path, "w") as fh:
         fh.write("".join(parts))
@@ -218,14 +263,39 @@ def main():
     write_icon(os.path.join(OUT, "iann-icon.svg"))
     write_icon(os.path.join(OUT, "iann-icon-dark.svg"), ink=INK_LIGHT)
     write_icon(os.path.join(OUT, "iann-favicon.svg"), dashed=False)
-    write_lockup(os.path.join(OUT, "iann-logo.svg"))
-    write_lockup(os.path.join(OUT, "iann-logo-dark.svg"), ink=INK_LIGHT,
-                 ring_opacity=0.55)
-    write_lockup(os.path.join(OUT, "iann-logo-notagline.svg"), tagline=False)
-    # For the docs sidebar: white ink on the dark nav header, and no tagline,
-    # which would be ~4 px tall at the sidebar's width.
+    # The one-line-tagline lockups are gone -- iann-logo.svg, its dark variant
+    # and the padded no-tagline light variant. The two-line lockups below
+    # replaced them, so regenerating those names would only resurrect files no
+    # longer referenced anywhere.
+    #
+    # Flush -- pad=0, artwork to the edges. For a host that
+    # supplies its own spacing and sizes the image itself, such as the README,
+    # where the built-in margin only shrinks the artwork inside the width= it
+    # is given.
+    write_lockup(os.path.join(OUT, "iann-logo-notagline-flush.svg"),
+                 tagline=False, pad=0.0)
     write_lockup(os.path.join(OUT, "iann-logo-notagline-dark.svg"),
                  ink=INK_LIGHT, tagline=False, ring_opacity=0.55)
+    # The two-line lockups, flush and with the full "... Framework" tagline.
+    # Every dimension is chosen for the docs sidebar, the narrowest place either
+    # one appears (219 px):
+    #   * pad=0 -- the sidebar header supplies its own padding, so built-in
+    #     margin would only shrink the artwork inside a fixed-width <img>.
+    #   * the tagline is split over two lines, neither wider than "IANN", so
+    #     the viewBox stays 405x160 and the tagline renders at 11.9 px instead
+    #     of the 8.1 px a single line would give.
+    #
+    # -dark is white ink for a dark ground, and raises the ring to 0.55 and the
+    # tagline to 0.75 because white at the default opacities washes out on the
+    # mid-blue nav header. -flush is navy for a light ground such as the README,
+    # where those same raised values would read as too heavy, so it keeps the
+    # defaults.
+    two_line = dict(pad=0.0, tag_size=22.0,
+                    tagline=["InterAtomic Neural", "Network Framework"],
+                    label="IANN &#8212; InterAtomic Neural Network Framework")
+    write_lockup(os.path.join(OUT, "iann-logo-dark.svg"), ink=INK_LIGHT,
+                 ring_opacity=0.55, tag_opacity=0.75, **two_line)
+    write_lockup(os.path.join(OUT, "iann-logo-flush.svg"), ink=INK, **two_line)
     for px in (512, 256, 128, 64, 32, 16):
         write_png(os.path.join(OUT, f"iann-icon-{px}.png"), px,
                   dashed=(px >= 64))

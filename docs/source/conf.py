@@ -12,9 +12,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 
 project = 'IANN'
-copyright = '2025, Changzhi Ai'
+copyright = '2024, Changzhi Ai'
 author = 'Changzhi Ai'
-release = '0.1.0'
+release = '0.1.3'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -36,16 +36,28 @@ import sphinx_rtd_theme
 
 html_theme = "sphinx_rtd_theme"
 
-# Sphinx copies html_logo/html_favicon into the output itself, so this works with
-# html_static_path left off. Turning html_static_path on would copy every file in
-# _static/, duplicating the ~4 MB of figures that the figure directive already
-# copies into _images/.
+# Sphinx copies html_logo/html_favicon into the output itself, so those need no
+# html_static_path. The path below is deliberately the _static/css subdirectory
+# rather than _static itself: pointing it at _static would copy every file in
+# there, duplicating the ~4 MB of figures that the figure directive already
+# copies into _images/. Sphinx copies the *contents* of each static path into
+# _static/, so _static/css/custom.css lands at _static/custom.css.
+html_static_path = ["_static/css"]
+html_css_files = ["custom.css"]
+
+# The sidebar variant, purpose-built for the one width it is rendered at. It is
+# the white-ink version because the theme's nav header is a mid blue -- the
+# navy-ink one on that background is legible but muddy -- and its tagline is
+# split over two lines. That is what makes a tagline viable here at all: a
+# single line is the widest element, so it would widen the viewBox from 405 to
+# 676 units, and since the <img> width is fixed in CSS that shrinks the icon and
+# wordmark while still rendering the tagline at ~8 px. Two lines, neither wider
+# than "IANN", keep the box at 405x160 and render at ~12 px.
 #
-# The sidebar logo is the variant without the tagline: at the ~230 px sidebar
-# width the tagline would render too small to read. It is the white-ink variant
-# because the theme's nav header is a mid blue -- the navy-ink variant on that
-# background is legible but muddy.
-html_logo = "_static/logo/iann-logo-notagline-dark.svg"
+# Its rendered size is set in _static/css/custom.css, not here and not in the
+# SVG: the theme clamps the logo to the sidebar width, so the file's own width
+# attribute has no effect.
+html_logo = "_static/logo/iann-logo-dark.svg"
 html_favicon = "_static/logo/iann-favicon.svg"
 
 html_theme_options = {
