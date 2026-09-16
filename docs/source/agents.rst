@@ -1,32 +1,15 @@
-Agentic interface
-=================
+Agent interface
+===============
 
-IANN ships a machine-readable interface so that an automated caller — a CI job, a script, or an AI
-coding agent — can drive the framework without writing Python against the library. It has three
-layers, and they are the same code underneath: every operation is a function in
-:mod:`iann.agent.commands` that returns a plain dictionary. The ``iann`` command serialises those
-dictionaries; the MCP server adapts them to the Model Context Protocol. The two front ends cannot
-disagree with each other.
+IANN ships a machine-readable interface so that an automated caller (agent interface), such as a CI job, a script, or an AI coding skills can be directly used by LLM agents. The agent interface comes in three parts: **Command line**, **MCP server**, and **Agent skills**.
 
-Everything lives in the ``iann/agent/`` subpackage, so it can be read, reviewed or removed as a
+
+Everything in this part lives in the ``iann/agent/`` subpackage, so it can be read, reviewed or removed as a
 unit. Nothing in it is imported by the rest of IANN.
 
-What is deliberately not exposed
---------------------------------
 
-The interface allows reads and a **bounded** amount of local compute. It does not allow:
-
-* **unbounded training** — every training entry point requires an explicit step budget;
-* **job submission** to SLURM or PBS — a script is written, but spending an allocation stays a
-  human decision;
-* **uploads** to the HuggingFace Hub;
-* **deleting files**.
-
-The reason training must be bounded is concrete: ``DEFAULT_CONFIG["max_steps"]`` is 1,000,000, so a
-call that omitted a budget would start a run lasting days.
-
-The ``iann`` command
---------------------
+Command line
+------------
 
 Installed as a console script with the package:
 
@@ -96,8 +79,8 @@ Subcommands
    * - ``iann agent install [--target DIR] [--force]``
      - Writes ``AGENTS.md``, ``CLAUDE.md`` and ``.claude/skills/`` into a repository.
 
-Check the environment first
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Check environment 
+~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
@@ -109,8 +92,8 @@ failed to initialise. That second case is the one worth having a tool for: it pr
 failures much later, in unrelated code. It also imports nothing at module scope, so it still runs
 in an environment too broken to ``import iann``.
 
-What a checkpoint does not contain
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Inspect checkpoint
+~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
@@ -120,6 +103,18 @@ Checkpoints are not fully self-describing. ``num_distance_basis`` and the grid-r
 never persisted, so rebuilding an EquiformerV3 or UMA model needs the original training keyword
 arguments or ``load_state_dict`` fails with size mismatches. ``inspect`` reports the gap in its
 ``missing_config`` field; pass the missing values back through ``--config``.
+
+Test cli
+~~~~~~~~
+
+.. code-block:: bash
+
+   python iann/agent/tests/test_cli.py           # every subcommand, plus the failure paths
+   python iann/agent/tests/test_cli.py --fast    # skip the bounded training run
+
+A plain script in the style of the rest of ``test/``, exiting 0 on success and 1 on failure. It
+runs a real end-to-end loop — ``train --max-steps 2`` → ``status`` → ``inspect`` → ``predict`` →
+``export`` — and asserts each promised artefact exists.
 
 MCP server
 ----------
@@ -140,6 +135,8 @@ Both generations of the SDK are supported — 2.x moved the supported server sur
 low-level ``Server`` decorators to ``MCPServer`` — so ``pip`` resolving to whatever is current does
 not break the server.
 
+Register MCP
+~~~~~~~~~~~~
 Register it with Claude Code, using the interpreter of the environment IANN is installed in:
 
 .. code-block:: bash
@@ -156,8 +153,19 @@ failing obscurely when the SDK is absent.
    ``symbol not found in flat namespace '_EVP_DigestSqueeze'``. It is the dependency that is broken,
    not the server; installing a slightly older ``cryptography`` resolves it.
 
-Repository notes and skills
----------------------------
+Test MCP
+~~~~~~~~
+
+.. code-block:: bash
+
+   python iann/agent/tests/test_mcp.py
+
+Checks the tool table without needing the SDK — that part is shared with the command line, so it is
+what breaks when :mod:`iann.agent.commands` changes — then starts the server over stdio and calls
+each read-only tool. The stdio round trip is skipped rather than failed when the SDK is absent.
+
+Agent skills
+------------
 
 ``iann/agent/AGENTS.md`` carries the repository knowledge an agent cannot infer from the source:
 which conda environment works, that scripts must run from the repository root, that every training
@@ -200,18 +208,3 @@ That last skill exists because two of the test runner's statuses do not mean wha
 ``VERIFIED`` means the task hit the harness timeout rather than that it converged, and pass/fail is
 decided by scanning child output for substrings that some children legitimately print in their own
 summary tables.
-
-Checking the interface itself
------------------------------
-
-.. code-block:: bash
-
-   python iann/agent/tests/test_cli.py           # every subcommand, plus the failure paths
-   python iann/agent/tests/test_cli.py --fast    # skip the bounded training run
-   python iann/agent/tests/test_mcp.py           # the tool table and a real stdio round trip
-
-Both are plain scripts in the style of the rest of ``test/``, and both exit 0 on success and 1 on
-failure. ``test_cli.py`` runs a real end-to-end loop — ``train --max-steps 2`` → ``status`` →
-``inspect`` → ``predict`` → ``export`` — and asserts each promised artefact exists.
-``test_mcp.py`` checks the tool table without the SDK and skips, rather than fails, the stdio round
-trip when the SDK is absent.

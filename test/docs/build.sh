@@ -178,7 +178,7 @@ CHECKS = {
     # one <span class="pre"> per word, and pygments splits code blocks per
     # token, so a multi-word needle never survives tag stripping.
     "agents.html": ("agent interface documented",
-        ["Agentic", "Model Context Protocol", "iann_inspect_checkpoint",
+        ["Agent interface", "Model Context Protocol", "iann_inspect_checkpoint",
          "iann_train", "mcp_server", "missing_config", "iann-hpc-submit",
          "bounded"]),
     # The theme's own search page is blank -- no heading, no input -- so the

@@ -46,10 +46,10 @@
   - [iann.plugins](#iannplugins)
   - [iann.tools](#ianntools)
   - [C++ LAMMPS Plugins](#c-lammps-plugins)
-- [10. Agentic interface](#10-agentic-interface)
-  - [The `iann` command](#the-iann-command)
+- [10. Agent interface](#10-agent-interface)
+  - [Command line](#command-line)
   - [MCP server](#mcp-server)
-  - [Repository notes and skills](#repository-notes-and-skills)
+  - [Agent skills](#agent-skills)
 - [Troubleshooting](#troubleshooting)
 - [Issues](#issues)
 - [Maintainer](#maintainer)
@@ -88,7 +88,7 @@ README:
 | [Foundation Models](https://iann.readthedocs.io/en/latest/foundation_models.html) | The curated DFT databases and all twelve released checkpoints with accuracies |
 | [Performance](https://iann.readthedocs.io/en/latest/performance.html) | Measured inference cost, memory ceilings, and multi-GPU scaling for training and LAMMPS |
 | [Parallelization](https://iann.readthedocs.io/en/latest/parallelization.html) | Submission scripts for SLURM and PBS clusters |
-| [Agentic interface](https://iann.readthedocs.io/en/latest/agents.html) | The `iann` command, the MCP server, and the Claude Code skills |
+| [Agent interface](https://iann.readthedocs.io/en/latest/agents.html) | The `iann` command, the MCP server, and the Claude Code skills |
 | [API Reference](https://iann.readthedocs.io/en/latest/api.html) | Every public class and function |
 | [Release Notes](https://iann.readthedocs.io/en/latest/release_notes.html) | What changed in each version |
 
@@ -666,7 +666,7 @@ C++ plugins for LAMMPS molecular dynamics simulations:
 - `ComputeIANNVariance`: Compute style for variance calculations
 
 
-## 10. Agentic interface
+## 10. Agent interface
 
 IANN ships a machine-readable interface for automated callers — a CI job, a script, or an AI coding
 agent. All of it lives in the `iann/agent/` subpackage, and the three layers share one
@@ -676,7 +676,7 @@ server cannot drift apart.
 The interface allows reads and a **bounded** amount of compute. Unbounded training, job submission
 to SLURM or PBS, uploads to the HuggingFace Hub, and deleting files are deliberately not exposed.
 
-### The `iann` command
+### Command line
 
 Installed as a console script with the package. Add `--json` to any subcommand for parseable
 output; under `--json`, stdout carries nothing but the JSON document.
@@ -713,7 +713,7 @@ claude mcp add iann -- /opt/anaconda3/envs/iann/bin/python -m iann.agent.mcp_ser
 
 The `iann` command works without the SDK; only the server needs it.
 
-### Repository notes and skills
+### Agent skills
 
 `iann/agent/AGENTS.md` records what an agent cannot infer from the source — which conda environment
 works, that scripts run from the repository root, that every training run needs a step budget, and
@@ -731,7 +731,7 @@ It also writes `.claude/skills/` from the five skill sources under `iann/agent/s
 `iann-hpc-submit`. Skills are a Claude Code feature, so they have only the one destination.
 Idempotent, and it will not overwrite a file you have edited without `--force`.
 
-Full detail: [Agentic interface](https://iann.readthedocs.io/en/latest/agents.html).
+Full detail: [Agent interface](https://iann.readthedocs.io/en/latest/agents.html).
 
 
 ## Troubleshooting
