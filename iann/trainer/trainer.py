@@ -1,3 +1,4 @@
+import iann
 from iann.data import AseDataset, collate_atomsdata
 import numpy as np
 import math, time
@@ -494,6 +495,7 @@ class Trainer:
         os.environ['MASTER_ADDR'] = master_addr
         os.environ['MASTER_PORT'] = str(master_port)
         if self.rank == 0:
+            logging.info(f"IANN version: {iann.__version__}")
             logging.info(f"PyTorch version: {torch.__version__}")
             logging.info(f"Node List: {self._get_node_list()}")
             if torch.cuda.is_available():
@@ -1235,7 +1237,8 @@ class Trainer:
             except:
                 node_name = "unknown"
             self.device = torch.device("cuda:0" if torch.cuda.is_available() and self.device.type == 'cuda' else "cpu")
-            logging.info(f"PyTorch version: {torch.__version__}") 
+            logging.info(f"IANN version: {iann.__version__}")
+            logging.info(f"PyTorch version: {torch.__version__}")
             logging.info(f"Running in single-{'GPU' if torch.cuda.is_available() and self.device.type == 'cuda' else 'CPU'} Node {node_name}")
             if torch.cuda.is_available():
                 logging.info(f"Hardware architecture: {torch.cuda.get_device_name()}")

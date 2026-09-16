@@ -12,6 +12,28 @@ Access is unchanged -- ``import iann; iann.MLCalculator`` and
 ImportError at first use rather than at import time.
 """
 
+def _detect_version():
+    """The installed distribution's version, or "unknown".
+
+    Read from the installed metadata rather than hardcoded here, so there is no
+    second place to forget to bump. The consequence worth knowing: in an
+    editable checkout this reports the version recorded by the last
+    ``pip install -e .``, which can lag ``setup.py`` until it is rerun.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except ImportError:                       # Python < 3.8
+        return "unknown"
+    for name in ("IANN", "iann"):
+        try:
+            return version(name)
+        except PackageNotFoundError:
+            continue
+    return "unknown"                          # running from a source tree
+
+
+__version__ = _detect_version()
+
 # name -> (submodule, attribute); resolved on first access by __getattr__ below.
 _LAZY_ATTRS = {
     "MLCalculator": ("iann.calculators", "MLCalculator"),

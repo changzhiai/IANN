@@ -3,27 +3,73 @@ Release Notes
 
 Version numbers follow the tags in the `GitHub repository
 <https://github.com/changzhiai/IANN/tags>`_. Each section lists what changed
-relative to the release before it.
+relative to the release before it. Each release is also kept on a branch —
+``iann-v0.1.1``, ``iann-v0.1.2`` — so a checkpoint that will not load against a
+later version can be used with the code it was trained on.
 
 Development started on 7 November 2024; the first tag came a little over a year
 later, so most of the early history predates any release boundary and is
 summarised under :ref:`0.0.0 (2024-11-07) <release-0.0.0>`.
 
-.. _release-0.1.2:
+.. _release-0.1.3:
 
-0.1.2 (unreleased)
+0.1.3 (unreleased)
 ------------------
 
-In development on the ``master`` branch. The headline change is that the set of
-architectures grew from four to eight.
+In development on the ``master`` branch. The headline change is that every
+architecture now reaches LAMMPS, and that the framework can be driven by an
+automated caller.
 
 Added
 ~~~~~
 
-* **Three new architectures.** Allegro, EquiformerV3 and UMA join PaiNN,
+* **LAMMPS export for Allegro, EquiformerV3 and UMA.** The export path reached
+  only four of the seven architectures, so a model trained with one of the
+  other three could not be deployed at all. All seven now export, and every
+  change was gated on the exported model reproducing the eager energy and
+  forces, so checkpoints trained before this release continue to load
+  unchanged.
+* **An agent interface**, as the ``iann/agent/`` subpackage: the ``iann``
+  console command with ``--json`` on every subcommand, an MCP server,
+  tool-neutral repository notes, and five Claude Code skills — the last two
+  installed by ``iann agent install``. Operations are reads plus explicitly
+  bounded training. See :doc:`agents`.
+* ``iann doctor``, which probes each dependency separately and separates a hard
+  import failure from a silent degradation. It imports nothing at module scope,
+  so it still runs in an environment too broken to ``import iann``.
+* ``iann inspect``, which reports the structural parameters a checkpoint does
+  **not** record — the cause of size mismatches when rebuilding EquiformerV3 or
+  UMA models.
+* **Documentation:** :doc:`about`, :doc:`performance`, :doc:`agents`, these
+  release notes, and a project logo.
+
+Fixed
+~~~~~
+
+* **EquiformerV2 could no longer be exported to TorchScript.** The change that
+  reworked its forces introduced a call TorchScript cannot compile, which went
+  unnoticed because the export check aborted on the first architecture that
+  failed. That check now tries each architecture independently and reports a
+  summary.
+
+.. _release-0.1.2:
+
+0.1.2 (2026-09-01)
+------------------
+
+The headline change is that the set of architectures grew.
+Preserved on the ``iann-v0.1.2`` branch; the ``paper`` branch holds the same
+code, and is the one to use if a released checkpoint will not load against a
+later version.
+
+Added
+~~~~~
+
+* **Fix bugs for architectures.** Allegro, EquiformerV3 and UMA join PaiNN,
   NequIP, MACE and EquiformerV2. All are selected the same way — by
   name in the configuration dictionary — and are documented in
-  :doc:`engine_models`.
+  :doc:`engine_models`. Only four of them could be exported to LAMMPS at this
+  release; see 0.1.3.
 * **Foundation models at three DFT levels.** Twelve pretrained PaiNN checkpoints
   spanning PBE, RPBE and r\ :sup:`2`\ SCAN, trained on 41.9 million curated
   structures, plus seven architecture-comparison checkpoints. Naming a model
@@ -42,23 +88,8 @@ Added
   ``T_0`` / ``T_mult``, and learning-rate adjustment on restart.
 * **Average-neighbour-count computation** in the trainer, with normalisation
   statistics that can be estimated from a subsample and read in parallel.
-* **LAMMPS export for Allegro, EquiformerV3 and UMA.** The export path
-  previously reached only four of the architectures, so a model trained with
-  one of the other three could not be deployed. All seven now export, and every
-  change was gated on the exported model reproducing the eager energy and
-  forces, so existing checkpoints continue to load unchanged.
-* **An agent-facing interface**, as the ``iann/agent/`` subpackage: the ``iann``
-  console command with ``--json`` on every subcommand, an MCP server, tool-neutral
-  repository notes, and five Claude Code skills — the last two installed by
-  ``iann agent install``. Operations are reads plus explicitly bounded training.
-  See :doc:`agents`.
-* ``iann doctor``, which probes each dependency separately and separates a hard
-  import failure from a silent degradation.
-* ``iann inspect``, which reports the structural parameters a checkpoint does
-  **not** record — the cause of size mismatches when rebuilding EquiformerV3 or
-  UMA models.
-* **Documentation:** :doc:`about`, :doc:`performance`, :doc:`agents`, an
-  expanded :doc:`engine_models` with architecture diagrams, and a project logo.
+* **Documentation:** an expanded :doc:`engine_models` with architecture
+  diagrams, and :doc:`foundation_models`.
 
 Changed
 ~~~~~~~
@@ -83,11 +114,6 @@ Fixed
 * ``retain_graph`` / ``create_graph`` now follow ``self.training`` rather than
   being always on, in PaiNN, FastPot and Demo.
 * TorchScript export with cuEquivariance enabled.
-* **EquiformerV2 could no longer be exported to TorchScript.** The change that
-  reworked its forces introduced a call TorchScript cannot compile, which went
-  unnoticed because the export check aborted on the first architecture that
-  failed. That check now tries each architecture independently and reports a
-  summary.
 * ``dtype`` and irreps assignment errors in MACE.
 
 0.1.1 (2026-04-27)
@@ -123,7 +149,30 @@ styles.
 
 Archived at `doi:10.5281/zenodo.17809949 <https://doi.org/10.5281/zenodo.17809949>`_.
 
+Fixed
+~~~~~
 
+There is no earlier release to compare against, so this lists what had to be
+settled during the thirteen months of initial development. The themes are worth
+recording because each one recurred across many commits rather than being a
+single mistake.
+
+* **Consistency between ASE and LAMMPS**, which is the property the whole
+  deployment path rests on: the same structure must give the same energy and
+  forces through the ASE calculator and through the exported TorchScript model.
+  Fixing it meant agreeing on the neighbour-list convention, the periodic-image
+  handling and the sign of the force, and it is now checked rather than assumed.
+* **TorchScript compatibility.** Scripting rejects much of ordinary Python —
+  optional arguments, dictionaries, control flow that depends on shapes — so the
+  models had to be written twice over in effect: once readably for eager
+  execution, once within what the compiler accepts.
+* **Dropout**, which was being applied at evaluation time as well as during
+  training, so predictions were not reproducible between calls.
+* **NaN losses**, and the training-time handling that stops a run rather than
+  letting it continue producing meaningless weights.
+* **Memory growth** over long runs, from graphs retained when they were no
+  longer needed.
+* **architectures testing** of stability, logging, modules, and functions.
 
 .. _release-0.0.0:
 
