@@ -174,6 +174,13 @@ CHECKS = {
     "performance.html": ("cost page with both benchmark figures",
         ["fig6_models_cost.png", "fig7_lammps_scaling.png",
          "latency floor", "iann/multi_gpu", "Parallel efficiency"]),
+    # Needles here must be single tokens: sphinx splits inline literals into
+    # one <span class="pre"> per word, and pygments splits code blocks per
+    # token, so a multi-word needle never survives tag stripping.
+    "agents.html": ("agent interface documented",
+        ["Agentic", "Model Context Protocol", "iann_inspect_checkpoint",
+         "iann_train", "mcp_server", "missing_config", "iann-hpc-submit",
+         "bounded"]),
     # The theme's own search page is blank -- no heading, no input -- so the
     # "Search Page" link lands on nothing. _templates/search.html restores the
     # form; check it survives a theme upgrade.

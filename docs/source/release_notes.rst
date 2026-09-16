@@ -42,8 +42,23 @@ Added
   ``T_0`` / ``T_mult``, and learning-rate adjustment on restart.
 * **Average-neighbour-count computation** in the trainer, with normalisation
   statistics that can be estimated from a subsample and read in parallel.
-* **Documentation:** :doc:`about`, :doc:`performance`, an expanded
-  :doc:`engine_models` with architecture diagrams, and a project logo.
+* **LAMMPS export for Allegro, EquiformerV3 and UMA.** The export path
+  previously reached only four of the architectures, so a model trained with
+  one of the other three could not be deployed. All seven now export, and every
+  change was gated on the exported model reproducing the eager energy and
+  forces, so existing checkpoints continue to load unchanged.
+* **An agent-facing interface**, as the ``iann/agent/`` subpackage: the ``iann``
+  console command with ``--json`` on every subcommand, an MCP server, tool-neutral
+  repository notes, and five Claude Code skills — the last two installed by
+  ``iann agent install``. Operations are reads plus explicitly bounded training.
+  See :doc:`agents`.
+* ``iann doctor``, which probes each dependency separately and separates a hard
+  import failure from a silent degradation.
+* ``iann inspect``, which reports the structural parameters a checkpoint does
+  **not** record — the cause of size mismatches when rebuilding EquiformerV3 or
+  UMA models.
+* **Documentation:** :doc:`about`, :doc:`performance`, :doc:`agents`, an
+  expanded :doc:`engine_models` with architecture diagrams, and a project logo.
 
 Changed
 ~~~~~~~
@@ -68,6 +83,11 @@ Fixed
 * ``retain_graph`` / ``create_graph`` now follow ``self.training`` rather than
   being always on, in PaiNN, FastPot and Demo.
 * TorchScript export with cuEquivariance enabled.
+* **EquiformerV2 could no longer be exported to TorchScript.** The change that
+  reworked its forces introduced a call TorchScript cannot compile, which went
+  unnoticed because the export check aborted on the first architecture that
+  failed. That check now tries each architecture independently and reports a
+  summary.
 * ``dtype`` and irreps assignment errors in MACE.
 
 0.1.1 (2026-04-27)

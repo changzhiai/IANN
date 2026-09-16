@@ -25,6 +25,7 @@ The code is available and actively maintained on `GitHub <https://github.com/cha
    engine_models
    foundation_models
    performance
+   agents
    api
    troubleshooting
    release_notes

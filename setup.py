@@ -15,7 +15,11 @@ setup(
     url="https://github.com/changzhiai/IANN",
     # include= keeps the top-level `test` package (it has an __init__.py) out of
     # the wheel; a bare find_packages() installs it as an importable `test`.
-    packages=find_packages(include=["iann", "iann.*"]),
+    # exclude= drops the agent-layer tests: they sit inside the package so the
+    # whole agent surface is one reviewable directory, but they should not be
+    # installed.
+    packages=find_packages(include=["iann", "iann.*"],
+                           exclude=["iann.agent.tests", "iann.agent.tests.*"]),
     # package_data, not MANIFEST.in: MANIFEST.in governs the sdist only, so the
     # wheel would still ship without these and they are read from the *installed*
     # package directory at runtime.
@@ -25,13 +29,26 @@ setup(
     #   iann/foundations/*.pt    -- bundled foundation-model checkpoints reached
     #                               by foundation_model().
     #   iann/plugins/*           -- LAMMPS pair-style sources and example input.
+    #   iann/agent/AGENTS.md     -- tool-neutral repository notes, and
+    #   iann/agent/skills/*      -- Claude Code skill sources, both copied out by
+    #                               `iann agent install`; they must ship or that
+    #                               command has nothing to install from.
     package_data={
         "iann.data": ["*.pt"],
         "iann.foundations": ["*.pt"],
         "iann.plugins": ["*.cpp", "*.h", "*.in", "README.md"],
+        "iann.agent": ["AGENTS.md", "skills/*/*.md"],
+    },
+    entry_points={
+        "console_scripts": [
+            "iann = iann.agent.cli:main",
+        ],
     },
     install_requires=requirements,
     extras_require={
+        # `pip install -e ".[agent]"` adds the MCP server's only dependency;
+        # the CLI itself needs nothing beyond the base requirements.
+        "agent": ["mcp>=1.2.0"],
         "dev": [
             "pytest>=6.0.0",
             "pylint>=2.6.0",

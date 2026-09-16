@@ -46,6 +46,10 @@
   - [iann.plugins](#iannplugins)
   - [iann.tools](#ianntools)
   - [C++ LAMMPS Plugins](#c-lammps-plugins)
+- [10. Agentic interface](#10-agentic-interface)
+  - [The `iann` command](#the-iann-command)
+  - [MCP server](#mcp-server)
+  - [Repository notes and skills](#repository-notes-and-skills)
 - [Troubleshooting](#troubleshooting)
 - [Issues](#issues)
 - [Maintainer](#maintainer)
@@ -84,6 +88,7 @@ README:
 | [Foundation Models](https://iann.readthedocs.io/en/latest/foundation_models.html) | The curated DFT databases and all twelve released checkpoints with accuracies |
 | [Performance](https://iann.readthedocs.io/en/latest/performance.html) | Measured inference cost, memory ceilings, and multi-GPU scaling for training and LAMMPS |
 | [Parallelization](https://iann.readthedocs.io/en/latest/parallelization.html) | Submission scripts for SLURM and PBS clusters |
+| [Agentic interface](https://iann.readthedocs.io/en/latest/agents.html) | The `iann` command, the MCP server, and the Claude Code skills |
 | [API Reference](https://iann.readthedocs.io/en/latest/api.html) | Every public class and function |
 | [Release Notes](https://iann.readthedocs.io/en/latest/release_notes.html) | What changed in each version |
 
@@ -659,6 +664,74 @@ C++ plugins for LAMMPS molecular dynamics simulations:
 - `PairIANN`: Single GPU pair style for IANN potentials
 - `PairIANNMultiGPU`: Multiple GPU pair style for IANN potentials
 - `ComputeIANNVariance`: Compute style for variance calculations
+
+
+## 10. Agentic interface
+
+IANN ships a machine-readable interface for automated callers — a CI job, a script, or an AI coding
+agent. All of it lives in the `iann/agent/` subpackage, and the three layers share one
+implementation: every operation is a function returning a plain dictionary, so the CLI and the MCP
+server cannot drift apart.
+
+The interface allows reads and a **bounded** amount of compute. Unbounded training, job submission
+to SLURM or PBS, uploads to the HuggingFace Hub, and deleting files are deliberately not exposed.
+
+### The `iann` command
+
+Installed as a console script with the package. Add `--json` to any subcommand for parseable
+output; under `--json`, stdout carries nothing but the JSON document.
+
+```bash
+iann doctor                      # can this environment run IANN?
+iann models                      # architectures, and which reach LAMMPS
+iann foundation list             # the released models with their MAEs
+iann inspect model.pt            # what a checkpoint records -- and what it lacks
+iann predict --model model.pt --structure structure.traj
+iann train --model painn --dataset dataset.traj --max-steps 100
+iann status --output-dir output
+iann export --model model.pt --out lammps_model.pt
+```
+
+Exit codes are meaningful: `0` success, `1` the operation failed (a JSON error object goes to
+stderr), `2` the command line was wrong. `--max-steps` is required, because
+`DEFAULT_CONFIG["max_steps"]` is 1,000,000 and a run without a budget would last days.
+
+Two subcommands are worth knowing about even if you never automate anything. `iann doctor` exits
+non-zero on a broken environment and separates a hard failure (`asap3` cannot import) from a silent
+degradation (`torch` imports but warns that NumPy failed to initialise). `iann inspect` reports the
+structural parameters a checkpoint does **not** store — the reason rebuilding an EquiformerV3 or
+UMA model can fail with size mismatches.
+
+### MCP server
+
+Nine tools over the Model Context Protocol, needing the optional SDK:
+
+```bash
+pip install -e ".[agent]"
+claude mcp add iann -- /opt/anaconda3/envs/iann/bin/python -m iann.agent.mcp_server
+```
+
+The `iann` command works without the SDK; only the server needs it.
+
+### Repository notes and skills
+
+`iann/agent/AGENTS.md` records what an agent cannot infer from the source — which conda environment
+works, that scripts run from the repository root, that every training run needs a step budget, and
+that checkpoints are not self-describing. It is **not specific to any one assistant**; it is written
+for any AI coding agent, and it reads perfectly well as a human onboarding note.
+
+```bash
+iann agent install
+```
+
+Writes those notes to a repository root under both names agents look for — `AGENTS.md`, the
+cross-tool convention, and `CLAUDE.md`, the only name Claude Code reads — with identical content.
+It also writes `.claude/skills/` from the five skill sources under `iann/agent/skills/`:
+`iann-train`, `iann-export-lammps`, `iann-foundation-models`, `iann-run-checks` and
+`iann-hpc-submit`. Skills are a Claude Code feature, so they have only the one destination.
+Idempotent, and it will not overwrite a file you have edited without `--force`.
+
+Full detail: [Agentic interface](https://iann.readthedocs.io/en/latest/agents.html).
 
 
 ## Troubleshooting

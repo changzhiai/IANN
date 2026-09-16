@@ -153,6 +153,11 @@ def main():
     run_and_log("MD Simulation Stability", "md/md.py")
     run_and_log("JIT Consistency Check", "lammps_plugin/run_jit.py")
 
+    # The agent interface. --fast skips its own bounded training run, since the
+    # training above already covers that path and this runner is long enough.
+    run_and_log("Agent CLI", "../iann/agent/tests/test_cli.py", ["--fast"])
+    run_and_log("Agent MCP Server", "../iann/agent/tests/test_mcp.py")
+
     # Final Summary Table
     print("\n" + "="*60)
     print(f"{'TEST EXECUTION SUMMARY':^60}")
