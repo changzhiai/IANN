@@ -52,6 +52,10 @@ def _print_human(cmd: str, result: Dict[str, Any]) -> None:
             mark = "ok  " if dep["ok"] else "FAIL"
             if dep["ok"] and dep["warnings"]:
                 mark = "warn"
+            elif not dep["ok"] and dep.get("optional"):
+                # Absent and optional is not a failure; saying FAIL here sends
+                # people hunting for a problem they do not have.
+                mark = "n/a "
             extra = dep["error"] or (dep["warnings"][0] if dep["warnings"] else "")
             ver = dep["version"] or ""
             print(f"   {mark}  {name:16s} {ver:10s} {extra[:60]}")

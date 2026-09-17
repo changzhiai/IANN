@@ -109,8 +109,9 @@ def _hf_download(entry, *, cache_dir, revision, force_download, local_files_only
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise FoundationModelDownloadError(
             "downloading foundation model %r requires the 'huggingface_hub' "
-            "package, which is not installed. Install it with\n"
-            "    pip install huggingface_hub\n"
+            "package, which is an optional dependency and is not installed. "
+            "Install it with\n"
+            "    pip install \"iann[foundations]\"\n"
             "or pass a path to a checkpoint you already have." % entry.name
         ) from exc
 

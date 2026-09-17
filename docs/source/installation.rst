@@ -33,6 +33,19 @@ You can install IANN using pip:
    # Install with pip
    pip install .
 
+Optional extras
+---------------
+
+Two dependencies are not installed by default, because most of the framework
+never touches them:
+
+.. code-block:: bash
+
+   pip install ".[foundations]"   # huggingface_hub, to download released models
+   pip install ".[agent]"         # the MCP SDK, to run the agent server
+   pip install ".[foundations,agent]"
+   
+
 .. note::
    If you encounter a C++ compilation error (e.g. ``must #include <typeinfo> before using typeid``) when installing dependencies like ``asap3`` due to compiler version incompatibility, you can fix it by exporting the compiler flag before installation:
 

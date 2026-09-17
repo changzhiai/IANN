@@ -76,11 +76,16 @@ def doctor() -> Dict[str, Any]:
     """
     import warnings
 
+    # Optional dependencies: absent is a normal state, not a broken environment.
+    # huggingface_hub is only needed to *download* a released foundation model,
+    # mcp only to serve the agent tools, cpuinfo only to name the CPU in a log.
+    optional = ("huggingface_hub", "mcp", "cpuinfo")
+
     deps: Dict[str, Any] = {}
     for name in ("torch", "numpy", "ase", "e3nn", "asap3", "toml",
                  "huggingface_hub", "cpuinfo", "mcp"):
         entry: Dict[str, Any] = {"ok": False, "version": None, "error": None,
-                                 "warnings": []}
+                                 "warnings": [], "optional": name in optional}
         try:
             # Warnings are captured, not ignored: a half-broken install can
             # import "successfully" and still be unusable. torch against a
@@ -120,8 +125,7 @@ def doctor() -> Dict[str, Any]:
     except Exception as exc:                           # noqa: BLE001 - reporting
         architectures = {"_error": f"{type(exc).__name__}: {exc}"}
 
-    broken = [n for n, d in deps.items()
-              if not d["ok"] and n not in ("mcp", "cpuinfo")]
+    broken = [n for n, d in deps.items() if not d["ok"] and not d["optional"]]
     degraded = [n for n, d in deps.items() if d["ok"] and d["warnings"]]
     return {
         "python": sys.version.split()[0],
