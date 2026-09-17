@@ -1,4 +1,4 @@
-<img src="docs/source/_static/logo/iann-logo-flush.svg" alt="IANN — InterAtomic Neural Network Framework" width="250">
+<img src="docs/source/_static/logo/iann-logo-flush.png" alt="IANN — InterAtomic Neural Network Framework" width="250">
 
 # IANN (InterAtomic Neural Network framework)
 
@@ -71,7 +71,7 @@ Key features:
 - Interface for AI agents
 
 <p align="center">
-  <img src="docs/source/_static/images/fig1_framework.svg" alt="Software structure of the IANN framework" width="100%">
+  <img src="docs/source/_static/images/fig1_framework.png" alt="Software structure of the IANN framework" width="100%">
 </p>
 
 <p align="center">
@@ -123,6 +123,16 @@ Optional extras, not installed by default:
 pip install -e ".[foundations]"   # huggingface_hub, to download released models
 pip install -e ".[agent]"         # the MCP SDK, to run the agent server
 ```
+
+Alternatively, install the released version from PyPI, where the distribution is published as `pyiann` (package name `iann` was already taken by an unrelated project):
+
+```bash
+pip install pyiann
+pip install "pyiann[foundations]"   # huggingface_hub, to download released models
+pip install "pyiann[agent]"         # the MCP SDK, to run the agent server
+```
+
+Install from source rather than from PyPI if you want to run the test suite, build the documentation, or modify the framework --- none of those are shipped in the wheel.
 
 ### GPU Support
 For GPU acceleration, make sure you have CUDA installed and PyTorch with CUDA support:
