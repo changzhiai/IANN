@@ -59,7 +59,7 @@
 
 ## 1. Introductions
 
-IANN (InterAtomic Neural Network framework) is an equivariant interatomic neural network potential framework package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [PaiNN](https://arxiv.org/abs/2102.03150), [NequIP](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), [EquiformerV2](https://arxiv.org/abs/2306.12059), [EquiformerV3](https://doi.org/10.48550/arXiv.2604.09130), [Allegro](https://doi.org/10.1038/s41467-023-36329-y), [UMA](https://arxiv.org/abs/2506.23971) and [FastPot](https://github.com/changzhiai/IANN), focusing on predicting energies and forces with high accuracy. Every architecture is trained through a single data object and a single trainer, so the choice of model is a one-word change in a configuration dictionary rather than a change of code base. 
+IANN (InterAtomic Neural Network framework) framework is an equivariant interatomic neural network potential framework package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [PaiNN](https://arxiv.org/abs/2102.03150), [NequIP](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), [EquiformerV2](https://arxiv.org/abs/2306.12059), [EquiformerV3](https://doi.org/10.48550/arXiv.2604.09130), [Allegro](https://doi.org/10.1038/s41467-023-36329-y), [UMA](https://arxiv.org/abs/2506.23971) and [FastPot](https://github.com/changzhiai/IANN), focusing on predicting energies and forces with high accuracy. Every architecture is trained through a single data object and a single trainer, so the choice of model is a one-word change in a configuration dictionary rather than a change of code base. 
 
 Key features:
 - Easy to use and to switch models
@@ -68,6 +68,7 @@ Key features:
 - Distributed training on multiple GPUs and multiple server nodes
 - Integration with ASE and LAMMPS for molecular dynamics simulations
 - Customizable model architectures
+- Interface for AI agents
 
 <p align="center">
   <img src="docs/source/_static/images/fig1_framework.svg" alt="Software structure of the IANN framework" width="100%">
@@ -762,7 +763,7 @@ If you use IANN, please cite the software release:
   author  = {Ai, Changzhi and others},
   title   = {{IANN}: InterAtomic Neural Network framework},
   year    = {2026},
-  doi     = {10.5281/zenodo.17809949},
+  doi     = {10.5281/zenodo.17809948},
   url     = {https://github.com/changzhiai/IANN}
 }
 ```

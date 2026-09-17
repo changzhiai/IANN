@@ -111,7 +111,7 @@ If you use IANN, please cite the software release:
      author  = {Ai, Changzhi and others},
      title   = {{IANN}: InterAtomic Neural Network framework},
      year    = {2026},
-     doi     = {10.5281/zenodo.17809949},
+     doi     = {10.5281/zenodo.17809948},
      url     = {https://github.com/changzhiai/IANN}
    }
 
