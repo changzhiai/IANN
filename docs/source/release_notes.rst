@@ -3,9 +3,7 @@ Release Notes
 
 Version numbers follow the tags in the `GitHub repository
 <https://github.com/changzhiai/IANN/tags>`_. Each section lists what changed
-relative to the release before it. Each release is also kept on a branch —
-``iann-v0.1.1``, ``iann-v0.1.2`` — so a checkpoint that will not load against a
-later version can be used with the code it was trained on.
+relative to the release before it.
 
 Development started on 7 November 2024; the first tag came a little over a year
 later, so most of the early history predates any release boundary and is
