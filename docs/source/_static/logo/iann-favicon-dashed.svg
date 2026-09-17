@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="25.5 25.5 205 205" width="256" height="256" role="img" aria-label="IANN">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="29.5 29.5 197 197" width="256" height="256" role="img" aria-label="IANN">
   <title>IANN &#8212; atom i, its neighbours, and the cutoff radius</title>
-  <circle cx="128" cy="128" r="96" fill="none" stroke="#16324F" stroke-opacity="0.45" stroke-width="13"/>
+  <circle cx="128" cy="128" r="96" fill="none" stroke="#16324F" stroke-opacity="0.3" stroke-width="5" stroke-dasharray="10 9"/>
   <g stroke="#16324F" stroke-width="8" stroke-linecap="round" fill="none">
     <path d="M128 128 L196 128"/>
     <path d="M128 128 L162 187"/>

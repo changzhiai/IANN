@@ -33,6 +33,10 @@ R_HEX = 68.0        # neighbour shell
 R_I = 22.0          # atom i
 R_J = 13.0          # neighbour atoms
 W_EDGE = 8.0
+# The outermost ink is the cutoff ring: its radius plus half of its 5-unit
+# stroke. The 256 box leaves ~11.5% dead margin on each edge beyond that, which
+# is invisible in a page but costs real pixels in a 16 px browser tab.
+R_ART = R_CUT + 2.5
 
 HEX = [  # six neighbours at 60 degree steps
     (196.0, 128.0),
@@ -43,25 +47,27 @@ HEX = [  # six neighbours at 60 degree steps
     (162.0, 69.0),
 ]
 
-# Small-size variant: solid ring, four neighbours, fatter centre. Below ~24 px the
-# dashed ring of the primary mark turns to mush. It is also drawn larger in the
-# frame -- a favicon has no room for the primary mark's breathing space, and the
-# ring needs more opacity to survive being 1 px wide.
-CROSS = [(128.0, 44.0), (128.0, 212.0), (44.0, 128.0), (212.0, 128.0)]
-R_CUT_SMALL = 108.0
+# There is deliberately no small-size variant. Every asset -- the 512 px PNG, the
+# 16 px favicon, the lockups -- is the same mark at a different scale, so the icon
+# is recognisably one thing everywhere. The cost is that the dashed ring is close
+# to sub-pixel at 16 px; consistency was preferred to legibility at that size.
 
 
-def icon_body(ink, accent, dashed=True, ring_opacity=0.30):
-    """The icon's SVG elements, minus the <svg> wrapper."""
-    if dashed:
-        ring = (f'  <circle cx="{CX:g}" cy="{CY:g}" r="{R_CUT:g}" fill="none" '
-                f'stroke="{ink}" stroke-opacity="{ring_opacity:g}" stroke-width="5" '
-                f'stroke-dasharray="10 9"/>\n')
-        nodes, r_i, r_j, w = HEX, R_I, R_J, W_EDGE
-    else:
-        ring = (f'  <circle cx="{CX:g}" cy="{CY:g}" r="{R_CUT_SMALL:g}" fill="none" '
-                f'stroke="{ink}" stroke-opacity="0.45" stroke-width="13"/>\n')
-        nodes, r_i, r_j, w = CROSS, 32.0, 21.0, 15.0
+def icon_body(ink, accent, ring_opacity=0.30, ring_dashed=True, ring_width=5.0):
+    """The icon's SVG elements, minus the <svg> wrapper.
+
+    The ring defaults to the primary mark's dashed 5-unit stroke. A favicon
+    overrides it: at 16 px a 5-unit stroke is 0.4 px and a 10/9 dash pattern is
+    far below one pixel, so the ring disappears into a faint smudge. Solid at 13
+    units renders just over 1 px, which is the width at which it reads as a
+    circle. Everything else -- the six neighbours, their radii, the centre -- is
+    unchanged, so it is still the same mark.
+    """
+    dash = ' stroke-dasharray="10 9"' if ring_dashed else ''
+    ring = (f'  <circle cx="{CX:g}" cy="{CY:g}" r="{R_CUT:g}" fill="none" '
+            f'stroke="{ink}" stroke-opacity="{ring_opacity:g}" '
+            f'stroke-width="{ring_width:g}"{dash}/>\n')
+    nodes, r_i, r_j, w = HEX, R_I, R_J, W_EDGE
 
     out = [ring]
     out.append(f'  <g stroke="{ink}" stroke-width="{w:g}" stroke-linecap="round" fill="none">\n')
@@ -76,15 +82,25 @@ def icon_body(ink, accent, dashed=True, ring_opacity=0.30):
     return "".join(out)
 
 
-def write_icon(path, ink=INK, accent=ACCENT, dashed=True, label="IANN"):
-    # The small variant is drawn larger, so crop the viewBox to match or it would
-    # render with a margin a favicon cannot spare.
-    box = "0 0 256 256" if dashed else "12 12 232 232"
+def write_icon(path, ink=INK, accent=ACCENT, label="IANN", tight=False,
+               ring_opacity=0.30, ring_dashed=True, ring_width=5.0):
+    """Write the icon as a standalone SVG.
+
+    ``tight`` crops the viewBox to the artwork instead of keeping the full 256
+    box. The drawing is identical either way -- same geometry, same dashed ring
+    -- but a favicon has no pixels to spare on transparent margin, and the crop
+    renders the mark 1.3x larger in the same tab.
+    """
+    # The outermost ink is the ring: its radius plus half its own stroke, so the
+    # crop has to follow ring_width rather than assume the default.
+    art = R_CUT + ring_width / 2.0
+    box = (f"{CX - art:g} {CY - art:g} {2 * art:g} {2 * art:g}"
+           if tight else "0 0 256 256")
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{box}" '
         f'width="256" height="256" role="img" aria-label="{label}">\n'
         f"  <title>IANN &#8212; atom i, its neighbours, and the cutoff radius</title>\n"
-        f"{icon_body(ink, accent, dashed)}"
+        f"{icon_body(ink, accent, ring_opacity, ring_dashed, ring_width)}"
         f"</svg>\n"
     )
     with open(path, "w") as fh:
@@ -220,7 +236,7 @@ def write_lockup(path, ink=INK, accent=ACCENT, tagline=True, ring_opacity=0.30,
 
 
 # ---------------------------------------------------------------- raster
-def write_png(path, px, dashed=True, ink=INK, accent=ACCENT, bg=None):
+def write_png(path, px, ink=INK, accent=ACCENT, bg=None):
     """Rasterise the icon from the same geometry spec."""
     fig = plt.figure(figsize=(px / 100.0, px / 100.0), dpi=100)
     ax = fig.add_axes([0, 0, 1, 1])
@@ -233,20 +249,17 @@ def write_png(path, px, dashed=True, ink=INK, accent=ACCENT, bg=None):
         fig.patch.set_alpha(0.0)
 
     # Crop to the art so a favicon is not mostly empty canvas.
-    half = (R_CUT if dashed else R_CUT_SMALL) + (12 if dashed else 6)
+    half = R_CUT + 12
     ax.set_xlim(CX - half, CX + half)
     ax.set_ylim(CY + half, CY - half)
 
-    nodes, r_i, r_j, w = ((HEX, R_I, R_J, W_EDGE) if dashed
-                          else (CROSS, 32.0, 21.0, 15.0))
+    # The same mark at every size: identical geometry to iann-icon.svg, only
+    # rasterised smaller. No small-size substitutions.
+    nodes, r_i, r_j, w = HEX, R_I, R_J, W_EDGE
     lw = lambda pts: pts * px / (2 * half) * 72.0 / 100.0   # spec units -> points
 
-    if dashed:
-        ax.add_patch(Circle((CX, CY), R_CUT, fill=False, ec=ink, alpha=0.30,
-                            lw=lw(5), ls=(0, (2.0, 1.8)), zorder=1))
-    else:
-        ax.add_patch(Circle((CX, CY), R_CUT_SMALL, fill=False, ec=ink, alpha=0.45,
-                            lw=lw(13), zorder=1))
+    ax.add_patch(Circle((CX, CY), R_CUT, fill=False, ec=ink, alpha=0.30,
+                        lw=lw(5), ls=(0, (2.0, 1.8)), zorder=1))
     for x, y in nodes:
         ax.plot([CX, x], [CY, y], color=ink, lw=lw(w), solid_capstyle="round", zorder=2)
     for x, y in nodes:
@@ -262,7 +275,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     write_icon(os.path.join(OUT, "iann-icon.svg"))
     write_icon(os.path.join(OUT, "iann-icon-dark.svg"), ink=INK_LIGHT)
-    write_icon(os.path.join(OUT, "iann-favicon.svg"), dashed=False)
+    write_icon(os.path.join(OUT, "iann-favicon.svg"), tight=True,
+               ring_dashed=False, ring_width=13.0, ring_opacity=0.45)
     # The one-line-tagline lockups are gone -- iann-logo.svg, its dark variant
     # and the padded no-tagline light variant. The two-line lockups below
     # replaced them, so regenerating those names would only resurrect files no
@@ -297,8 +311,7 @@ def main():
                  ring_opacity=0.55, tag_opacity=0.75, **two_line)
     write_lockup(os.path.join(OUT, "iann-logo-flush.svg"), ink=INK, **two_line)
     for px in (512, 256, 128, 64, 32, 16):
-        write_png(os.path.join(OUT, f"iann-icon-{px}.png"), px,
-                  dashed=(px >= 64))
+        write_png(os.path.join(OUT, f"iann-icon-{px}.png"), px)
     print("wrote:")
     for f in sorted(os.listdir(OUT)):
         print("  ", f, os.path.getsize(os.path.join(OUT, f)), "bytes")
