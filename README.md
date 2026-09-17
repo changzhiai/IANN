@@ -2,10 +2,11 @@
 
 # IANN (InterAtomic Neural Network framework)
 
-[![Docs](https://img.shields.io/badge/Docs-available-blue)](https://iann.readthedocs.io)
+[![Docs](https://img.shields.io/badge/Docs-available-E91E63?logo=readthedocs&logoColor=white)](https://iann.readthedocs.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/MIT)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) 
-[![C++](https://img.shields.io/badge/C++-11-00599C?logo=cplusplus&logoColor=white)](https://isocpp.org/) 
+[![C++](https://img.shields.io/badge/C++-11-8A2BE2?logo=cplusplus&logoColor=white)](https://isocpp.org/) 
+[![PyPI](https://img.shields.io/badge/PyPI-v0.1.3-2EA043?logo=pypi&logoColor=white)](https://pypi.org/project/pyiann/)
 
 
 - [1. Introductions](#1-introductions)
@@ -59,7 +60,7 @@
 
 ## 1. Introductions
 
-IANN (InterAtomic Neural Network framework) framework is an equivariant interatomic neural network potential framework package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [PaiNN](https://arxiv.org/abs/2102.03150), [NequIP](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), [EquiformerV2](https://arxiv.org/abs/2306.12059), [EquiformerV3](https://doi.org/10.48550/arXiv.2604.09130), [Allegro](https://doi.org/10.1038/s41467-023-36329-y), [UMA](https://arxiv.org/abs/2506.23971) and [FastPot](https://github.com/changzhiai/IANN), focusing on predicting energies and forces with high accuracy. Every architecture is trained through a single data object and a single trainer, so the choice of model is a one-word change in a configuration dictionary rather than a change of code base. 
+IANN (InterAtomic Neural Network) framework is an equivariant interatomic neural network potential framework package for materials science and computational chemistry. It implements state-of-the-art graph neural network models for periodic and non-periodic systems, including [PaiNN](https://arxiv.org/abs/2102.03150), [NequIP](https://doi.org/10.1038/s41467-022-29939-5), [MACE](https://arxiv.org/abs/2206.07697), [EquiformerV2](https://arxiv.org/abs/2306.12059), [EquiformerV3](https://doi.org/10.48550/arXiv.2604.09130), [Allegro](https://doi.org/10.1038/s41467-023-36329-y), [UMA](https://arxiv.org/abs/2506.23971) and [FastPot](https://github.com/changzhiai/IANN), focusing on predicting energies and forces with high accuracy. Every architecture is trained through a single data object and a single trainer, so the choice of model is a one-word change in a configuration dictionary rather than a change of code base. 
 
 Key features:
 - Easy to use and to switch models
