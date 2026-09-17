@@ -33,7 +33,14 @@ long_description = re.sub(
 
 setup(
     name="pyiann",
-    version="0.1.3",
+    # 0.1.3.post1: a PEP 440 post-release. The code is identical to 0.1.3 --
+    # only the packaging metadata changed (the README's image paths are now
+    # rewritten to absolute URLs so the figures render on the PyPI page). PyPI
+    # stores the description with the uploaded file and never re-renders it, and
+    # a deleted filename can never be reused, so correcting the page requires a
+    # new upload; a post-release says "same software" rather than claiming a new
+    # version.
+    version="0.1.3.post1",
     description="Interatomic Neural Network Package for materials science",
     long_description=long_description,
     long_description_content_type="text/markdown",
