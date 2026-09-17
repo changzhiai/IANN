@@ -13,12 +13,11 @@ summarised under :ref:`0.0.0 (2024-11-07) <release-0.0.0>`.
 
 .. _release-0.1.3:
 
-0.1.3 (unreleased)
+0.1.3 (2026-09-17)
 ------------------
 
-In development on the ``master`` branch. The headline change is that every
-architecture now reaches LAMMPS, and that the framework can be driven by an
-automated caller.
+The headline change is that every architecture now reaches LAMMPS, and that the
+framework can be driven by an automated caller.
 
 Added
 ~~~~~
@@ -42,10 +41,31 @@ Added
   UMA models.
 * **Documentation:** :doc:`about`, :doc:`performance`, :doc:`agents`, these
   release notes, and a project logo.
+* ``iann.__version__``, read from the installed distribution metadata and logged
+  by the trainer at start-up alongside the PyTorch version.
+
+Changed
+~~~~~~~
+
+* ``huggingface_hub`` **is now an optional dependency**, installed with
+  ``pip install "iann[foundations]"``. Only downloading a released foundation
+  model needs it: training, prediction, the LAMMPS export and reading the model
+  catalogue all work without it, and ``iann doctor`` reports it as optional
+  rather than as a broken environment.
+* **The icon is one mark at every size.** The four-node small-size variant is
+  gone, so the 16 px and 32 px icons and the favicon are the same figure as the
+  primary logo; the favicon is cropped to its artwork and drawn with a solid
+  ring, which is what makes it legible in a browser tab.
 
 Fixed
 ~~~~~
 
+* **The LAMMPS export check failed on NequIP.** The harness restated NequIP's
+  training configuration by hand and had drifted out of step with it --- 128
+  channels and 2 layers against the 64 and 3 actually trained --- and because
+  explicit keyword arguments override the ``model_config`` persisted in the
+  checkpoint, the rebuilt model had the wrong parameter shapes. The harness now
+  passes no configuration and lets each checkpoint describe itself.
 * **EquiformerV2 could no longer be exported to TorchScript.** The change that
   reworked its forces introduced a call TorchScript cannot compile, which went
   unnoticed because the export check aborted on the first architecture that
