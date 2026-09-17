@@ -24,7 +24,10 @@ def _detect_version():
         from importlib.metadata import PackageNotFoundError, version
     except ImportError:                       # Python < 3.8
         return "unknown"
-    for name in ("IANN", "iann"):
+    # The distribution is published as "pyiann"; the older local installs were
+    # "IANN". Both are tried so a checkout installed either way still reports a
+    # version rather than "unknown".
+    for name in ("pyiann", "IANN", "iann"):
         try:
             return version(name)
         except PackageNotFoundError:

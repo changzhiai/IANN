@@ -1,3 +1,13 @@
+# Credentials. Never commit these; a leaked PyPI or HuggingFace token lets
+# anyone publish under this project's name. Tokens belong in ~/.pypirc (chmod
+# 600, outside the repository) or a keyring -- note twine does not read .env,
+# so putting one there would not even work.
+.env
+.env.*
+.pypirc
+*.token
+secrets.*
+
 # Python
 __pycache__/
 *.pyc
@@ -7,8 +17,18 @@ __pycache__/
 
 # Build artifacts
 build/*
-# Only the top-level build/ -- a pattern containing a slash is anchored here, so
-# docs/build/html is NOT covered and stays tracked.
+dist/*
+*.egg-info/
+# build/* and dist/* match only the top-level directories: a pattern containing a
+# slash is anchored to this file, so docs/build/html is NOT covered and stays
+# tracked. Do not "tidy" these into build/ and dist/ -- without the slash they
+# would match a directory of that name at any depth, and docs/build/html would
+# silently disappear from the repository.
+#
+# dist/ holds the sdist and wheel from `python -m build` (~50 MB, since the
+# bundled foundation checkpoints ship inside the wheel) and *.egg-info/ the
+# build metadata. Both are regenerated on every build; pyproject.toml and
+# setup.py are the sources and stay tracked.
 
 # Trained models and checkpoints
 *.pth

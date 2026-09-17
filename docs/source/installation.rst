@@ -43,8 +43,7 @@ never touches them:
 
    pip install ".[foundations]"   # huggingface_hub, to download released models
    pip install ".[agent]"         # the MCP SDK, to run the agent server
-   pip install ".[foundations,agent]"
-   
+
 
 .. note::
    If you encounter a C++ compilation error (e.g. ``must #include <typeinfo> before using typeid``) when installing dependencies like ``asap3`` due to compiler version incompatibility, you can fix it by exporting the compiler flag before installation:
@@ -53,6 +52,27 @@ never touches them:
 
       export CXXFLAGS="-include typeinfo"
       pip install .
+
+Installing from PyPI
+--------------------
+
+Alternatively, the released version can be installed from PyPI without cloning
+the repository, and the distribution is published as ``pyiann`` (package name ``iann``
+was already taken there by an unrelated project):
+
+.. code-block:: bash
+
+   pip install pyiann
+   pip install "pyiann[foundations]"
+   pip install "pyiann[agent]"
+
+.. code-block:: python
+
+   import iann          # the import name is iann, not pyiann
+
+Install from source rather than from PyPI if you want to run the test suite,
+build the documentation, or modify the framework --- none of those are shipped
+in the wheel.
 
 
 GPU Support

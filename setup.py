@@ -1,3 +1,5 @@
+import re
+
 from setuptools import setup, find_packages
 
 def parse_requirements(filename):
@@ -6,10 +8,35 @@ def parse_requirements(filename):
 
 requirements = parse_requirements('requirements.txt')
 
+# The PyPI project page renders this; without it the page is blank. Read rather
+# than duplicated, so it cannot drift from the README.
+#
+# Relative image paths have to become absolute here. The README keeps them
+# relative because that is what works on GitHub and when the file is read
+# offline in a checkout, but PyPI renders the description with no repository
+# context, so a relative src resolves to nothing and the figures silently do not
+# appear. Neither GitHub nor PyPI allows a fallback chain -- <picture>/<source>
+# selects on type and media rather than on load failure, and both sanitizers
+# strip onerror handlers and <object> fallbacks -- so the rewrite happens at
+# build time instead, leaving one source of truth.
+_RAW = "https://raw.githubusercontent.com/changzhiai/IANN/master"
+
+with open('README.md', encoding='utf-8') as fh:
+    long_description = fh.read()
+
+long_description = re.sub(
+    r'(src=")(docs/|examples/)',          # HTML <img src="docs/...">
+    lambda m: f'{m.group(1)}{_RAW}/{m.group(2)}', long_description)
+long_description = re.sub(
+    r'(\]\()(docs/|examples/)',            # markdown ![alt](docs/...)
+    lambda m: f'{m.group(1)}{_RAW}/{m.group(2)}', long_description)
+
 setup(
-    name="IANN",
+    name="pyiann",
     version="0.1.3",
     description="Interatomic Neural Network Package for materials science",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     author="Changzhi Ai",
     author_email="changzhi@stanford.edu",
     url="https://github.com/changzhiai/IANN",

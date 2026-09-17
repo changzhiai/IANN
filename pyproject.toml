@@ -1,0 +1,10 @@
+# PEP 517/518 build configuration.
+#
+# The project metadata deliberately stays in setup.py rather than moving into a
+# [project] table here: setup.py reads requirements.txt and README.md at build
+# time, which a static table cannot express. This file exists so that
+# `python -m build` and `pip install .` use an isolated, declared build
+# environment instead of falling back to the legacy setup.py path.
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
