@@ -13,22 +13,15 @@ summarised under :ref:`0.0.0 (2024-11-07) <release-0.0.0>`.
 
 .. _release-0.1.3:
 
-0.1.3 (unreleased)
+0.1.3 (2026-09-17)
 ------------------
 
-In development on the ``master`` branch. The headline change is that every
-architecture now reaches LAMMPS, and that the framework can be driven by an
-automated caller.
+The headline change is that every architecture now reaches LAMMPS, and that the
+framework can be driven by an automated caller.
 
 Added
 ~~~~~
 
-* **LAMMPS export for Allegro, EquiformerV3 and UMA.** The export path reached
-  only four of the seven architectures, so a model trained with one of the
-  other three could not be deployed at all. All seven now export, and every
-  change was gated on the exported model reproducing the eager energy and
-  forces, so checkpoints trained before this release continue to load
-  unchanged.
 * **An agent interface**, as the ``iann/agent/`` subpackage: the ``iann``
   console command with ``--json`` on every subcommand, an MCP server,
   tool-neutral repository notes, and five Claude Code skills — the last two
@@ -42,15 +35,21 @@ Added
   UMA models.
 * **Documentation:** :doc:`about`, :doc:`performance`, :doc:`agents`, these
   release notes, and a project logo.
+* ``iann.__version__``, read from the installed distribution metadata and logged
+  by the trainer at start-up alongside the PyTorch version.
 
-Fixed
-~~~~~
+Changed
+~~~~~~~
 
-* **EquiformerV2 could no longer be exported to TorchScript.** The change that
-  reworked its forces introduced a call TorchScript cannot compile, which went
-  unnoticed because the export check aborted on the first architecture that
-  failed. That check now tries each architecture independently and reports a
-  summary.
+* ``huggingface_hub`` **is now an optional dependency**, installed with
+  ``pip install "iann[foundations]"``. Only downloading a released foundation
+  model needs it: training, prediction, the LAMMPS export and reading the model
+  catalogue all work without it, and ``iann doctor`` reports it as optional
+  rather than as a broken environment.
+* **The icon is one mark at every size.** The four-node small-size variant is
+  gone, so the 16 px and 32 px icons and the favicon are the same figure as the
+  primary logo; the favicon is cropped to its artwork and drawn with a solid
+  ring, which is what makes it legible in a browser tab.
 
 .. _release-0.1.2:
 
