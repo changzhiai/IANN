@@ -299,7 +299,9 @@ supporting information. Use
 :func:`~iann.foundations.foundation_models.list_foundation_models` to list these checkpoints.
 
 .. note::
-   This is not a controlled ablation — the architectures differ in parameter count and in
+   These checkpoints were trained with the code as it stood at publication, which the ``paper``
+   branch preserves. If loading one raises an architecture-incompatible error — an unexpected or
+   missing ``state_dict`` key, or a size mismatch — switch to that branch and try again. A checkpoint stores weights, not the code that produced them, so any later change to a model's layer structure or parameter shapes makes the two disagree. In addition, this is not a controlled ablation — the architectures differ in parameter count and in
    hyperparameters that cannot be held fixed across them. Read it as what the framework produces
    in practice, not as a ranking. Inference cost differs far more than accuracy does between these
    rows; see :doc:`performance`.

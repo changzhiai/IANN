@@ -8,7 +8,7 @@ requirements = parse_requirements('requirements.txt')
 
 setup(
     name="IANN",
-    version="0.1.2",
+    version="0.1.3",
     description="Interatomic Neural Network Package for materials science",
     author="Changzhi Ai",
     author_email="changzhi@stanford.edu",
@@ -49,6 +49,12 @@ setup(
         # `pip install -e ".[agent]"` adds the MCP server's only dependency;
         # the CLI itself needs nothing beyond the base requirements.
         "agent": ["mcp>=1.2.0"],
+        # Only `iann.foundations` needs this, and only to *download* a released
+        # checkpoint -- resolving a bundled one or an explicit path does not
+        # import it. Keeping it out of install_requires means a user who trains
+        # on their own data never pulls it in; the download path raises with the
+        # install command when it is missing.
+        "foundations": ["huggingface_hub>=0.23.0"],
         "dev": [
             "pytest>=6.0.0",
             "pylint>=2.6.0",

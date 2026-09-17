@@ -9,7 +9,7 @@ molecular-dynamics interface. Comparing two architectures on the same dataset, m
 model from a training script into a production simulation, or extending either one therefore
 requires substantial re-engineering.
 
-IANN (InterAtomic Neural Network) places seven equivariant graph neural network architectures
+IANN (InterAtomic Neural Network) framework places seven equivariant graph neural network architectures
 behind a single typed data object, a single trainer and a single deployment route. Every model
 consumes and returns the same structure, so the choice of architecture is a one-word change in a
 configuration dictionary rather than a change of code base.

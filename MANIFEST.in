@@ -12,8 +12,6 @@ include iann/data/*.pt
 include iann/foundations/*.pt
 recursive-include iann/plugins *.cpp *.h *.in README.md
 
-# proj/ is a working directory of paper sources and HuggingFace clones (it is
-# gitignored); never ship it.
 recursive-exclude proj *
 prune proj
 

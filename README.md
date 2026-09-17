@@ -117,6 +117,12 @@ pip install -e .
 > pip install -e .
 > ```
 
+Optional extras, not installed by default:
+```bash
+pip install -e ".[foundations]"   # huggingface_hub, to download released models
+pip install -e ".[agent]"         # the MCP SDK, to run the agent server
+```
+
 ### GPU Support
 For GPU acceleration, make sure you have CUDA installed and PyTorch with CUDA support:
 

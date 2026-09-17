@@ -69,27 +69,14 @@ _RESULTS = []
 
 if __name__ == "__main__":
     _try("painn")
-    _try("nequip",
-                   num_channels=128, 
-                   num_layers=2, 
-                   lmax=1, 
-                   parity=True,
-                   cutoff=5.5, 
-                   batch_size=16, 
-                   learning_rate=0.001, 
-                   forces_weight=0.99, 
-                   max_steps=30000000, 
-                   random_seed=889, 
-                   val_ratio=0.003, 
-                   stop_patience=600, 
-                   log_interval=1,
-                   norm_data=True, 
-                   norm_per_atom=True, 
-                   use_cue=False,
-                   device='cpu',
-                   output_dir='test/nequip/output',
-                   output_log='output.log',
-                   output_model='model.pt')
+    # No config: the checkpoint persists model_config, so the converter rebuilds
+    # the architecture from the checkpoint itself. This entry used to restate the
+    # training config by hand and had drifted out of step with
+    # test/nequip/train.py -- 128 channels and 2 layers against the 64 and 3 it
+    # actually trains -- and because explicit kwargs override the persisted
+    # values, the export failed on a state_dict size mismatch. Restating
+    # structural parameters here can only reintroduce that.
+    _try("nequip")
     _try("mace",
                     num_channels=128, # number of channels in the model
                     num_layers=2, # number of layers in the model
