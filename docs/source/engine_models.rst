@@ -103,6 +103,35 @@ Example usage:
 
 There are more adjustable parameters for NequIP model to setup the training process, please check the source code :class:`iann.models.nequip.NequIP` for more details (all adjustable parameters are passed as `kwargs.get` in the model class).
 
+The **spherical harmonics** :math:`Y_\ell^m` are the angular basis that makes the convolution equivariant: each edge
+direction is projected onto them, and the resulting coefficients transform under rotation in a
+known way rather than arbitrarily. The **degree** :math:`\ell = 0, 1, 2, \dots` fixes how a function
+transforms under rotation: :math:`\ell = 0` is unchanged by any rotation and so behaves as a
+scalar, :math:`\ell = 1` transforms as a vector, :math:`\ell = 2` as a rank-2 tensor, and so on.
+The **order** :math:`m` runs over the :math:`2\ell + 1` integers from :math:`-\ell` to
+:math:`+\ell` and labels the individual functions within one degree — one column of the figure
+below. The distinction is what the construction rests on: a rotation mixes the :math:`m`
+components within a degree but never moves anything between degrees, so each row is an
+irreducible representation of SO(3). A network can therefore treat :math:`\ell` as a fixed type
+attached to a feature, while the :math:`m` components are what a rotation actually acts on.
+
+.. figure:: _static/images/spherical_harmonics.svg
+   :width: 70%
+   :align: center
+
+   The real spherical harmonics :math:`Y_\ell^m` up to :math:`\ell = 3`: one row per degree
+   :math:`\ell`, one column per order :math:`m`, with each lobe labelled by the Cartesian
+   polynomial it corresponds to. Adapted from the
+   `e3nn poster <https://tinyurl.com/e3nn-poster>`_.
+
+Two practical consequences. First, ``lmax`` decides how many of these rows a model keeps, so it
+buys angular resolution at a cost that grows as :math:`(\ell_\mathrm{max}+1)^2` in the number of
+basis functions — which is why it is the parameter that most affects both accuracy and runtime in
+NequIP, MACE, Allegro and the Equiformers. Second, the :math:`\ell = 1` row above is ordered
+:math:`(y, z, x)`, not :math:`(x, y, z)`: that is `e3nn <https://docs.e3nn.org/en/latest/api/o3/o3_sh.html>`_'s
+convention, and it matters whenever raw irreducible-representation coefficients are read or written
+by hand rather than passed between layers.
+
 MACE
 ----
 

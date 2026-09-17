@@ -155,7 +155,8 @@ def text(page):
 # page -> (label, [strings that must appear])
 CHECKS = {
     "engine_models.html": ("all architectures documented",
-        ["PaiNN", "NequIP", "Allegro", "MACE", "EquiformerV2", "EquiformerV3", "UMA", "FastPot"]),
+        ["PaiNN", "NequIP", "Allegro", "MACE", "EquiformerV2", "EquiformerV3", "UMA", "FastPot",
+         "spherical_harmonics.svg", "e3nn-poster"]),
     "training.html": ("model= values listed",
         ["painn", "nequip", "allegro", "mace", "equiformerv2", "equiformerv3", "uma", "fastpot"]),
     "foundation_models.html": ("released models listed",
