@@ -58,10 +58,11 @@ TOOLS: List[Dict[str, Any]] = [
         "fn": lambda group="painn", **kw: commands.foundation_list(group),
         "description": (
             "List the released pretrained foundation models with their energy and "
-            "force MAEs. Group 'painn' is the twelve released potentials, 'arch' the "
+            "force MAEs. Group 'painn' is the nine released potentials, 'arch' the "
             "seven architecture-comparison runs, 'all' both. Match the exchange-"
-            "correlation functional to your system: rpbe-* for surfaces and "
-            "catalysis, pbe-* for bulk, r2scan-* for meta-GGA."),
+            "correlation functional to your system: rpbe-* for metal surfaces "
+            "and interfaces, pbe-* for bulk and oxide surfaces, r2scan-* for "
+            "meta-GGA."),
         "schema": {
             "type": "object",
             "properties": {"group": {"type": "string",

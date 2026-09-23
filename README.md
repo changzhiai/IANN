@@ -87,7 +87,7 @@ README:
 |---|---|
 | [About](https://iann.readthedocs.io/en/latest/about.html) | The framework's five layers, and the graph/data-object/derivative route that unifies them |
 | [Engine Models](https://iann.readthedocs.io/en/latest/engine_models.html) | Each architecture, its diagram, its parameters, and which to choose |
-| [Foundation Models](https://iann.readthedocs.io/en/latest/foundation_models.html) | The curated DFT databases and all twelve released checkpoints with accuracies |
+| [Foundation Models](https://iann.readthedocs.io/en/latest/foundation_models.html) | The curated DFT databases and all released checkpoints with accuracies |
 | [Performance](https://iann.readthedocs.io/en/latest/performance.html) | Measured inference cost, memory ceilings, and multi-GPU scaling for training and LAMMPS |
 | [Parallelization](https://iann.readthedocs.io/en/latest/parallelization.html) | Submission scripts for SLURM and PBS clusters |
 | [Agent interface](https://iann.readthedocs.io/en/latest/agents.html) | The `iann` command, the MCP server, and the Claude Code skills |
@@ -281,8 +281,10 @@ for atoms in images:
 
 ## 6. Foundation Models
 
-IANN provides twelve pre-trained PaiNN foundation models at three levels of DFT theory (PBE, RPBE and r2SCAN) that you can use out-of-the-box or fine-tune for your specific tasks. A model is requested by name and downloaded from the HuggingFace Hub on first use, then cached:
-`pbe-mptrj`, `pbe-salex`, `pbe-omat24`, `pbe-matpes`, `pbe-all`, `rpbe-oc20`, `rpbe-oc22`, `rpbe-oc25`, `rpbe-all`, `r2scan-mptrj`, `r2scan-matpes`, `r2scan-all`.
+IANN provides nine pre-trained PaiNN foundation models at three levels of DFT theory (PBE, RPBE and r2SCAN) that you can use out-of-the-box or fine-tune for your specific tasks. A model is requested by name and downloaded from the HuggingFace Hub on first use, then cached:
+`pbe-mptrj`, `pbe-salex`, `pbe-omat24`, `pbe-matpes`, `pbe-oc22`, `rpbe-oc20`, `rpbe-oc25`, `r2scan-mptrj`, `r2scan-matpes`.
+
+Each is trained on a single source database grouping by functional. Pick the database closest to your own chemistry.
 
 ### Using Pre-trained Foundation Models
 
@@ -294,7 +296,7 @@ from iann.calculators import MLCalculator
 from ase.build import fcc100
 
 calc = MLCalculator(
-  model_path=foundation_model("rpbe-all"), # RPBE prior, trained on OC20+OC22+OC25
+  model_path=foundation_model("rpbe-oc20"), # RPBE prior for adsorption energetics
   compute_forces=True,
   device='cpu') # use 'cuda' for GPU
 
@@ -323,7 +325,7 @@ trainer = Trainer(model="painn",
         "batch_size": 16, # batch size
         "learning_rate": 0.0001, # initial learning rate
         "forces_weight": 0.9, # weight for forces
-        "load_model": foundation_model("rpbe-all"), # load the foundation model
+        "load_model": foundation_model("rpbe-oc20"), # load the foundation model
         "reset_lr": True, # start a fresh learning-rate schedule
         "max_steps": 10000000, # maximum number of steps
         "random_seed": 888, # random seed for reproducibility
