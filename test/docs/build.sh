@@ -160,9 +160,9 @@ CHECKS = {
     "training.html": ("model= values listed",
         ["painn", "nequip", "allegro", "mace", "equiformerv2", "equiformerv3", "uma", "fastpot"]),
     "foundation_models.html": ("released models listed",
-        ["pbe-mptrj", "pbe-salex", "pbe-omat24", "pbe-matpes", "pbe-all",
-         "rpbe-oc20", "rpbe-oc22", "rpbe-oc25", "rpbe-all",
-         "r2scan-mptrj", "r2scan-matpes", "r2scan-all",
+        ["pbe-mptrj", "pbe-salex", "pbe-omat24", "pbe-matpes", "pbe-oc22",
+         "rpbe-oc20", "rpbe-oc25",
+         "r2scan-mptrj", "r2scan-matpes",
          "iann-foundation-models",
          "fig3_dft_db.png", "DFT databases", "dft-databases"]),
     "api.html": ("model classes in the API reference",
@@ -190,7 +190,10 @@ CHECKS = {
 }
 
 # Strings that must NOT appear anywhere: stale repository names.
-FORBIDDEN = ["dft-foundation-models", "dft_traj"]
+# The merged models were withdrawn and OC22 was regrouped under PBE; these
+# names must not reappear. "rpbe-all" also covers the "pbe-all" substring.
+FORBIDDEN = ["dft-foundation-models", "dft_traj",
+             "pbe-all", "rpbe-all", "r2scan-all", "rpbe-oc22"]
 
 bad = 0
 for page, (label, needles) in CHECKS.items():

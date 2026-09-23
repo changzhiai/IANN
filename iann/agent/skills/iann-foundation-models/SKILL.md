@@ -12,8 +12,8 @@ fine-tuning on a small in-house dataset, not finished potentials.
 ```bash
 iann foundation list --json              # the twelve, with accuracies
 iann foundation list --group all         # plus 7 architecture-comparison runs
-iann foundation info rpbe-all --json     # details + whether it is cached
-iann foundation fetch rpbe-all           # resolve to a path, downloading if needed
+iann foundation info rpbe-oc20 --json     # details + whether it is cached
+iann foundation fetch rpbe-oc20           # resolve to a path, downloading if needed
 ```
 
 ## Choosing one
@@ -59,7 +59,7 @@ cache and forbid network access inside the job:
 
 ```bash
 # login node
-iann foundation fetch rpbe-all
+iann foundation fetch rpbe-oc20
 
 # in the job script
 export HF_HOME=/scratch/$USER/hf          # or IANN_FOUNDATION_CACHE

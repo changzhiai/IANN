@@ -5,7 +5,7 @@ A foundation model is a set of pretrained weights, as opposed to an *architectur
 design). The architectures IANN implements are covered in :doc:`engine_models`; this page covers
 the pretrained checkpoints released with the framework.
 
-Twelve PaiNN foundation models are released, grouped by exchange-correlation functional. Grouping
+PaiNN foundation models are released, grouped by exchange-correlation functional. Grouping
 by functional rather than pooling everything keeps each model on a single energy scale, so a user
 working at the RPBE level normally used for adsorption energetics is not forced to accept a prior
 averaged over inconsistent references.
@@ -20,7 +20,7 @@ Training a foundation model needs data at a single, consistent level of theory, 
 datasets are spread across functionals and vary in quality. Published trajectories were therefore
 screened for energy and force outliers and reassembled into three databases, one per functional,
 converted to a single ASE trajectory format that the framework reads directly with no
-preprocessing step.
+preprocessing step. Sources are grouped by the level of theory of their labels.
 
 .. list-table::
    :header-rows: 1
@@ -56,11 +56,17 @@ preprocessing step.
      - 0.43 M
      - 3.9
      - 89
+   * - PBE
+     - OC22
+     - Adsorbates, oxides
+     - 8.20 M
+     - 654.3
+     - 57
    * - **PBE**
-     - **all four merged**
+     - **total**
      -
-     - **23.7 M**
-     - **317.6**
+     - **31.9 M**
+     - **972.0**
      - **89**
    * - RPBE
      - OC20 (2M subset)
@@ -69,23 +75,17 @@ preprocessing step.
      - 146.5
      - 56
    * - RPBE
-     - OC22
-     - Adsorbates, oxides
-     - 8.20 M
-     - 654.3
-     - 57
-   * - RPBE
      - OC25
      - Solid–liquid interfaces
      - 7.37 M
      - 1064.3
      - 73
    * - **RPBE**
-     - **all three merged**
+     - **total**
      -
-     - **17.6 M**
-     - **1865.1**
-     - **74**
+     - **9.37 M**
+     - **1210.8**
+     - **73**
    * - r²SCAN
      - MP r²SCAN
      - Bulk, relaxations
@@ -99,7 +99,7 @@ preprocessing step.
      - 3.0
      - 89
    * - **r²SCAN**
-     - **both merged**
+     - **total**
      -
      - **0.63 M**
      - **8.1**
@@ -122,11 +122,12 @@ The three levels differ in chemical scope as much as in size:
 
 PBE and r²SCAN span essentially the whole periodic table, including the lanthanides and the
 actinides up to Pu, but differ by more than an order of magnitude in depth. RPBE is the opposite:
-no actinides and only six lanthanides, but 17 million structures containing oxygen and 12 million
-containing hydrogen — a direct reflection of its origin in surface and solid–liquid-interface
-catalysis. So the choice of prior is a choice of chemical scope, not only of functional: for an
-oxide surface the RPBE models have seen far more relevant chemistry than their structure count
-alone suggests, while an f-block system is only covered at the PBE and r²SCAN levels.
+no actinides and only five lanthanides, but 9.0 million structures containing hydrogen and 8.6
+million containing oxygen — a direct reflection of its origin in surface and solid–liquid-interface
+catalysis. So the choice of prior is a choice of chemical scope, not only of functional: for a
+metal surface or a solid–liquid interface the RPBE models have seen far more relevant chemistry
+than their structure count alone suggests, oxide surfaces are covered by ``pbe-oc22`` at the PBE
+level, and an f-block system only by the PBE and r²SCAN models.
 
 .. note::
    Because these databases were cleaned using the residuals of a trained model, the structures
@@ -181,36 +182,24 @@ removal, so they measure fit rather than extrapolation.
      - 434,083
      - 0.0463
      - 0.0930
-   * - ``pbe-all``
+   * - ``pbe-oc22``
      - PBE
-     - MPtrj + sAlex + OMat24 + MatPES
-     - 23,694,325
-     - 0.0545
-     - 0.1039
+     - OC22
+     - 8,198,695
+     - 0.0381
+     - 0.0528
    * - ``rpbe-oc20``
      - RPBE
      - OC20
      - 1,999,216
      - 0.0263
      - 0.0630
-   * - ``rpbe-oc22``
-     - RPBE
-     - OC22
-     - 8,198,695
-     - 0.0381
-     - 0.0528
    * - ``rpbe-oc25``
      - RPBE
      - OC25
      - 7,369,601
      - 0.0116
      - 0.0753
-   * - ``rpbe-all``
-     - RPBE
-     - OC20 + OC22 + OC25
-     - 17,553,809
-     - 0.0454
-     - 0.0712
    * - ``r2scan-mptrj``
      - r\ :sup:`2`\ SCAN
      - MPtrj (r\ :sup:`2`\ SCAN subset)
@@ -223,18 +212,9 @@ removal, so they measure fit rather than extrapolation.
      - 387,285
      - 0.0446
      - 0.1127
-   * - ``r2scan-all``
-     - r\ :sup:`2`\ SCAN
-     - MPtrj + MatPES (r\ :sup:`2`\ SCAN)
-     - 625,243
-     - 0.0678
-     - 0.0655
 
 .. note::
-   The merged models (``pbe-all``, ``rpbe-all``, ``r2scan-all``) span the chemical scope of all
-   their constituents, and pay for that breadth in accuracy: at every functional level the merged
-   model is worse on energies than the best of the models it subsumes. Both the specialised and
-   the merged checkpoints are released so you can pick the closer prior for your system.
+   Every model is trained on a single source database; Grouping by functional puts the labels on one exchange-correlation level, but it does not mean the remaining DFT settings are identical. Pick the database closest to your own chemistry.
 
 
 Across architectures
@@ -317,7 +297,7 @@ later calls are served from the cache.
 
    from iann.foundations import foundation_model
 
-   path = foundation_model("rpbe-all")     # downloads on first use, then cached
+   path = foundation_model("rpbe-oc20")     # downloads on first use, then cached
 
 The same function also accepts a path to a checkpoint of your own, which is returned unchanged:
 
@@ -326,7 +306,7 @@ The same function also accepts a path to a checkpoint of your own, which is retu
    path = foundation_model("output/model.pt")
 
 Names are matched case-insensitively and accept the spellings used in the paper, so
-``"rpbe-all"``, ``"RPBE-all"`` and ``"rpbe_all"`` are equivalent.
+``"rpbe-oc20"``, ``"RPBE-OC20"`` and ``"rpbe_oc20"`` are equivalent.
 
 To inspect a model without loading it:
 
@@ -335,7 +315,7 @@ To inspect a model without loading it:
    from iann.foundations import foundation_model_info, foundation_models_table
 
    print(foundation_models_table())        # the table above, as text
-   print(foundation_model_info("rpbe-all"))
+   print(foundation_model_info("rpbe-oc20"))
 
 Offline models
 --------------
@@ -353,7 +333,7 @@ Compute nodes frequently have no network access. Prefetch on a login node:
 .. code-block:: python
 
    from iann.foundations import download_foundation_model
-   download_foundation_model("rpbe-all")
+   download_foundation_model("rpbe-oc20")
 
 or from the shell:
 
@@ -365,7 +345,7 @@ Then, inside the job, guarantee that nothing touches the network:
 
 .. code-block:: python
 
-   path = foundation_model("rpbe-all", local_files_only=True)
+   path = foundation_model("rpbe-oc20", local_files_only=True)
 
 :func:`~iann.foundations.foundation_models.is_cached` reports whether a model can be resolved
 without network access, and :func:`~iann.foundations.foundation_models.list_available_models`
@@ -374,7 +354,7 @@ cached.
 
 .. note::
    The catalog is pinned to a specific revision of the Hub repository, so a name always resolves
-   to the same weights. This matters for reproducibility: a result that cites ``rpbe-all`` refers
+   to the same weights. This matters for reproducibility: a result that cites ``rpbe-oc20`` refers
    to one definite checkpoint.
 
 Prediction
@@ -389,7 +369,7 @@ For example, you can use the following code to load a foundation model:
    from ase.build import fcc100
 
    calc = MLCalculator(
-      model_path=foundation_model("rpbe-all"), # RPBE prior, trained on OC20+OC22+OC25
+      model_path=foundation_model("rpbe-oc20"), # RPBE prior for adsorption energetics
       compute_forces=True,
       device='cpu') # use 'cuda' for GPU
 
@@ -421,7 +401,7 @@ resuming the pre-training one, which is what you want when adapting a prior to n
             "batch_size": 16, # batch size
             "learning_rate": 0.0001, # initial learning rate
             "forces_weight": 0.9, # weight for forces
-            "load_model": foundation_model("rpbe-all"), # load the foundation model
+            "load_model": foundation_model("rpbe-oc20"), # load the foundation model
             "reset_lr": True, # start a fresh schedule rather than resuming
             "max_steps": 10000000, # maximum number of steps
             "random_seed": 888, # random seed for reproducibility
@@ -448,8 +428,8 @@ Bundled checkpoints
 
 Four older checkpoints ship inside the package itself and resolve without any download:
 
-* ``painn_oc.pt`` — 128 channels, trained on OC20 and OC22; superseded by ``rpbe-all``.
 * ``painn_mptrj.pt`` — 128 channels, trained on MPtrj; superseded by ``pbe-mptrj``.
+* ``painn_oc.pt`` — 128 channels, trained on OC22; superseded by ``rpbe-oc22``.
 * ``painn_oc_124.pt`` and ``painn_oc_132.pt`` — as ``painn_oc.pt`` but 124 and 132 channels wide
   respectively. Together with the 128-channel model they form a three-member set that
   :class:`~iann.calculators.calculators.EnsembleCalculator` can use for uncertainty estimates

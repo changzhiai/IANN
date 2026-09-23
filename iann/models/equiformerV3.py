@@ -189,7 +189,25 @@ def init_edge_rot_mat(edge_distance_vec: torch.Tensor, use_rotation_mask: bool =
 
 
 # Borrowed from e3nn @ 0.4.0 (kept identical to upstream EquiformerV3)
-_Jd = torch.load(os.path.join(iann.__path__[0], "data", "Jd.pt"))
+#
+# Read on first use rather than at import. Loading it at module scope made
+# `import iann.models.equiformerV3` require a working torch just to import,
+# which is the one thing iann/__init__.py deliberately avoids -- it resolves
+# every public name lazily so a broken numerical stack fails at first use, not
+# at import. It also broke the documentation build: docs/source/conf.py mocks
+# `torch` for autodoc, and with the real package already in sys.modules the
+# endianness check inside torch.load resolves against mock objects and raises
+# "Invalid load endianness type", so EquiformerV3 silently disappeared from the
+# API pages while the build still reported success.
+_Jd = None
+
+
+def _load_jd():
+    """The Wigner-D tables, loaded once and cached."""
+    global _Jd
+    if _Jd is None:
+        _Jd = torch.load(os.path.join(iann.__path__[0], "data", "Jd.pt"))
+    return _Jd
 
 
 def _z_rot_mat(angle: torch.Tensor, l: int) -> torch.Tensor:
@@ -482,9 +500,10 @@ class SO3Rotation(nn.Module):
         self.lmax = lmax
         self.mmax = mmax
         self.use_rotation_mask = use_rotation_mask
-        assert lmax < len(_Jd), (
-            f"wigner D maximum l implemented is {len(_Jd) - 1}, got lmax={lmax}")
-        self._jd = [t for t in _Jd]
+        jd = _load_jd()
+        assert lmax < len(jd), (
+            f"wigner D maximum l implemented is {len(jd) - 1}, got lmax={lmax}")
+        self._jd = [t for t in jd]
 
         mapping = CoefficientMappingModule(
             lmax=self.lmax, mmax=self.lmax, use_rotate_inv_rescale=True

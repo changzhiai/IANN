@@ -79,7 +79,7 @@ TOOLS: List[Dict[str, Any]] = [
         "schema": {
             "type": "object",
             "properties": {"name": {"type": "string",
-                                    "description": "e.g. 'rpbe-all', 'pbe-mptrj'"}},
+                                    "description": "e.g. 'rpbe-oc20', 'pbe-mptrj'"}},
             "required": ["name"],
         },
     },

@@ -63,26 +63,18 @@ _ENTRIES: List[ModelEntry] = [
     _E("pbe-matpes", "PBE-MatPES", "painn/pbe/matpes/matpes.pt",
        functional="PBE", dataset="MatPES", n_structures=434_083,
        n_params=_PAINN, energy_mae=0.0463, forces_mae=0.0930),
-    _E("pbe-all", "PBE-all", "painn/pbe/all/pbe.pt",
-       functional="PBE", dataset="MPtrj + sAlex + OMat24 + MatPES",
-       n_structures=23_694_325, n_params=_PAINN,
-       energy_mae=0.0545, forces_mae=0.1039,
-       description="Merged PBE model, spanning the scope of all four sources."),
+    # OC22 is a PBE(+U) dataset, not RPBE, so it is grouped here rather than
+    # with OC20 and OC25. The repository path follows the grouping.
+    _E("pbe-oc22", "PBE-OC22", "painn/pbe/oc22/oc22.pt",
+       functional="PBE", dataset="OC22", n_structures=8_198_695,
+       n_params=_PAINN, energy_mae=0.0381, forces_mae=0.0528),
 
     _E("rpbe-oc20", "RPBE-OC20", "painn/rpbe/oc20/oc20.pt",
        functional="RPBE", dataset="OC20", n_structures=1_999_216,
        n_params=_PAINN, energy_mae=0.0263, forces_mae=0.0630),
-    _E("rpbe-oc22", "RPBE-OC22", "painn/rpbe/oc22/oc22.pt",
-       functional="RPBE", dataset="OC22", n_structures=8_198_695,
-       n_params=_PAINN, energy_mae=0.0381, forces_mae=0.0528),
     _E("rpbe-oc25", "RPBE-OC25", "painn/rpbe/oc25/oc25.pt",
        functional="RPBE", dataset="OC25", n_structures=7_369_601,
        n_params=_PAINN, energy_mae=0.0116, forces_mae=0.0753),
-    _E("rpbe-all", "RPBE-all", "painn/rpbe/all/rpbe.pt",
-       functional="RPBE", dataset="OC20 + OC22 + OC25",
-       n_structures=17_553_809, n_params=_PAINN,
-       energy_mae=0.0454, forces_mae=0.0712,
-       description="Merged RPBE model; the usual prior for adsorption energetics."),
 
     _E("r2scan-mptrj", "r2SCAN-MPtrj", "painn/r2scan/mptrj/mptrj.pt",
        functional="r2SCAN", dataset="MPtrj (r2SCAN subset)", n_structures=238_241,
@@ -90,11 +82,11 @@ _ENTRIES: List[ModelEntry] = [
     _E("r2scan-matpes", "r2SCAN-MatPES", "painn/r2scan/matpes/matpes.pt",
        functional="r2SCAN", dataset="MatPES (r2SCAN)", n_structures=387_285,
        n_params=_PAINN, energy_mae=0.0446, forces_mae=0.1127),
-    _E("r2scan-all", "r2SCAN-all", "painn/r2scan/all/r2scan.pt",
-       functional="r2SCAN", dataset="MPtrj + MatPES (r2SCAN)",
-       n_structures=625_243, n_params=_PAINN,
-       energy_mae=0.0678, forces_mae=0.0655,
-       description="Merged r2SCAN model."),
+    # The merged per-functional models (PBE-all, RPBE-all, r2SCAN-all) are no
+    # longer released. Grouping by functional does not make the underlying DFT
+    # settings identical -- OC22 carries a Hubbard correction, for instance --
+    # so a model fitted to a merged database has to absorb inconsistent energy
+    # references. One model per source database is released instead.
 
     # -- Architecture comparison: seven architectures, one database (paper Table 2).
     _E("nequip-pbe-mptrj", "NequIP-PBE-MPtrj", "nequip/pbe/mp/mp.pt",
