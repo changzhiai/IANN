@@ -77,7 +77,7 @@ without `reset_lr` the schedule resumes where pre-training left off, which is
 almost never what you want when adapting to new chemistry:
 
 ```bash
-iann foundation fetch rpbe-all          # prints the cached path
+iann foundation fetch rpbe-oc20          # prints the cached path
 ```
 
 ```toml

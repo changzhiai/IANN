@@ -184,7 +184,7 @@ def test_foundation():
         check(f"group {group} returns rows",
               isinstance(payload, dict) and payload.get("count", 0) > 0)
 
-    rc, payload, _, _ = run(["foundation", "info", "rpbe-all", "--json"])
+    rc, payload, _, _ = run(["foundation", "info", "rpbe-oc20", "--json"])
     check("foundation info exits 0", rc == EXIT_OK)
     ok, detail = has_keys(payload, ["name", "functional", "dataset", "repo_id",
                                     "cached", "local_path"])

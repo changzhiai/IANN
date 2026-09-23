@@ -196,7 +196,7 @@ def get_foundation_model_path(
     Parameters
     ----------
     model_name : str, optional
-        A released model name (``"rpbe-all"``), a bundled filename
+        A released model name (``"rpbe-oc20"``), a bundled filename
         (``"painn_oc.pt"``), or a path to a checkpoint of your own.
     cache_dir : str, optional
         Where to cache downloads. Defaults to ``$IANN_FOUNDATION_CACHE``, then to
@@ -226,7 +226,7 @@ def get_foundation_model_path(
     Examples
     --------
     >>> from iann.foundations import foundation_model
-    >>> path = foundation_model("rpbe-all")          # downloads on first use
+    >>> path = foundation_model("rpbe-oc20")          # downloads on first use
     >>> path = foundation_model("painn_oc.pt")       # bundled with the package
     >>> path = foundation_model("output/model.pt")   # your own checkpoint
     """
@@ -298,7 +298,7 @@ def download_foundation_model(model_name: str, **kwargs) -> str:
     Examples
     --------
     >>> from iann.foundations import download_foundation_model
-    >>> download_foundation_model("rpbe-all")
+    >>> download_foundation_model("rpbe-oc20")
     """
     return get_foundation_model_path(model_name, **kwargs)
 
@@ -401,7 +401,7 @@ def load_foundation_model(model_name: str = "painn_oc.pt", device=None, **kwargs
     Examples
     --------
     >>> from iann.foundations.foundation_models import load_foundation_model
-    >>> state_dict = load_foundation_model("rpbe-all")
+    >>> state_dict = load_foundation_model("rpbe-oc20")
     """
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -436,7 +436,7 @@ def foundation_model(model_name: str = "painn_oc.pt", **kwargs) -> str:
     >>> from iann.calculators import MLCalculator
     >>>
     >>> # A released model, fetched on first use
-    >>> calc = MLCalculator(foundation_model("rpbe-all"))
+    >>> calc = MLCalculator(foundation_model("rpbe-oc20"))
     >>>
     >>> # A checkpoint bundled with the package
     >>> calc = MLCalculator(foundation_model("painn_oc.pt"))

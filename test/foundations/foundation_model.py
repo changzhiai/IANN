@@ -97,7 +97,7 @@ def test_download():
     Skipped rather than failed when offline, so the suite still runs on a compute
     node with no egress.
     """
-    name = "rpbe-all"
+    name = "rpbe-oc20"
     print(f"\n--- Resolving released model {name!r} ---")
     if not is_cached(name):
         print(f"SKIP: {name} is not cached and may need a download")

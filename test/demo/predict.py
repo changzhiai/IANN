@@ -9,8 +9,8 @@ model_type = "demo"
 model_path = "test/demo/output/model.pt"
 calc = MLCalculator(model_path=model_path, model_type=model_type)
 
-atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
-# images = read('test/Pt_ads.traj', ':')
+# atoms = fcc100('Pt', size=(4,4,3), a=5.5, vacuum=15.0)
+images = read('test/Pt_ads.traj', ':')
 
 dft_energies = []
 dft_forces = []

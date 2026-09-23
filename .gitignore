@@ -8,6 +8,14 @@
 *.token
 secrets.*
 
+# Local virtual environments. Machine-specific -- they hold compiled binaries
+# built for one interpreter and platform (asap3 and torch are built or
+# downloaded per-arch), so a committed one would be useless to anyone else.
+# requirements.txt and setup.py are the tracked sources; recreate with
+# `python -m venv .venv && pip install -e .`.
+.venv/*
+venv/*
+
 # Python
 __pycache__/
 *.pyc

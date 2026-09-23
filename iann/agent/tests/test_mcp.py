@@ -46,7 +46,7 @@ READ_ONLY = {
     "iann_doctor": {},
     "iann_list_architectures": {},
     "iann_list_foundation_models": {"group": "arch"},
-    "iann_foundation_info": {"name": "rpbe-all"},
+    "iann_foundation_info": {"name": "rpbe-oc20"},
     "iann_inspect_checkpoint": {"model_path": "test/painn/output/model.pt"},
 }
 
