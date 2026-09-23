@@ -175,8 +175,8 @@ def test_foundation():
                                   ["name", "functional", "dataset",
                                    "energy_mae", "forces_mae"])
         check("each catalog row carries the metrics needed to choose", sub_ok, detail)
-        check("the painn group is the twelve released potentials",
-              payload["count"] == 12, f"got {payload['count']}")
+        check("the painn group is the nine released potentials",
+              payload["count"] == 9, f"got {payload['count']}")
 
     for group in ("arch", "all"):
         rc, payload, _, _ = run(["foundation", "list", "--group", group, "--json"])
@@ -191,7 +191,7 @@ def test_foundation():
     check("foundation info --json carries the documented keys", ok, detail)
 
     # Names are accepted case-insensitively; agents will not match our casing.
-    rc, payload, _, _ = run(["foundation", "info", "RPBE-ALL", "--json"])
+    rc, payload, _, _ = run(["foundation", "info", "RPBE-OC20", "--json"])
     check("foundation info is case-insensitive", rc == EXIT_OK,
           f"rc={rc} {str(payload)[:120]}")
 

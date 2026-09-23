@@ -79,7 +79,7 @@ iann inspect test/uma/output/model.pt
 ```bash
 iann doctor                                          # is this env usable?
 iann models                                          # architectures + export support
-iann foundation list                                 # the 12 released models
+iann foundation list                                 # the 9 released models
 iann inspect <ckpt>                                  # metadata + missing config
 iann predict --model <ckpt> --structure <file>       # single-point E and F
 iann train --model painn --dataset test/Pt_ads.traj --max-steps 20

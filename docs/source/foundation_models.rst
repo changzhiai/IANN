@@ -137,7 +137,7 @@ level, and an f-block system only by the PBE and r²SCAN models.
 Released models
 ---------------
 
-Two families of checkpoints are released: twelve PaiNN foundation models, one per database at
+Two families of checkpoints are released: nine PaiNN foundation models, one per database at
 three DFT levels, and seven architecture-comparison runs on a single database.
 
 At three DFT levels
@@ -429,7 +429,7 @@ Bundled checkpoints
 Four older checkpoints ship inside the package itself and resolve without any download:
 
 * ``painn_mptrj.pt`` — 128 channels, trained on MPtrj; superseded by ``pbe-mptrj``.
-* ``painn_oc.pt`` — 128 channels, trained on OC22; superseded by ``rpbe-oc22``.
+* ``painn_oc.pt`` — 128 channels, trained on OC22; superseded by ``pbe-oc22``.
 * ``painn_oc_124.pt`` and ``painn_oc_132.pt`` — as ``painn_oc.pt`` but 124 and 132 channels wide
   respectively. Together with the 128-channel model they form a three-member set that
   :class:`~iann.calculators.calculators.EnsembleCalculator` can use for uncertainty estimates
