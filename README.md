@@ -7,6 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) 
 [![C++](https://img.shields.io/badge/C++-11-8A2BE2?logo=cplusplus&logoColor=white)](https://isocpp.org/) 
 [![PyPI](https://img.shields.io/badge/PyPI-v0.1.3-2EA043?logo=pypi&logoColor=white)](https://pypi.org/project/pyiann/)
+[![arXiv](https://img.shields.io/badge/arXiv-2611.19793-b31b1b?logo=arxiv&logoColor=white)](https://doi.org/10.48550/arXiv.2611.19793)
 
 
 - [1. Introductions](#1-introductions)
@@ -769,15 +770,31 @@ Maintainer `Dr. Changzhi Ai` (changzhi@stanford.edu) at Stanford University and 
 
 ## Citing IANN
 
-If you use IANN, please cite the software release:
+If you use IANN in your work, please cite the paper:
 
 ```bibtex
-@software{IANN,
+@article{IANN,
+  author  = {Ai, Changzhi and Qin, Xueping and Sokaras, Dimosthenis and Abild-Pedersen, Frank and Voss, Johannes},
+  title   = {{IANN}: A Unified Framework for Equivariant InterAtomic Neural Networks with User-Friendly Implementation},
+  journal = {arXiv:2611.19793},
+  year    = {2026},
+  doi     = {10.48550/arXiv.2611.19793},
+  url     = {https://doi.org/10.48550/arXiv.2611.19793}
+}
+```
+
+The code is archived on Zenodo under a DOI that always resolves to the latest
+release. Cite it as well if the work depends on the implementation, substituting
+the DOI of the specific release you used where that matters:
+
+```bibtex
+@software{IANN_software,
   author  = {Ai, Changzhi and others},
   title   = {{IANN}: InterAtomic Neural Network framework},
   year    = {2026},
+  version = {0.1.3},
   doi     = {10.5281/zenodo.17809948},
-  url     = {https://github.com/changzhiai/IANN}
+  url     = {https://doi.org/10.5281/zenodo.17809948}
 }
 ```
 
