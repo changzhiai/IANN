@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
+message: "If you use this software, please cite the paper below."
 authors:
 - family-names: "Ai"
   given-names: "Changzhi"
@@ -9,3 +9,22 @@ version: 0.1.3
 doi: 10.5281/zenodo.17809948
 date-released: 2026-09-17
 url: "https://github.com/changzhiai/IANN"
+preferred-citation:
+  type: article
+  title: "IANN: A Unified Framework for Equivariant InterAtomic Neural Networks with User-Friendly Implementation"
+  authors:
+  - family-names: "Ai"
+    given-names: "Changzhi"
+    orcid: "https://orcid.org/0009-0008-3773-5787"
+  - family-names: "Qin"
+    given-names: "Xueping"
+  - family-names: "Sokaras"
+    given-names: "Dimosthenis"
+  - family-names: "Abild-Pedersen"
+    given-names: "Frank"
+  - family-names: "Voss"
+    given-names: "Johannes"
+  year: 2026
+  journal: "arXiv:2611.19793"
+  doi: 10.48550/arXiv.2611.19793
+  url: "https://arxiv.org/abs/2611.19793"
